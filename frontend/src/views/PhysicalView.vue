@@ -211,6 +211,27 @@
       <div><span>运行实例</span><strong>{{ summary.onlineRuntimeCount }} 在线</strong></div>
     </div>
 
+    <div class="chart-grid">
+      <el-card shadow="never" class="panel chart-panel chart-panel-wide">
+        <template #header>
+          <div class="panel-header">
+            <span>调用 / Token / 延迟走势</span>
+            <span class="muted">按 {{ windowHours }} 小时窗口聚合可见调用</span>
+          </div>
+        </template>
+        <TrendChart :option="physicalTrendOption" />
+      </el-card>
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>模型消耗直方图</span>
+            <span class="muted">Token</span>
+          </div>
+        </template>
+        <TrendChart :option="modelUsageOption" height="270px" />
+      </el-card>
+    </div>
+
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -412,6 +433,8 @@ import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@eleme
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
+import TrendChart from '@/components/TrendChart.vue'
+import type { EChartsOption } from 'echarts'
 import type {
   Agent,
   ContentObservation,
@@ -576,6 +599,59 @@ const traceStats = computed(() => {
     rag: spans.filter(span => span.spanKind === 'RAG').length,
     a2a: spans.filter(span => span.spanKind === 'A2A').length,
     maxDuration: spans.reduce((max, span) => Math.max(max, span.durationMs || 0), 0),
+  }
+})
+const physicalTrendOption = computed<EChartsOption>(() => {
+  const bucketCount = windowHours.value <= 24 ? 12 : 16
+  const timestamps = visibleEvents.value.map(event => new Date(event.observedAt).getTime()).filter(Number.isFinite)
+  const end = timestamps.length ? Math.max(...timestamps) : Date.now()
+  const windowMs = windowHours.value * 60 * 60 * 1000
+  const start = end - windowMs
+  const bucketMs = windowMs / bucketCount
+  const calls = Array.from({ length: bucketCount }, () => 0)
+  const tokens = Array.from({ length: bucketCount }, () => 0)
+  const latencyTotals = Array.from({ length: bucketCount }, () => 0)
+  const latencyCounts = Array.from({ length: bucketCount }, () => 0)
+  visibleEvents.value.forEach(event => {
+    const time = new Date(event.observedAt).getTime()
+    const index = Math.max(0, Math.min(bucketCount - 1, Math.floor((time - start) / bucketMs)))
+    calls[index]++
+    tokens[index] += event.totalTokens || 0
+    latencyTotals[index] += event.latencyMs || 0
+    latencyCounts[index]++
+  })
+  const labels = Array.from({ length: bucketCount }, (_, index) => {
+    const point = new Date(start + index * bucketMs)
+    return windowHours.value <= 24
+      ? point.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      : point.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  })
+  return {
+    animationDuration: 400,
+    color: ['#3167e8', '#16a085', '#d68b2c'],
+    grid: { top: 38, right: 44, bottom: 28, left: 48 },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: labels, axisLabel: { color: '#8795a9', fontSize: 10 } },
+    yAxis: [
+      { type: 'value', name: '调用 / Token', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+      { type: 'value', name: 'ms', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { show: false } },
+    ],
+    series: [
+      { name: '调用', type: 'bar', barMaxWidth: 18, data: calls, itemStyle: { borderRadius: [4, 4, 0, 0] } },
+      { name: 'Token', type: 'line', smooth: true, yAxisIndex: 0, symbol: 'none', data: tokens },
+      { name: '平均延迟', type: 'line', smooth: true, yAxisIndex: 1, symbol: 'circle', symbolSize: 5, data: latencyCounts.map((count, index) => count ? Math.round(latencyTotals[index] / count) : 0) },
+    ],
+  }
+})
+const modelUsageOption = computed<EChartsOption>(() => {
+  const rows = [...summary.value.modelUsage].sort((left, right) => right.totalTokens - left.totalTokens).slice(0, 8)
+  return {
+    grid: { top: 8, right: 18, bottom: 22, left: 92 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'value', axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.provider} · ${row.modelName}`), axisLabel: { color: '#5f7188', fontSize: 10 } },
+    series: [{ type: 'bar', barMaxWidth: 18, data: rows.map(row => row.totalTokens), itemStyle: { color: '#7b61d9', borderRadius: [0, 5, 5, 0] } }],
   }
 })
 

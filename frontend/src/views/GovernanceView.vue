@@ -345,7 +345,7 @@
           <el-button size="small" type="primary" :icon="Plus" @click="openPolicyDialog()">新建策略</el-button>
         </div>
       </template>
-      <el-table :data="policies" v-loading="loading">
+      <el-table :data="visiblePolicies" v-loading="loading">
         <el-table-column prop="name" label="策略名称" min-width="180" />
         <el-table-column prop="policyType" label="类型" width="140" />
         <el-table-column prop="scopeType" label="范围" width="120" />
@@ -530,11 +530,16 @@ const contextAgentId = computed(() => {
 })
 const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
 const contextEventKey = computed(() => String(route.query.eventKey || '').trim())
+const contextPolicyId = computed(() => {
+  const value = Number(route.query.policyId)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+})
 const drilldownLabel = computed(() => {
   const parts: string[] = []
   if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
+  if (contextPolicyId.value) parts.push(`策略 #${contextPolicyId.value}`)
   return parts.join(' · ')
 })
 
@@ -571,6 +576,9 @@ const governanceFlow = computed(() => [
     ready: enforcement.value.enforcementEnabled,
   },
 ])
+const visiblePolicies = computed(() => contextPolicyId.value
+  ? policies.value.filter(policy => policy.id === contextPolicyId.value)
+  : policies.value)
 const visibleSubjectUsage = computed(() => summary.value.subjectUsage.filter(subject => {
   if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
   if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false

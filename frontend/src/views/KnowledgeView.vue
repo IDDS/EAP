@@ -173,6 +173,27 @@
       <div><span>交互成功率</span><strong>{{ successPercent }}%</strong></div>
     </div>
 
+    <div class="chart-grid knowledge-chart-grid">
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>知识交互走势</span>
+            <span class="muted">输入 / 输出 Token</span>
+          </div>
+        </template>
+        <TrendChart :option="knowledgeTrendOption" />
+      </el-card>
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>Agent 知识效率</span>
+            <span class="muted">采用 / 复用</span>
+          </div>
+        </template>
+        <TrendChart :option="knowledgeAgentRateOption" />
+      </el-card>
+    </div>
+
     <div class="knowledge-two-column">
       <el-card shadow="never" class="panel">
         <template #header>Agent 知识采用与复用</template>
@@ -265,6 +286,8 @@ import { Collection, DataAnalysis, Refresh, Select } from '@element-plus/icons-v
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
+import TrendChart from '@/components/TrendChart.vue'
+import type { EChartsOption } from 'echarts'
 import type {
   Agent,
   KnowledgeInteraction,
@@ -346,6 +369,36 @@ const visibleInteractions = computed(() => interactions.value.filter(interaction
   if (contextTraceId.value && interaction.traceId !== contextTraceId.value) return false
   return true
 }))
+const knowledgeTrendOption = computed<EChartsOption>(() => {
+  const rows = [...visibleInteractions.value].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()).slice(-16)
+  return {
+    color: ['#3167e8', '#16a085'],
+    grid: { top: 36, right: 18, bottom: 28, left: 54 },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: rows.map(row => new Date(row.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })), axisLabel: { color: '#8795a9', fontSize: 10 } },
+    yAxis: { type: 'value', name: 'Token', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    series: [
+      { name: '输入 Token', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: rows.map(row => row.inputTokenCount) },
+      { name: '输出 Token', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: rows.map(row => row.outputTokenCount) },
+    ],
+  }
+})
+const knowledgeAgentRateOption = computed<EChartsOption>(() => {
+  const rows = [...visibleAgentUsage.value].sort((left, right) => right.adoptionRate - left.adoptionRate).slice(0, 8)
+  return {
+    color: ['#3167e8', '#16a085'],
+    grid: { top: 34, right: 18, bottom: 22, left: 104 },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'value', max: 100, axisLabel: { color: '#8795a9', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(row => row.subjectName), axisLabel: { color: '#5f7188', fontSize: 10 } },
+    series: [
+      { name: '采用率', type: 'bar', barMaxWidth: 12, data: rows.map(row => Math.round(row.adoptionRate * 100)), itemStyle: { borderRadius: [0, 5, 5, 0] } },
+      { name: '复用率', type: 'bar', barMaxWidth: 12, data: rows.map(row => Math.round(row.reuseRate * 100)), itemStyle: { borderRadius: [0, 5, 5, 0] } },
+    ],
+  }
+})
 
 function openPhysical(row: KnowledgeInteraction) {
   router.push({ path: '/physical', query: {

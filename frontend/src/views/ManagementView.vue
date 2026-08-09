@@ -102,6 +102,27 @@
       <div><span>知识复用率</span><strong>{{ reusePercent }}%</strong></div>
     </div>
 
+    <div class="chart-grid management-chart-grid">
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>确认价值走势</span>
+            <span class="muted">价值事件累计</span>
+          </div>
+        </template>
+        <TrendChart :option="valueTrendOption" />
+      </el-card>
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>知识采用 / 复用对比</span>
+            <span class="muted">Agent 维度</span>
+          </div>
+        </template>
+        <TrendChart :option="knowledgeRateOption" />
+      </el-card>
+    </div>
+
     <el-card shadow="never" class="panel management-leaderboard-panel">
       <template #header>
         <div class="panel-header">
@@ -252,6 +273,8 @@ import { CircleCheck, DataAnalysis, Money, Refresh, TrendCharts } from '@element
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
+import TrendChart from '@/components/TrendChart.vue'
+import type { EChartsOption } from 'echarts'
 import type { ManagementSummary, ManagementValueEvent } from '@/types/domain'
 
 const emptySummary: ManagementSummary = {
@@ -319,6 +342,41 @@ const visibleValueEvents = computed(() => valueEvents.value.filter(event => {
 const topAgentUsage = computed(() => [...visibleAgentUsage.value]
   .sort((left, right) => right.validatedValue - left.validatedValue || right.totalCost - left.totalCost)
   .slice(0, 3))
+const valueTrendOption = computed<EChartsOption>(() => {
+  const rows = [...visibleValueEvents.value].sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime()).slice(-16)
+  let cumulative = 0
+  const cumulativeValues = rows.map(row => {
+    cumulative += row.benefitMoney || 0
+    return Number(cumulative.toFixed(4))
+  })
+  return {
+    color: ['#d68b2c', '#16a085'],
+    grid: { top: 38, right: 42, bottom: 28, left: 54 },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: rows.map(row => new Date(row.observedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })), axisLabel: { color: '#8795a9', fontSize: 10 } },
+    yAxis: { type: 'value', name: 'USD', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    series: [
+      { name: '单次确认价值', type: 'bar', barMaxWidth: 18, data: rows.map(row => row.benefitMoney), itemStyle: { borderRadius: [4, 4, 0, 0] } },
+      { name: '累计确认价值', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: cumulativeValues },
+    ],
+  }
+})
+const knowledgeRateOption = computed<EChartsOption>(() => {
+  const rows = [...visibleAgentUsage.value].sort((left, right) => right.knowledgeAdoptionRate - left.knowledgeAdoptionRate).slice(0, 8)
+  return {
+    color: ['#3167e8', '#16a085'],
+    grid: { top: 34, right: 18, bottom: 22, left: 104 },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    xAxis: { type: 'value', max: 100, axisLabel: { color: '#8795a9', fontSize: 10, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(row => row.subjectName), axisLabel: { color: '#5f7188', fontSize: 10 } },
+    series: [
+      { name: '采用率', type: 'bar', barMaxWidth: 12, data: rows.map(row => Math.round(row.knowledgeAdoptionRate * 100)), itemStyle: { borderRadius: [0, 5, 5, 0] } },
+      { name: '复用率', type: 'bar', barMaxWidth: 12, data: rows.map(row => Math.round(row.knowledgeReuseRate * 100)), itemStyle: { borderRadius: [0, 5, 5, 0] } },
+    ],
+  }
+})
 
 function openPhysical(row: { agentId?: number, endpointKey?: string }) {
   router.push({ path: '/physical', query: {
