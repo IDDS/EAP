@@ -18,6 +18,13 @@
       </div>
     </div>
 
+    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="物理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">运行总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">调用接入</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">物理资产</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">深度 Trace</el-tag>
+    </div>
+
     <div class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">PHYSICAL PLANE / {{ windowHours }}H OBSERVATION</span>
@@ -110,13 +117,6 @@
       show-icon
       title="尚未收到真实模型调用遥测。物理界面不会使用模拟 Token 数据，请通过遥测接口或模型网关上报。"
     />
-
-    <div class="interface-tabs" role="tablist" aria-label="物理界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">运行总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">调用接入</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">物理资产</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">深度 Trace</el-tag>
-    </div>
 
     <div v-show="activeSection === 'ingest'">
     <el-card shadow="never" class="panel">

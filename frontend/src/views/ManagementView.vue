@@ -17,6 +17,12 @@
       </div>
     </div>
 
+    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="管理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">价值总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'attribution' }" :effect="activeSection === 'attribution' ? 'dark' : 'plain'" @click="activeSection = 'attribution'">投入产出</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
+    </div>
+
     <div class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">MANAGEMENT PLANE / {{ windowHours }}H OBSERVATION</span>
@@ -73,12 +79,6 @@
       show-icon
       title="尚未录入业务方确认价值，ROI 暂不计算。请在下方登记与 Agent 或发现端点关联的价值事件。"
     />
-
-    <div class="interface-tabs" role="tablist" aria-label="管理界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">价值总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'attribution' }" :effect="activeSection === 'attribution' ? 'dark' : 'plain'" @click="activeSection = 'attribution'">投入产出</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
-    </div>
 
     <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-warning">

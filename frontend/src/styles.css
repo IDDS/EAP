@@ -3365,3 +3365,64 @@ body {
     padding: 20px 16px 32px;
   }
 }
+
+/* Workbench navigation: keep the section switcher visible without competing with the global header. */
+.interface-tabs-top {
+  position: sticky;
+  top: 92px;
+  z-index: 4;
+  gap: 5px;
+  margin: -8px 0 -4px;
+  padding: 5px;
+  border: 1px solid rgba(213, 222, 234, .92);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 8px 20px rgba(18, 39, 67, .07);
+  backdrop-filter: blur(16px);
+}
+
+.interface-tabs-top .el-tag {
+  min-height: 34px;
+  padding: 0 16px;
+  border-color: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.interface-tabs-top .el-tag.is-active {
+  box-shadow: 0 4px 10px rgba(49, 103, 232, .2);
+}
+
+@media (min-width: 901px) {
+  .analysis-hero {
+    min-height: 158px;
+    padding: 21px 24px;
+    border-radius: 14px;
+  }
+
+  .analysis-hero h2 {
+    font-size: clamp(23px, 2.5vw, 30px);
+  }
+
+  .analysis-hero p {
+    font-size: 12px;
+    line-height: 1.6;
+  }
+}
+
+@media (max-width: 900px) {
+  .interface-tabs-top {
+    position: static;
+    margin: -5px 0 -2px;
+    box-shadow: 0 4px 12px rgba(18, 39, 67, .05);
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+  }
+
+  .toolbar .button-row {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

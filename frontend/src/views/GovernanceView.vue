@@ -17,6 +17,13 @@
       </div>
     </div>
 
+    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="治理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">治理总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'preflight' }" :effect="activeSection === 'preflight' ? 'dark' : 'plain'" @click="activeSection = 'preflight'">实时预检</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'audit' }" :effect="activeSection === 'audit' ? 'dark' : 'plain'" @click="activeSection = 'audit'">事件审计</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'policies' }" :effect="activeSection === 'policies' ? 'dark' : 'plain'" @click="activeSection = 'policies'">治理策略</el-tag>
+    </div>
+
     <div class="analysis-hero governance-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">GOVERNANCE FLOW / {{ windowHours }}H OBSERVATION</span>
@@ -82,13 +89,6 @@
       show-icon
       title="治理策略已经启用，但 OpenAI-compatible 模型网关尚未配置上游；生产 Agent 还不能经由统一入口调用模型。"
     />
-
-    <div class="interface-tabs" role="tablist" aria-label="治理界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">治理总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'preflight' }" :effect="activeSection === 'preflight' ? 'dark' : 'plain'" @click="activeSection = 'preflight'">实时预检</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'audit' }" :effect="activeSection === 'audit' ? 'dark' : 'plain'" @click="activeSection = 'audit'">事件审计</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'policies' }" :effect="activeSection === 'policies' ? 'dark' : 'plain'" @click="activeSection = 'policies'">治理策略</el-tag>
-    </div>
 
     <div v-show="activeSection === 'overview'" class="governance-enforcement-strip">
       <div>

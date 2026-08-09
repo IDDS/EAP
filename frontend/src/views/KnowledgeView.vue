@@ -17,6 +17,12 @@
       </div>
     </div>
 
+    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="知识界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">知识总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">交互接入</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">过程追踪</el-tag>
+    </div>
+
     <div class="analysis-hero knowledge-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">KNOWLEDGE FLOW / {{ windowHours }}H OBSERVATION</span>
@@ -72,12 +78,6 @@
       show-icon
       title="尚未收到知识交互遥测。请由 Agent Runtime 上报输入、过程步骤和输出引用。"
     />
-
-    <div class="interface-tabs" role="tablist" aria-label="知识界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">知识总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">交互接入</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">过程追踪</el-tag>
-    </div>
 
     <el-card v-show="activeSection === 'ingest'" shadow="never" class="panel">
       <template #header>
