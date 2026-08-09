@@ -17,6 +17,47 @@
       </div>
     </div>
 
+    <div class="analysis-hero knowledge-hero">
+      <div class="analysis-hero-copy">
+        <span class="analysis-eyebrow">KNOWLEDGE FLOW / {{ windowHours }}H OBSERVATION</span>
+        <h2>知识流转链路</h2>
+        <p>把输入知识、处理过程与输出结果放到同一条观测链上，快速判断知识是否真正被智能体采用并形成复用。</p>
+        <div class="analysis-tags">
+          <span class="analysis-tag">INPUT</span>
+          <span class="analysis-tag">PROCESS</span>
+          <span class="analysis-tag">OUTPUT</span>
+          <span class="analysis-tag analysis-tag-muted">脱敏元数据</span>
+        </div>
+      </div>
+      <div class="knowledge-gauges">
+        <div class="knowledge-gauge">
+          <el-progress type="circle" :percentage="adoptionPercent" :width="82" :stroke-width="8" color="#3167e8" />
+          <div><strong>采用率</strong><span>知识进入结果</span></div>
+        </div>
+        <div class="knowledge-gauge">
+          <el-progress type="circle" :percentage="reusePercent" :width="82" :stroke-width="8" color="#16a085" />
+          <div><strong>复用率</strong><span>知识再次被调用</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="knowledge-stage-board">
+      <div class="knowledge-stage">
+        <span class="knowledge-stage-index">01</span>
+        <div><span class="knowledge-stage-label">输入知识</span><strong>{{ formatNumber(summary.inputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.inputTokens) }} input tokens</p></div>
+      </div>
+      <span class="knowledge-stage-arrow">→</span>
+      <div class="knowledge-stage">
+        <span class="knowledge-stage-index">02</span>
+        <div><span class="knowledge-stage-label">过程跟踪</span><strong>{{ summary.averageProcessLatencyMs }} <small>ms</small></strong><p>{{ summary.adoptedInteractions }} 次结果被采用</p></div>
+      </div>
+      <span class="knowledge-stage-arrow">→</span>
+      <div class="knowledge-stage">
+        <span class="knowledge-stage-index">03</span>
+        <div><span class="knowledge-stage-label">输出知识</span><strong>{{ formatNumber(summary.outputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.outputTokens) }} output tokens</p></div>
+      </div>
+    </div>
+
     <el-alert
       v-if="!summary.lastInteractionAt"
       type="warning"

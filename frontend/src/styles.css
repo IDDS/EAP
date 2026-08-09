@@ -1385,6 +1385,342 @@ body {
   }
 }
 
+/* Analysis workbench patterns for the knowledge and governance planes. */
+.analysis-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 184px;
+  padding: 26px 28px;
+  border: 1px solid var(--eap-border);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 88% 15%, rgba(49, 103, 232, 0.16), transparent 27%),
+    linear-gradient(135deg, #f7faff 0%, #ffffff 62%, #f4fbfb 100%);
+  box-shadow: var(--eap-shadow);
+}
+
+.analysis-hero-copy {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  max-width: 720px;
+}
+
+.analysis-eyebrow {
+  color: var(--eap-blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.analysis-hero h2 {
+  margin: 0;
+  color: var(--eap-ink);
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 760;
+  letter-spacing: -0.045em;
+}
+
+.analysis-hero p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--eap-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.analysis-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.analysis-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #cddcff;
+  border-radius: 999px;
+  color: #315fc5;
+  background: rgba(237, 243, 255, 0.72);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.analysis-tag-muted {
+  border-color: #d9e7e5;
+  color: #39746d;
+  background: rgba(236, 249, 247, 0.78);
+  letter-spacing: 0.02em;
+}
+
+.knowledge-gauges {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 5px 4px 5px 20px;
+  border-left: 1px solid rgba(144, 164, 196, 0.28);
+}
+
+.knowledge-gauge {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-width: 108px;
+}
+
+.knowledge-gauge > div:last-child {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.knowledge-gauge strong {
+  color: var(--eap-ink);
+  font-size: 12px;
+}
+
+.knowledge-gauge span {
+  color: var(--eap-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.knowledge-stage-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.knowledge-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  min-height: 104px;
+  padding: 17px 18px;
+  border: 1px solid var(--eap-border);
+  border-radius: 14px;
+  background: var(--eap-surface);
+  box-shadow: var(--eap-shadow);
+}
+
+.knowledge-stage-index,
+.governance-flow-index {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--eap-blue);
+  background: #edf3ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.knowledge-stage:nth-of-type(2) .knowledge-stage-index {
+  color: #b2741c;
+  background: #fff4e5;
+}
+
+.knowledge-stage:nth-of-type(3) .knowledge-stage-index {
+  color: #168478;
+  background: #e7f8f5;
+}
+
+.knowledge-stage > div {
+  display: grid;
+  gap: 4px;
+}
+
+.knowledge-stage-label {
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.knowledge-stage strong {
+  color: var(--eap-ink);
+  font-size: 22px;
+  letter-spacing: -0.035em;
+}
+
+.knowledge-stage strong small {
+  color: var(--eap-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.knowledge-stage p {
+  margin: 0;
+  color: var(--eap-muted);
+  font-size: 10px;
+}
+
+.knowledge-stage-arrow,
+.governance-flow-arrow {
+  color: #9aaac0;
+  font-size: 22px;
+  font-weight: 300;
+  text-align: center;
+}
+
+.governance-hero {
+  background:
+    radial-gradient(circle at 88% 14%, rgba(16, 157, 141, 0.15), transparent 27%),
+    linear-gradient(135deg, #f5fbfb 0%, #ffffff 62%, #fbf8f2 100%);
+}
+
+.governance-health-card {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 220px;
+  padding: 17px 20px;
+  border: 1px solid #cfe4e0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.governance-health-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--eap-ink);
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.governance-health-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #d3a149;
+  box-shadow: 0 0 0 4px rgba(211, 161, 73, 0.14);
+}
+
+.governance-health-dot.is-ready {
+  background: #17a58f;
+  box-shadow: 0 0 0 4px rgba(23, 165, 143, 0.14);
+}
+
+.governance-health-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.governance-health-meta b {
+  color: var(--eap-ink);
+  font-weight: 750;
+}
+
+.governance-flow-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr) 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.governance-flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 86px;
+  padding: 15px 16px;
+  border: 1px solid var(--eap-border);
+  border-radius: 13px;
+  background: var(--eap-surface);
+  box-shadow: var(--eap-shadow);
+}
+
+.governance-flow-step.is-ready {
+  border-color: #c8e7df;
+  background: linear-gradient(145deg, #ffffff, #f1fbf9);
+}
+
+.governance-flow-step > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.governance-flow-step > div > span {
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.governance-flow-step strong {
+  color: var(--eap-ink);
+  font-size: 15px;
+  letter-spacing: 0.03em;
+}
+
+.governance-flow-step small {
+  overflow: hidden;
+  color: var(--eap-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.governance-flow-step.is-ready .governance-flow-index {
+  color: #147b70;
+  background: #e7f8f5;
+}
+
+@media (max-width: 1100px) {
+  .knowledge-gauges {
+    gap: 14px;
+    padding-left: 12px;
+  }
+
+  .governance-health-card {
+    min-width: 190px;
+  }
+}
+
+@media (max-width: 900px) {
+  .analysis-hero {
+    display: grid;
+    gap: 18px;
+    padding: 22px 20px;
+  }
+
+  .knowledge-gauges {
+    justify-content: space-around;
+    padding: 16px 0 0;
+    border-top: 1px solid rgba(144, 164, 196, 0.28);
+    border-left: 0;
+  }
+
+  .knowledge-stage-board,
+  .governance-flow-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-stage-arrow,
+  .governance-flow-arrow {
+    transform: rotate(90deg);
+  }
+
+  .governance-health-card {
+    min-width: 0;
+  }
+}
+
 /* Dashboard command-center patterns. */
 .dashboard-hero {
   position: relative;

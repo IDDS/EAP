@@ -17,6 +17,41 @@
       </div>
     </div>
 
+    <div class="analysis-hero governance-hero">
+      <div class="analysis-hero-copy">
+        <span class="analysis-eyebrow">GOVERNANCE FLOW / {{ windowHours }}H OBSERVATION</span>
+        <h2>治理策略流</h2>
+        <p>将分类、预检、策略命中与网关执行串成一条控制链，所有判断只保留可审计的分类元数据，不落库敏感正文。</p>
+        <div class="analysis-tags">
+          <span class="analysis-tag">CLASSIFY</span>
+          <span class="analysis-tag">PREFLIGHT</span>
+          <span class="analysis-tag">POLICY</span>
+          <span class="analysis-tag">GATEWAY</span>
+        </div>
+      </div>
+      <div class="governance-health-card">
+        <span class="analysis-eyebrow">CONTROL PLANE</span>
+        <div class="governance-health-main">
+          <span class="governance-health-dot" :class="{ 'is-ready': enforcement.enforcementEnabled }"></span>
+          <strong>{{ enforcement.enforcementEnabled ? 'ENFORCE' : 'OBSERVE' }}</strong>
+        </div>
+        <div class="governance-health-meta">
+          <span>网关 <b>{{ gateway.configured ? 'READY' : gateway.enabled ? 'MISCONFIGURED' : 'OFF' }}</b></span>
+          <span>待审批 <b>{{ enforcement.pendingApprovals }}</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="governance-flow-strip">
+      <template v-for="(step, index) in governanceFlow" :key="step.index">
+        <div class="governance-flow-step" :class="{ 'is-ready': step.ready }">
+          <span class="governance-flow-index">{{ step.index }}</span>
+          <div><span>{{ step.label }}</span><strong>{{ step.value }}</strong><small>{{ step.detail }}</small></div>
+        </div>
+        <span v-if="index < governanceFlow.length - 1" class="governance-flow-arrow">→</span>
+      </template>
+    </div>
+
     <el-alert
       v-if="!summary.lastEventAt"
       type="warning"
@@ -480,6 +515,36 @@ const policyForm = reactive({
 const internalPercent = computed(() => Math.round(summary.value.internalExposureRate * 100))
 const secretPercent = computed(() => Math.round(summary.value.secretExposureRate * 100))
 const blockPercent = computed(() => Math.round(summary.value.blockRate * 100))
+const governanceFlow = computed(() => [
+  {
+    index: '01',
+    label: '分类',
+    value: gateway.value.configured ? 'READY' : 'WAITING',
+    detail: `${summary.value.totalEvents} 个治理事件`,
+    ready: gateway.value.configured,
+  },
+  {
+    index: '02',
+    label: '预检',
+    value: enforcement.value.preflightDecisions > 0 ? 'LIVE' : 'IDLE',
+    detail: `${enforcement.value.preflightDecisions} 次决策`,
+    ready: enforcement.value.preflightDecisions > 0,
+  },
+  {
+    index: '03',
+    label: '策略',
+    value: enforcement.value.enabledPolicies > 0 ? 'ACTIVE' : 'EMPTY',
+    detail: `${enforcement.value.enabledPolicies} 条启用策略`,
+    ready: enforcement.value.enabledPolicies > 0,
+  },
+  {
+    index: '04',
+    label: '网关指令',
+    value: enforcement.value.enforcementEnabled ? 'ENFORCE' : 'OBSERVE',
+    detail: `${enforcement.value.blockedDecisions} 次阻断`,
+    ready: enforcement.value.enforcementEnabled,
+  },
+])
 
 async function load() {
   loading.value = true
