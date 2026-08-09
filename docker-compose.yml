@@ -18,6 +18,47 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: ./backend
+    container_name: eap-backend
+    environment:
+      EAP_DB_URL: jdbc:mysql://mysql:3306/eap?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      EAP_DB_USERNAME: ${EAP_DB_USERNAME:-eap}
+      EAP_DB_PASSWORD: ${EAP_DB_PASSWORD:-eap}
+      EAP_SECURITY_MODE: ${EAP_SECURITY_MODE:-DEVELOPMENT}
+      EAP_SECURITY_ISSUER_URI: ${EAP_SECURITY_ISSUER_URI:-}
+      EAP_SECURITY_JWK_SET_URI: ${EAP_SECURITY_JWK_SET_URI:-}
+      EAP_SECURITY_AUDIENCE: ${EAP_SECURITY_AUDIENCE:-}
+      EAP_SECURITY_ALLOWED_ORIGINS: ${EAP_SECURITY_ALLOWED_ORIGINS:-http://localhost:5173}
+      EAP_DISCOVERY_INITIAL_DELAY_MS: ${EAP_DISCOVERY_INITIAL_DELAY_MS:-60000}
+      EAP_OTLP_GRPC_ENABLED: ${EAP_OTLP_GRPC_ENABLED:-true}
+      EAP_OTLP_GRPC_PORT: ${EAP_OTLP_GRPC_PORT:-4317}
+      EAP_OBSERVABILITY_CAPTURE_MODE: ${EAP_OBSERVABILITY_CAPTURE_MODE:-HASH_ONLY}
+      EAP_OBSERVABILITY_INGESTION_TOKEN: ${EAP_OBSERVABILITY_INGESTION_TOKEN:-}
+      EAP_CONTROL_DISPATCH_ENABLED: ${EAP_CONTROL_DISPATCH_ENABLED:-false}
+      EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS: ${EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS:-false}
+    ports:
+      - "8080:8080"
+      - "4317:4317"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q 'UP'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: eap-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   eap_mysql_data:
-

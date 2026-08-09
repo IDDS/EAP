@@ -85,6 +85,19 @@ docs/      产品与技术设计
 docker compose up -d mysql
 ```
 
+### Docker Compose 一体化部署
+
+仓库根目录的 Compose 文件现在包含 MySQL、EAP 后端、OTLP gRPC 和 Nginx 前端，适合单机验收或小规模内网部署：
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+访问 `http://localhost:5173`，后端健康检查为 `http://localhost:8080/actuator/health`，OTLP gRPC 入口为 `localhost:4317`。首次部署会执行全部 Flyway 迁移；MySQL 数据保存在 `eap_mysql_data` 卷中。生产环境至少应通过 `.env` 覆盖 `EAP_DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`EAP_SECURITY_MODE=JWT` 及 OIDC 参数，并设置观测、发现和治理机器令牌；不要把示例密码用于正式环境。
+
+Compose 默认保持开发模式认证、关闭主动 Runtime 控制投递和 `HASH_ONLY` 内容观测。启用控制投递前，先注册 Runtime endpoint，再显式设置 `EAP_CONTROL_DISPATCH_ENABLED=true`，私网 endpoint 还需要经过运维审批后设置 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。
+
 启动后端：
 
 ```bash
