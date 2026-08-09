@@ -63,6 +63,46 @@
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
     </div>
 
+    <el-card v-if="contextTraceId" shadow="never" class="panel trace-inspector">
+      <template #header>
+        <div class="panel-header">
+          <span>Trace 观测详情</span>
+          <div class="trace-inspector-header-actions">
+            <el-tag type="primary" effect="plain">{{ contextTraceId }}</el-tag>
+            <el-button link type="primary" @click="openGovernanceFromTrace">查看治理链路</el-button>
+          </div>
+        </div>
+      </template>
+      <div class="trace-inspector-summary">
+        <div><span>Span 总数</span><strong>{{ traceStats.total }}</strong></div>
+        <div><span>模型 / 工具</span><strong>{{ traceStats.models }} / {{ traceStats.tools }}</strong></div>
+        <div><span>MCP / RAG / A2A</span><strong>{{ traceStats.mcp }} / {{ traceStats.rag }} / {{ traceStats.a2a }}</strong></div>
+        <div><span>最长 Span</span><strong>{{ traceStats.maxDuration }} ms</strong></div>
+        <div><span>内容观测</span><strong>{{ visibleContentObservations.length }}</strong></div>
+      </div>
+      <div class="trace-inspector-grid">
+        <div class="trace-timeline">
+          <div v-for="(span, index) in visibleTraceSpans" :key="span.id" class="trace-timeline-item">
+            <div class="trace-timeline-marker"><span>{{ String(index + 1).padStart(2, '0') }}</span></div>
+            <div class="trace-timeline-body">
+              <div class="trace-timeline-title"><strong>{{ span.spanName }}</strong><el-tag size="small" :type="traceTagType(span.spanKind)">{{ span.spanKind }}</el-tag></div>
+              <div class="muted">{{ span.operation || '未命名操作' }} · {{ span.status || 'UNSET' }} · {{ span.durationMs }} ms</div>
+              <div class="trace-timeline-links">{{ span.toolName || '—' }} · {{ span.mcpServerName || '—' }} · {{ span.ragSource || '—' }}</div>
+            </div>
+          </div>
+          <el-empty v-if="visibleTraceSpans.length === 0" description="当前 Trace 尚无 Span 观测" />
+        </div>
+        <div class="trace-evidence-panel">
+          <div class="trace-evidence-heading"><span>内容观测</span><small>仅展示脱敏元数据</small></div>
+          <div v-for="observation in visibleContentObservations" :key="observation.id" class="trace-evidence-row">
+            <el-tag size="small" :type="observation.direction === 'INPUT' ? 'warning' : 'success'">{{ observation.direction }}</el-tag>
+            <div><strong>{{ observation.captureMode }}</strong><span>{{ observation.sensitivity || '未标注' }} · {{ observation.estimatedTokens }} tokens</span></div>
+          </div>
+          <span v-if="visibleContentObservations.length === 0" class="muted">当前 Trace 没有内容观测记录</span>
+        </div>
+      </div>
+    </el-card>
+
     <el-alert
       v-if="!summary.lastEventAt"
       type="warning"
@@ -289,6 +329,7 @@
             <div class="table-actions">
               <el-button link type="primary" @click="openGovernance(row)">治理</el-button>
               <el-button link @click="openKnowledge(row)">知识</el-button>
+              <el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button>
             </div>
           </template>
         </el-table-column>
@@ -525,6 +566,18 @@ const visibleTraceSpans = computed(() => traceSpans.value.filter(span => {
   if (contextTraceId.value && span.traceId !== contextTraceId.value) return false
   return true
 }))
+const traceStats = computed(() => {
+  const spans = visibleTraceSpans.value
+  return {
+    total: spans.length,
+    models: spans.filter(span => span.spanKind === 'MODEL').length,
+    tools: spans.filter(span => span.spanKind === 'TOOL').length,
+    mcp: spans.filter(span => span.spanKind === 'MCP').length,
+    rag: spans.filter(span => span.spanKind === 'RAG').length,
+    a2a: spans.filter(span => span.spanKind === 'A2A').length,
+    maxDuration: spans.reduce((max, span) => Math.max(max, span.durationMs || 0), 0),
+  }
+})
 
 function openRegistry(endpointKey?: string) {
   if (!endpointKey) return
@@ -544,6 +597,22 @@ function openKnowledge(row: ModelInvocationEvent) {
     agentId: row.agentId ? String(row.agentId) : undefined,
     endpointKey: row.endpointKey,
     traceId: row.traceId,
+  } })
+}
+
+function openTrace(row: ModelInvocationEvent) {
+  if (!row.traceId) return
+  router.push({ path: '/physical', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+    traceId: row.traceId,
+  } })
+}
+
+function openGovernanceFromTrace() {
+  router.push({ path: '/governance', query: {
+    agentId: contextAgentId.value ? String(contextAgentId.value) : undefined,
+    endpointKey: contextEndpointKey.value || undefined,
   } })
 }
 
