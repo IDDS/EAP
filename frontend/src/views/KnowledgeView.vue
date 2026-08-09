@@ -58,6 +58,13 @@
       </div>
     </div>
 
+    <div v-if="drilldownLabel" class="drilldown-context">
+      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <strong>{{ drilldownLabel }}</strong>
+      <span>当前知识交互已按上下文收敛</span>
+      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+    </div>
+
     <el-alert
       v-if="!summary.lastInteractionAt"
       type="warning"
@@ -169,7 +176,7 @@
     <div class="knowledge-two-column">
       <el-card shadow="never" class="panel">
         <template #header>Agent 知识采用与复用</template>
-        <el-table :data="summary.agentUsage" size="small">
+        <el-table :data="visibleAgentUsage" size="small">
           <el-table-column prop="subjectName" label="Agent / 端点" min-width="170" />
           <el-table-column prop="interactions" label="交互" width="75" />
           <el-table-column label="采用率" width="95">
@@ -201,7 +208,7 @@
           <span class="muted">只展示脱敏摘要和引用标识，不展示知识正文</span>
         </div>
       </template>
-      <el-table :data="interactions" v-loading="loading" row-key="id">
+      <el-table :data="visibleInteractions" v-loading="loading" row-key="id">
         <el-table-column type="expand" width="50">
           <template #default="{ row }">
             <div class="knowledge-steps">
@@ -244,6 +251,9 @@
         <el-table-column label="状态" width="110">
           <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template>
         </el-table-column>
+        <el-table-column label="钻取" width="82" fixed="right">
+          <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理 Trace</el-button></template>
+        </el-table-column>
       </el-table>
     </el-card>
   </section>
@@ -254,6 +264,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Collection, DataAnalysis, Refresh, Select } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   Agent,
   KnowledgeInteraction,
@@ -306,9 +317,47 @@ const form = reactive({
   reused: false,
   qualityScore: 80,
 })
+const route = useRoute()
+const router = useRouter()
+const contextAgentId = computed(() => {
+  const value = Number(route.query.agentId)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+})
+const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const contextTraceId = computed(() => String(route.query.traceId || '').trim())
+const drilldownLabel = computed(() => {
+  const parts: string[] = []
+  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
+  if (contextTraceId.value) parts.push(`Trace ${contextTraceId.value}`)
+  return parts.join(' · ')
+})
 const adoptionPercent = computed(() => Math.round(summary.value.adoptionRate * 100))
 const reusePercent = computed(() => Math.round(summary.value.reuseRate * 100))
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))
+const visibleAgentUsage = computed(() => summary.value.agentUsage.filter(subject => {
+  if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
+  return true
+}))
+const visibleInteractions = computed(() => interactions.value.filter(interaction => {
+  if (contextAgentId.value && interaction.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && interaction.endpointKey !== contextEndpointKey.value) return false
+  if (contextTraceId.value && interaction.traceId !== contextTraceId.value) return false
+  return true
+}))
+
+function openPhysical(row: KnowledgeInteraction) {
+  router.push({ path: '/physical', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+    traceId: row.traceId,
+  } })
+}
+
+function clearDrilldown() {
+  router.replace({ path: '/knowledge', query: {} })
+}
 
 async function load() {
   loading.value = true

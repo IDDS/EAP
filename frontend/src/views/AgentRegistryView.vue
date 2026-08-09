@@ -15,6 +15,13 @@
       :title="autonomousSummary?.autonomousDiscoveryEnabled ? '自主发现已启用：后台将按配置周期持续扫描' : '自主发现未启用：当前只能手动触发扫描'"
     />
 
+    <div v-if="drilldownLabel" class="drilldown-context">
+      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <strong>{{ drilldownLabel }}</strong>
+      <span>发现端点列表已按上下文收敛</span>
+      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+    </div>
+
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -83,7 +90,7 @@
           <span class="muted">端点采集器注册后，定期向中央 EAP 上报观察结果</span>
         </div>
       </template>
-      <el-table :data="discoveryEndpoints" v-loading="endpointLoading" row-key="id">
+      <el-table :data="visibleDiscoveryEndpoints" v-loading="endpointLoading" row-key="id">
         <el-table-column prop="hostName" label="主机" min-width="180" />
         <el-table-column prop="endpointKey" label="端点标识" min-width="220" show-overflow-tooltip />
         <el-table-column prop="accountName" label="账户" width="140" />
@@ -340,10 +347,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   Agent,
   AgentCapability,
@@ -399,6 +407,17 @@ const protocolForm = reactive({
   targetUrl: '',
   discoveryType: 'AUTO' as ProtocolDiscoveryType,
 })
+const route = useRoute()
+const router = useRouter()
+const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const drilldownLabel = computed(() => contextEndpointKey.value ? `端点 ${contextEndpointKey.value}` : '')
+const visibleDiscoveryEndpoints = computed(() => contextEndpointKey.value
+  ? discoveryEndpoints.value.filter(endpoint => endpoint.endpointKey === contextEndpointKey.value)
+  : discoveryEndpoints.value)
+
+function clearDrilldown() {
+  router.replace({ path: '/registry', query: {} })
+}
 
 async function load() {
   const [nextAgents] = await Promise.all([EapApi.listAgents(), loadAutonomousDiscovery()])

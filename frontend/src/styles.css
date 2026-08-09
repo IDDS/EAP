@@ -1763,6 +1763,53 @@ body {
   line-height: 1.7;
 }
 
+.drilldown-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 13px;
+  border: 1px solid #cddcff;
+  border-radius: 11px;
+  color: #4d6078;
+  background: #f7faff;
+  font-size: 11px;
+}
+
+.drilldown-context-kicker {
+  color: var(--eap-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.drilldown-context strong {
+  color: var(--eap-ink);
+  font-size: 12px;
+}
+
+.drilldown-context .el-button {
+  min-height: auto;
+  margin-left: auto;
+  padding: 0;
+  font-size: 11px;
+}
+
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.node-drilldown-button {
+  min-height: auto;
+  margin-top: 9px;
+  padding: 0;
+  font-size: 11px;
+}
+
 .analysis-tags {
   display: flex;
   flex-wrap: wrap;

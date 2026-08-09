@@ -56,6 +56,13 @@
       <div class="physical-ops-card physical-ops-card-compact"><span>延迟窗口</span><strong>{{ summary.averageLatencyMs }} ms</strong><small>P95 {{ summary.p95LatencyMs }} ms</small></div>
     </div>
 
+    <div v-if="drilldownLabel" class="drilldown-context">
+      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <strong>{{ drilldownLabel }}</strong>
+      <span>当前列表已按上下文收敛</span>
+      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+    </div>
+
     <el-alert
       v-if="!summary.lastEventAt"
       type="warning"
@@ -172,7 +179,7 @@
         </div>
       </template>
       <div class="physical-node-grid">
-        <div v-for="node in physicalNodes" :key="node.key" class="physical-node-card">
+        <div v-for="node in visiblePhysicalNodes" :key="node.key" class="physical-node-card">
           <div class="physical-node-head">
             <div>
               <strong>{{ node.hostName }}</strong>
@@ -187,8 +194,9 @@
             <span>高风险 <strong>{{ node.highRiskCount }}</strong></span>
           </div>
           <small>最后发现：{{ node.lastSeenAt ? formatTime(node.lastSeenAt) : '尚无资产观察' }}</small>
+          <el-button v-if="node.endpointKey" class="node-drilldown-button" link type="primary" @click="openRegistry(node.endpointKey)">查看注册资产 →</el-button>
         </div>
-        <el-empty v-if="physicalNodes.length === 0" description="尚未发现端点或物理资产" />
+        <el-empty v-if="visiblePhysicalNodes.length === 0" description="尚未发现端点或物理资产" />
       </div>
     </el-card>
 
@@ -236,7 +244,7 @@
           <span class="muted">只保存物理遥测元数据，不在此表保存提示词与模型输出</span>
         </div>
       </template>
-      <el-table :data="events" v-loading="loading" row-key="id">
+      <el-table :data="visibleEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -276,6 +284,14 @@
         <el-table-column label="费用" width="100">
           <template #default="{ row }">{{ formatMoney(row.moneyCost) }}</template>
         </el-table-column>
+        <el-table-column label="钻取" width="120" fixed="right">
+          <template #default="{ row }">
+            <div class="table-actions">
+              <el-button link type="primary" @click="openGovernance(row)">治理</el-button>
+              <el-button link @click="openKnowledge(row)">知识</el-button>
+            </div>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -286,7 +302,7 @@
           <span class="muted">输入 / 输出正文仅在 REDACTED 模式保存；HASH_ONLY 只保留哈希、长度和 Token 估算</span>
         </div>
       </template>
-      <el-table :data="contentObservations" v-loading="loading" row-key="id">
+      <el-table :data="visibleContentObservations" v-loading="loading" row-key="id">
         <el-table-column label="方向" width="100">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ row.direction }}</el-tag>
@@ -327,7 +343,7 @@
           <span class="muted">无侵入识别模型、工具、MCP、RAG、A2A 与 Agent Span</span>
         </div>
       </template>
-      <el-table :data="traceSpans" v-loading="loading" row-key="id">
+      <el-table :data="visibleTraceSpans" v-loading="loading" row-key="id">
         <el-table-column label="类型" width="100">
           <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.spanKind }}</el-tag></template>
         </el-table-column>
@@ -354,6 +370,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   Agent,
   ContentObservation,
@@ -418,6 +435,24 @@ const telemetryForm = reactive({
   moneyCost: 0,
 })
 
+const route = useRoute()
+const router = useRouter()
+const contextAgentId = computed(() => {
+  const value = Number(route.query.agentId)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+})
+const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const contextTraceId = computed(() => String(route.query.traceId || '').trim())
+const contextEventKey = computed(() => String(route.query.eventKey || '').trim())
+const drilldownLabel = computed(() => {
+  const parts: string[] = []
+  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
+  if (contextTraceId.value) parts.push(`Trace ${contextTraceId.value}`)
+  if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
+  return parts.join(' · ')
+})
+
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))
 const endpointCoveragePercent = computed(() => summary.value.registeredEndpoints > 0
   ? Math.min(100, Math.round(summary.value.activeEndpoints / summary.value.registeredEndpoints * 100))
@@ -470,6 +505,51 @@ const physicalNodes = computed(() => {
   })
   return Array.from(nodes.values())
 })
+const visiblePhysicalNodes = computed(() => contextEndpointKey.value
+  ? physicalNodes.value.filter(node => node.endpointKey === contextEndpointKey.value)
+  : physicalNodes.value)
+const visibleEvents = computed(() => events.value.filter(event => {
+  if (contextAgentId.value && event.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && event.endpointKey !== contextEndpointKey.value) return false
+  if (contextTraceId.value && event.traceId !== contextTraceId.value) return false
+  if (contextEventKey.value && event.eventKey !== contextEventKey.value) return false
+  return true
+}))
+const visibleContentObservations = computed(() => contentObservations.value.filter(observation => {
+  if (contextTraceId.value && observation.traceId !== contextTraceId.value) return false
+  if (contextEventKey.value && observation.eventKey !== contextEventKey.value) return false
+  return true
+}))
+const visibleTraceSpans = computed(() => traceSpans.value.filter(span => {
+  if (contextEndpointKey.value && span.endpointKey !== contextEndpointKey.value) return false
+  if (contextTraceId.value && span.traceId !== contextTraceId.value) return false
+  return true
+}))
+
+function openRegistry(endpointKey?: string) {
+  if (!endpointKey) return
+  router.push({ path: '/registry', query: { endpointKey } })
+}
+
+function openGovernance(row: ModelInvocationEvent) {
+  router.push({ path: '/governance', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+    eventKey: row.eventKey,
+  } })
+}
+
+function openKnowledge(row: ModelInvocationEvent) {
+  router.push({ path: '/knowledge', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+    traceId: row.traceId,
+  } })
+}
+
+function clearDrilldown() {
+  router.replace({ path: '/physical', query: {} })
+}
 
 async function load() {
   loading.value = true

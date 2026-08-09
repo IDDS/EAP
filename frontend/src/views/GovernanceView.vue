@@ -52,6 +52,13 @@
       </template>
     </div>
 
+    <div v-if="drilldownLabel" class="drilldown-context">
+      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <strong>{{ drilldownLabel }}</strong>
+      <span>当前治理事件和决策已按上下文收敛</span>
+      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+    </div>
+
     <el-alert
       v-if="!summary.lastEventAt"
       type="warning"
@@ -152,7 +159,7 @@
             <span class="muted">仅聚合分类元数据</span>
           </div>
         </template>
-        <el-table :data="summary.subjectUsage" v-loading="loading" size="small">
+        <el-table :data="visibleSubjectUsage" v-loading="loading" size="small">
           <el-table-column label="Agent / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
@@ -249,7 +256,7 @@
           <span class="muted">PROCEED / REDACT_AND_RECHECK / REQUEST_APPROVAL / BLOCK</span>
         </div>
       </template>
-      <el-table :data="decisions" v-loading="loading" row-key="id">
+      <el-table :data="visibleDecisions" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.decidedAt) }}</template>
         </el-table-column>
@@ -290,7 +297,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="decisions.length === 0" description="尚未执行模型网关预检" />
+      <el-empty v-if="visibleDecisions.length === 0" description="尚未执行模型网关预检" />
     </el-card>
 
     <el-card shadow="never" class="panel">
@@ -300,7 +307,7 @@
           <span class="muted">分类、敏感级别和策略动作；不展示信息正文</span>
         </div>
       </template>
-      <el-table :data="events" v-loading="loading" row-key="id">
+      <el-table :data="visibleEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -324,8 +331,11 @@
         <el-table-column label="Token" width="90">
           <template #default="{ row }">{{ formatNumber(row.tokenCount) }}</template>
         </el-table-column>
+        <el-table-column label="钻取" width="92" fixed="right">
+          <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
+        </el-table-column>
       </el-table>
-      <el-empty v-if="events.length === 0" description="尚未收到治理数据事件" />
+      <el-empty v-if="visibleEvents.length === 0" description="尚未收到治理数据事件" />
     </el-card>
 
     <el-card shadow="never" class="panel">
@@ -417,6 +427,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { CircleCheck, DataAnalysis, Lock, OfficeBuilding, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
+import { useRoute, useRouter } from 'vue-router'
 import type {
   GovernanceDataAction,
   GovernanceDataDirection,
@@ -511,6 +522,21 @@ const policyForm = reactive({
   enforcementMode: 'BLOCK' as EnforcementMode,
   enabled: true,
 })
+const route = useRoute()
+const router = useRouter()
+const contextAgentId = computed(() => {
+  const value = Number(route.query.agentId)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+})
+const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const contextEventKey = computed(() => String(route.query.eventKey || '').trim())
+const drilldownLabel = computed(() => {
+  const parts: string[] = []
+  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
+  if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
+  return parts.join(' · ')
+})
 
 const internalPercent = computed(() => Math.round(summary.value.internalExposureRate * 100))
 const secretPercent = computed(() => Math.round(summary.value.secretExposureRate * 100))
@@ -545,6 +571,34 @@ const governanceFlow = computed(() => [
     ready: enforcement.value.enforcementEnabled,
   },
 ])
+const visibleSubjectUsage = computed(() => summary.value.subjectUsage.filter(subject => {
+  if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
+  return true
+}))
+const visibleEvents = computed(() => events.value.filter(event => {
+  if (contextAgentId.value && event.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && event.endpointKey !== contextEndpointKey.value) return false
+  if (contextEventKey.value && event.eventKey !== contextEventKey.value) return false
+  return true
+}))
+const visibleDecisions = computed(() => {
+  if (!drilldownLabel.value) return decisions.value
+  const eventIds = new Set(visibleEvents.value.map(event => event.id))
+  return decisions.value.filter(decision => eventIds.has(decision.dataEventId))
+})
+
+function openPhysical(row: GovernanceDataEvent) {
+  router.push({ path: '/physical', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+    traceId: row.traceId,
+  } })
+}
+
+function clearDrilldown() {
+  router.replace({ path: '/governance', query: {} })
+}
 
 async function load() {
   loading.value = true

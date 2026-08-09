@@ -59,6 +59,13 @@
       </div>
     </div>
 
+    <div v-if="drilldownLabel" class="drilldown-context">
+      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <strong>{{ drilldownLabel }}</strong>
+      <span>当前价值数据已按上下文收敛</span>
+      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+    </div>
+
     <el-alert
       v-if="!summary.hasValidatedValue"
       type="warning"
@@ -125,7 +132,7 @@
             <span class="muted">按窗口聚合真实任务、遥测和知识交互</span>
           </div>
         </template>
-        <el-table :data="summary.agentUsage" v-loading="loading" size="small">
+        <el-table :data="visibleAgentUsage" v-loading="loading" size="small">
           <el-table-column label="Agent / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
@@ -150,8 +157,11 @@
           <el-table-column label="采用 / 复用" width="112">
             <template #default="{ row }">{{ Math.round(row.knowledgeAdoptionRate * 100) }}% / {{ Math.round(row.knowledgeReuseRate * 100) }}%</template>
           </el-table-column>
+          <el-table-column label="钻取" width="92" fixed="right">
+            <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
+          </el-table-column>
         </el-table>
-        <el-empty v-if="summary.agentUsage.length === 0" description="当前窗口没有可归因的运行数据" />
+        <el-empty v-if="visibleAgentUsage.length === 0" description="当前窗口没有可归因的运行数据" />
       </el-card>
 
       <el-card shadow="never" class="panel">
@@ -212,7 +222,7 @@
           <span class="muted">最近 {{ windowHours }} 小时的价值确认；原始知识正文不进入此界面</span>
         </div>
       </template>
-      <el-table :data="valueEvents" v-loading="loading" row-key="id">
+      <el-table :data="visibleValueEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -231,7 +241,7 @@
           <template #default="{ row }">{{ row.description || '—' }}</template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="valueEvents.length === 0" description="尚未登记业务价值事件" />
+      <el-empty v-if="visibleValueEvents.length === 0" description="尚未登记业务价值事件" />
     </el-card>
   </section>
 </template>
@@ -241,6 +251,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { CircleCheck, DataAnalysis, Money, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
+import { useRoute, useRouter } from 'vue-router'
 import type { ManagementSummary, ManagementValueEvent } from '@/types/domain'
 
 const emptySummary: ManagementSummary = {
@@ -277,14 +288,48 @@ const form = reactive({
   benefitMoney: 0,
   currency: 'USD',
 })
+const route = useRoute()
+const router = useRouter()
+const contextAgentId = computed(() => {
+  const value = Number(route.query.agentId)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+})
+const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const drilldownLabel = computed(() => {
+  const parts: string[] = []
+  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
+  return parts.join(' · ')
+})
 
 const successPercent = computed(() => Math.round(summary.value.taskSuccessRate * 100))
 const adoptionPercent = computed(() => Math.round(summary.value.knowledgeAdoptionRate * 100))
 const reusePercent = computed(() => Math.round(summary.value.knowledgeReuseRate * 100))
 const roiLabel = computed(() => summary.value.hasValidatedValue ? summary.value.roi.toFixed(4) : '—')
-const topAgentUsage = computed(() => [...summary.value.agentUsage]
+const visibleAgentUsage = computed(() => summary.value.agentUsage.filter(subject => {
+  if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
+  return true
+}))
+const visibleValueEvents = computed(() => valueEvents.value.filter(event => {
+  if (contextAgentId.value && event.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && event.endpointKey !== contextEndpointKey.value) return false
+  return true
+}))
+const topAgentUsage = computed(() => [...visibleAgentUsage.value]
   .sort((left, right) => right.validatedValue - left.validatedValue || right.totalCost - left.totalCost)
   .slice(0, 3))
+
+function openPhysical(row: { agentId?: number, endpointKey?: string }) {
+  router.push({ path: '/physical', query: {
+    agentId: row.agentId ? String(row.agentId) : undefined,
+    endpointKey: row.endpointKey,
+  } })
+}
+
+function clearDrilldown() {
+  router.replace({ path: '/management', query: {} })
+}
 
 async function load() {
   loading.value = true
