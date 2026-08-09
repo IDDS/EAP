@@ -2,6 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
+        <span class="interface-eyebrow">PHYSICAL · OBSERVABILITY</span>
         <strong>智能体物理界面</strong>
         <span>统一查看端点、Agent、模型调用、Token 消耗、费用、延迟与运行状况</span>
       </div>

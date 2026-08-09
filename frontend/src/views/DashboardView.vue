@@ -1,6 +1,39 @@
 <template>
   <section class="page-grid">
-    <div class="metric-strip">
+    <div class="dashboard-hero">
+      <div class="dashboard-hero-copy">
+        <div class="dashboard-eyebrow"><span class="live-pulse"></span> AGENT OPERATIONS · 24H WINDOW</div>
+        <h2>智能体运行总览</h2>
+        <p>从自动发现到深度观测，再到治理和经营价值，统一掌握企业智能体运行闭环。</p>
+        <div class="dashboard-hero-meta">
+          <span><i class="meta-dot success"></i>控制面在线</span>
+          <span><i class="meta-dot data"></i>数据面持续采集</span>
+          <span class="hero-updated">最近刷新 {{ refreshedLabel }}</span>
+        </div>
+      </div>
+      <div class="dashboard-hero-rail">
+        <div>
+          <span>Agent 覆盖率</span>
+          <strong>{{ coveragePercent }}<small>%</small></strong>
+          <em>{{ summary.activeAgentCount }} / {{ summary.agentCount }} 已启用</em>
+        </div>
+        <div>
+          <span>平均响应延迟</span>
+          <strong>{{ summary.averageLatencyMs }}<small>ms</small></strong>
+          <em>来自真实遥测</em>
+        </div>
+      </div>
+    </div>
+
+    <div class="plane-overview">
+      <button v-for="plane in planeCards" :key="plane.title" type="button" class="plane-card" @click="goTo(plane.route)">
+        <span class="plane-card-icon" :class="plane.tone"><el-icon><component :is="plane.icon" /></el-icon></span>
+        <span class="plane-card-copy"><strong>{{ plane.title }}</strong><small>{{ plane.description }}</small></span>
+        <span class="plane-card-signal">{{ plane.signal }}<el-icon><ArrowRight /></el-icon></span>
+      </button>
+    </div>
+
+    <div class="metric-strip dashboard-kpi-strip">
       <div v-for="item in metrics" :key="item.label" class="small-box" :class="item.tone">
         <div>
           <strong>{{ item.value }}</strong>
@@ -14,7 +47,7 @@
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
-            <span>运行态势</span>
+            <span>运行闭环</span>
             <el-button text :icon="Refresh" @click="load">刷新</el-button>
           </div>
         </template>
@@ -180,7 +213,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { CircleCheck, Connection, Cpu, Lock, Monitor, Refresh } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { ArrowRight, CircleCheck, Collection, Connection, Cpu, DataAnalysis, Lock, Monitor, Refresh, ScaleToOriginal } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
 import type { AgentControlCommand, DashboardNetwork, DashboardSummary, NetworkNode } from '@/types/domain'
 
@@ -192,6 +226,8 @@ const summary = ref<DashboardSummary>({
   successRate: 0,
   averageLatencyMs: 0,
 })
+const router = useRouter()
+const lastRefreshedAt = ref('')
 const network = ref<DashboardNetwork>({
   nodes: [],
   edges: [],
@@ -214,6 +250,51 @@ const commandForm = ref({
   payloadJson: '{"reason":"operator_request"}',
 })
 const commandTypes = ['RUN_HEALTH_CHECK', 'RELOAD_POLICY', 'PAUSE', 'RESUME', 'UPDATE_CONFIG', 'SET_RATE_LIMIT']
+
+const refreshedLabel = computed(() => {
+  if (!lastRefreshedAt.value) return '等待首次采集'
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(lastRefreshedAt.value))
+})
+
+const coveragePercent = computed(() => {
+  if (!summary.value.agentCount) return 0
+  return Math.round((summary.value.activeAgentCount / summary.value.agentCount) * 100)
+})
+
+const planeCards = computed(() => [
+  {
+    title: '物理界面',
+    description: '端点、进程、模型与 Token 消耗',
+    signal: `${network.value.stats.agentNodeCount} 个 Agent 节点`,
+    route: '/physical',
+    tone: 'physical',
+    icon: Monitor,
+  },
+  {
+    title: '知识界面',
+    description: '输入、过程、输出与知识复用链路',
+    signal: 'Trace 可追溯',
+    route: '/knowledge',
+    tone: 'knowledge',
+    icon: Collection,
+  },
+  {
+    title: '管理界面',
+    description: '采用率、复用率与投入产出价值',
+    signal: '价值事件汇总',
+    route: '/management',
+    tone: 'management',
+    icon: DataAnalysis,
+  },
+  {
+    title: '治理界面',
+    description: '敏感信息、审批与策略执行状态',
+    signal: `${summary.value.riskEventCount} 个风险事件`,
+    route: '/governance',
+    tone: 'governance',
+    icon: ScaleToOriginal,
+  },
+])
 
 const metrics = computed(() => [
   { label: '智能体总数', value: summary.value.agentCount, tone: 'box-primary', icon: Cpu },
@@ -255,6 +336,11 @@ async function load() {
   summary.value = nextSummary
   network.value = nextNetwork
   commands.value = nextCommands
+  lastRefreshedAt.value = new Date().toISOString()
+}
+
+function goTo(path: string) {
+  router.push(path)
 }
 
 function selectNetworkNode(node: NetworkNode) {

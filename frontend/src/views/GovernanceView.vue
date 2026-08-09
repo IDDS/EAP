@@ -2,6 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
+        <span class="interface-eyebrow">GOVERNANCE · POLICY</span>
         <strong>智能体治理界面</strong>
         <span>追踪内部信息进入模型、公司保密信息、策略动作和阻断结果，不保存敏感正文</span>
       </div>

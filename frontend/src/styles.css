@@ -1385,6 +1385,263 @@ body {
   }
 }
 
+/* Dashboard command-center patterns. */
+.dashboard-hero {
+  position: relative;
+  display: flex;
+  min-height: 206px;
+  align-items: stretch;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 30px 32px;
+  border: 1px solid #dbe5f2;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 80% 15%, rgba(91, 154, 255, 0.22), transparent 32%),
+    linear-gradient(118deg, #132442 0%, #1a3156 58%, #1d4170 100%);
+  box-shadow: 0 18px 40px rgba(25, 57, 99, 0.16);
+}
+
+.dashboard-hero::after {
+  position: absolute;
+  right: -82px;
+  bottom: -112px;
+  width: 360px;
+  height: 220px;
+  border: 1px solid rgba(165, 205, 255, 0.18);
+  border-radius: 50%;
+  box-shadow: 0 0 0 28px rgba(165, 205, 255, 0.04), 0 0 0 58px rgba(165, 205, 255, 0.03);
+  content: '';
+  transform: rotate(-14deg);
+}
+
+.dashboard-hero-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 700px;
+}
+
+.dashboard-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a9c7f7;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.live-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #56e0ad;
+  box-shadow: 0 0 0 4px rgba(86, 224, 173, 0.15);
+}
+
+.dashboard-hero h2 {
+  margin: 17px 0 9px;
+  color: #ffffff;
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 760;
+  letter-spacing: -0.045em;
+}
+
+.dashboard-hero p {
+  max-width: 620px;
+  margin: 0;
+  color: #c3d5ed;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.dashboard-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+  color: #c6d7ec;
+  font-size: 11px;
+}
+
+.dashboard-hero-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7aa8f8;
+}
+
+.meta-dot.success { background: #59ddb0; }
+.meta-dot.data { background: #a7d5ff; }
+
+.hero-updated {
+  color: #8eadd3;
+}
+
+.dashboard-hero-rail {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 300px;
+  grid-template-columns: repeat(2, minmax(126px, 1fr));
+  align-self: center;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(210, 229, 255, 0.17);
+  border-radius: 14px;
+  background: rgba(210, 229, 255, 0.16);
+}
+
+.dashboard-hero-rail > div {
+  display: grid;
+  gap: 6px;
+  min-height: 130px;
+  padding: 16px;
+  background: rgba(13, 30, 56, 0.34);
+}
+
+.dashboard-hero-rail span,
+.dashboard-hero-rail em {
+  color: #a7bfdf;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.dashboard-hero-rail strong {
+  color: #ffffff;
+  font-size: 32px;
+  letter-spacing: -0.06em;
+}
+
+.dashboard-hero-rail strong small {
+  margin-left: 3px;
+  color: #b8d0ef;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.plane-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.plane-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--eap-border);
+  border-radius: 13px;
+  color: var(--eap-ink);
+  text-align: left;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(18, 39, 67, 0.045);
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.plane-card:hover {
+  border-color: #b6caff;
+  box-shadow: 0 12px 28px rgba(49, 103, 232, 0.11);
+  transform: translateY(-2px);
+}
+
+.plane-card-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  font-size: 18px;
+}
+
+.plane-card-icon.physical { color: #3167e8; background: #edf3ff; }
+.plane-card-icon.knowledge { color: #0c9f9a; background: #e8f8f6; }
+.plane-card-icon.management { color: #7b61d9; background: #f0edff; }
+.plane-card-icon.governance { color: #d68b2c; background: #fff5e8; }
+
+.plane-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.plane-card-copy strong {
+  font-size: 13px;
+}
+
+.plane-card-copy small,
+.plane-card-signal {
+  overflow: hidden;
+  color: var(--eap-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plane-card-signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #55708e;
+}
+
+.plane-card-signal .el-icon {
+  color: #8da0b7;
+  font-size: 13px;
+}
+
+.dashboard-kpi-strip .small-box {
+  min-height: 112px;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-hero {
+    gap: 24px;
+  }
+
+  .dashboard-hero-rail {
+    min-width: 270px;
+  }
+
+  .plane-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard-hero {
+    display: grid;
+    padding: 24px 22px;
+  }
+
+  .dashboard-hero-rail {
+    min-width: 0;
+  }
+
+  .dashboard-hero-rail > div {
+    min-height: 104px;
+  }
+
+  .plane-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .plane-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+}
+
 /* EAP Console design system: calm canvas, high-signal data surfaces, and compact enterprise navigation. */
 :root {
   --eap-ink: #132238;
@@ -1793,6 +2050,20 @@ body {
   color: var(--eap-ink);
   font-size: 18px;
   letter-spacing: -0.02em;
+}
+
+.interface-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.interface-eyebrow {
+  color: var(--eap-blue) !important;
+  font-size: 10px !important;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .toolbar-title span,

@@ -1,6 +1,11 @@
 <template>
   <section class="page-grid">
     <div class="toolbar">
+      <div class="toolbar-title interface-heading">
+        <span class="interface-eyebrow">AGENT CATALOG · LIFECYCLE</span>
+        <strong>智能体资产</strong>
+        <span>统一管理已纳管 Agent 的责任、状态与风险边界</span>
+      </div>
       <el-input v-model="keyword" placeholder="搜索智能体名称、编码、责任人" clearable />
       <el-button type="primary" :icon="Plus" @click="dialogVisible = true">新建智能体</el-button>
     </div>
@@ -145,4 +150,3 @@ function riskType(risk: RiskLevel) {
 
 onMounted(load)
 </script>
-

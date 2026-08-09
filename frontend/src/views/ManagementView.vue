@@ -2,6 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
+        <span class="interface-eyebrow">MANAGEMENT · VALUE</span>
         <strong>智能体管理界面</strong>
         <span>查看投入产出比、任务成效、知识采用与复用，并登记业务方确认的价值事件</span>
       </div>
