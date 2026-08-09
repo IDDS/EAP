@@ -420,6 +420,8 @@ export interface TraceSpanObservation {
   durationMs: number
   attributesJson?: string
   observedAt: string
+  /** Frontend fallback when a model invocation has a trace ID but no OTLP child span yet. */
+  synthetic?: boolean
 }
 
 export interface TelemetrySubjectUsage {

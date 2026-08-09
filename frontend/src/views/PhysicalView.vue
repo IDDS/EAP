@@ -92,7 +92,7 @@
           <div v-for="(span, index) in visibleTraceSpans" :key="span.id" class="trace-timeline-item">
             <div class="trace-timeline-marker"><span>{{ String(index + 1).padStart(2, '0') }}</span></div>
             <div class="trace-timeline-body">
-              <div class="trace-timeline-title"><strong>{{ span.spanName }}</strong><el-tag size="small" :type="traceTagType(span.spanKind)">{{ span.spanKind }}</el-tag></div>
+            <div class="trace-timeline-title"><strong>{{ span.spanName }}</strong><el-tag size="small" :type="traceTagType(span.spanKind)">{{ span.synthetic ? '遥测根 Span' : span.spanKind }}</el-tag></div>
               <div class="muted">{{ span.operation || '未命名操作' }} · {{ span.status || 'UNSET' }} · {{ span.durationMs }} ms</div>
               <div class="trace-timeline-links">{{ span.toolName || '—' }} · {{ span.mcpServerName || '—' }} · {{ span.ragSource || '—' }}</div>
             </div>
@@ -411,12 +411,12 @@
       <template #header>
         <div class="panel-header">
           <span>Agent 深度 Trace</span>
-          <span class="muted">无侵入识别模型、工具、MCP、RAG、A2A 与 Agent Span</span>
+          <span class="muted">OTLP Span 优先；暂无子 Span 时显示模型调用遥测根节点</span>
         </div>
       </template>
       <el-table :data="visibleTraceSpans" v-loading="loading" row-key="id">
         <el-table-column label="类型" width="100">
-          <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.spanKind }}</el-tag></template>
+          <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.synthetic ? '遥测根 Span' : row.spanKind }}</el-tag></template>
         </el-table-column>
         <el-table-column label="Span" min-width="230">
           <template #default="{ row }"><strong>{{ row.spanName }}</strong><div class="muted">{{ row.traceId }} · {{ row.spanId }}</div></template>
@@ -598,11 +598,39 @@ const visibleContentObservations = computed(() => contentObservations.value.filt
   if (contextEventKey.value && observation.eventKey !== contextEventKey.value) return false
   return true
 }))
-const visibleTraceSpans = computed(() => traceSpans.value.filter(span => {
-  if (contextEndpointKey.value && span.endpointKey !== contextEndpointKey.value) return false
-  if (contextTraceId.value && span.traceId !== contextTraceId.value) return false
-  return true
-}))
+const visibleTraceSpans = computed<TraceSpanObservation[]>(() => {
+  const spans = traceSpans.value.filter(span => {
+    if (contextEndpointKey.value && span.endpointKey !== contextEndpointKey.value) return false
+    if (contextTraceId.value && span.traceId !== contextTraceId.value) return false
+    return true
+  })
+  const fallbackSpans = visibleEvents.value
+    .filter(event => Boolean(event.traceId))
+    .filter(event => !spans.some(span => span.spanKind === 'MODEL'
+      && span.traceId === event.traceId
+      && (!event.spanId || span.spanId === event.spanId)))
+    .map(event => ({
+      id: -event.id,
+      traceId: event.traceId as string,
+      spanId: event.spanId || `model-${event.id}`,
+      endpointKey: event.endpointKey || 'telemetry-api',
+      spanName: `${event.provider} · ${event.modelName}`,
+      spanKind: 'MODEL' as TraceSpanKind,
+      operation: 'MODEL_INVOCATION',
+      status: event.status,
+      durationMs: event.latencyMs || 0,
+      attributesJson: JSON.stringify({
+        source: event.observationSource,
+        eventKey: event.eventKey,
+        totalTokens: event.totalTokens,
+        governanceCovered: event.governanceCovered,
+      }),
+      observedAt: event.observedAt,
+      synthetic: true,
+    }))
+  return [...spans, ...fallbackSpans].sort((left, right) =>
+    new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime())
+})
 const traceStats = computed(() => {
   const spans = visibleTraceSpans.value
   return {
