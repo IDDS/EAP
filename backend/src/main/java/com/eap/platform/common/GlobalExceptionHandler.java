@@ -9,6 +9,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(com.eap.platform.config.UnauthorizedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnauthorized(com.eap.platform.config.UnauthorizedException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiResponse<>(false, null, exception.getMessage(), TraceContext.traceId()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
         return ResponseEntity.badRequest()
@@ -31,4 +37,3 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>(false, null, "系统异常", TraceContext.traceId()));
     }
 }
-

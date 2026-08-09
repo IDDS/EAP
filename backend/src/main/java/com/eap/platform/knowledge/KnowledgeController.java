@@ -1,7 +1,7 @@
 package com.eap.platform.knowledge;
 
 import com.eap.platform.common.ApiResponse;
-import com.eap.platform.common.BusinessException;
+import com.eap.platform.config.MachineTokenValidator;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.List;
 
 @Validated
@@ -24,9 +22,11 @@ import java.util.List;
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
     private final KnowledgeService knowledgeService;
+    private final MachineTokenValidator machineTokenValidator;
 
-    public KnowledgeController(KnowledgeService knowledgeService) {
+    public KnowledgeController(KnowledgeService knowledgeService, MachineTokenValidator machineTokenValidator) {
         this.knowledgeService = knowledgeService;
+        this.machineTokenValidator = machineTokenValidator;
     }
 
     @PostMapping("/interactions")
@@ -68,15 +68,6 @@ public class KnowledgeController {
     }
 
     private void requireIngestionToken(String token) {
-        String configured = knowledgeService.ingestionToken();
-        if (configured.isBlank()) {
-            return;
-        }
-        if (token == null || !MessageDigest.isEqual(
-                configured.getBytes(StandardCharsets.UTF_8),
-                token.getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new BusinessException("知识遥测上报凭证无效");
-        }
+        machineTokenValidator.require(knowledgeService.ingestionToken(), token, "知识遥测上报凭证");
     }
 }

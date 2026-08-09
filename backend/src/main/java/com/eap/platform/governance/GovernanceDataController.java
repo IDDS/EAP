@@ -1,7 +1,7 @@
 package com.eap.platform.governance;
 
 import com.eap.platform.common.ApiResponse;
-import com.eap.platform.common.BusinessException;
+import com.eap.platform.config.MachineTokenValidator;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.List;
 
 @Validated
@@ -25,10 +23,16 @@ import java.util.List;
 public class GovernanceDataController {
     private final GovernanceDataService service;
     private final GovernancePreflightService preflightService;
+    private final MachineTokenValidator machineTokenValidator;
 
-    public GovernanceDataController(GovernanceDataService service, GovernancePreflightService preflightService) {
+    public GovernanceDataController(
+            GovernanceDataService service,
+            GovernancePreflightService preflightService,
+            MachineTokenValidator machineTokenValidator
+    ) {
         this.service = service;
         this.preflightService = preflightService;
+        this.machineTokenValidator = machineTokenValidator;
     }
 
     @PostMapping("/preflight")
@@ -96,24 +100,10 @@ public class GovernanceDataController {
     }
 
     private void requireIngestionToken(String token) {
-        String configured = service.ingestionToken();
-        if (configured.isBlank()) {
-            return;
-        }
-        if (token == null || !MessageDigest.isEqual(
-                configured.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new BusinessException("治理数据上报凭证无效");
-        }
+        machineTokenValidator.require(service.ingestionToken(), token, "治理数据上报凭证");
     }
 
     private void requireApprovalToken(String token) {
-        String configured = service.approvalToken();
-        if (configured.isBlank()) return;
-        if (token == null || !MessageDigest.isEqual(
-                configured.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new BusinessException("治理审批凭证无效");
-        }
+        machineTokenValidator.require(service.approvalToken(), token, "治理审批凭证");
     }
 }

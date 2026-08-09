@@ -1,15 +1,23 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types/domain'
+import { getAccessToken } from '@/api/auth'
 
 export const http = axios.create({
   baseURL: '/api',
   timeout: 12000,
 })
 
+http.interceptors.request.use(config => {
+  const accessToken = getAccessToken()
+  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`
+  return config
+})
+
 http.interceptors.response.use(
   response => response,
   error => {
+    if (error?.response?.status === 401) window.dispatchEvent(new Event('eap-auth-required'))
     const message = error?.response?.data?.message || error?.message || '请求失败，请稍后重试'
     ElMessage.error(message)
     return Promise.reject(error)

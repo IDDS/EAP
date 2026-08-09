@@ -32,6 +32,14 @@ springdoc:
     path: /swagger-ui
 
 eap:
+  security:
+    # DEVELOPMENT keeps the local demo frictionless. Production must use JWT.
+    mode: ${EAP_SECURITY_MODE:DEVELOPMENT}
+    issuer-uri: ${EAP_SECURITY_ISSUER_URI:}
+    jwk-set-uri: ${EAP_SECURITY_JWK_SET_URI:}
+    audience: ${EAP_SECURITY_AUDIENCE:}
+    roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
+    allowed-origins: ${EAP_SECURITY_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   discovery:
     enabled: ${EAP_DISCOVERY_ENABLED:true}
     include-known-user-locations: ${EAP_DISCOVERY_INCLUDE_KNOWN_USER_LOCATIONS:true}

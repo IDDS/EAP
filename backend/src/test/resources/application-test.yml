@@ -11,6 +11,8 @@ spring:
     enabled: false
 
 eap:
+  security:
+    mode: DEVELOPMENT
   discovery:
     enabled: false
     ingestion-token:

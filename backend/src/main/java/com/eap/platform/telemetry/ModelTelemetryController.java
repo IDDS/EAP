@@ -1,7 +1,7 @@
 package com.eap.platform.telemetry;
 
 import com.eap.platform.common.ApiResponse;
-import com.eap.platform.common.BusinessException;
+import com.eap.platform.config.MachineTokenValidator;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -14,8 +14,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.List;
 
 @Validated
@@ -23,9 +21,11 @@ import java.util.List;
 @RequestMapping("/api/telemetry")
 public class ModelTelemetryController {
     private final ModelTelemetryService telemetryService;
+    private final MachineTokenValidator machineTokenValidator;
 
-    public ModelTelemetryController(ModelTelemetryService telemetryService) {
+    public ModelTelemetryController(ModelTelemetryService telemetryService, MachineTokenValidator machineTokenValidator) {
         this.telemetryService = telemetryService;
+        this.machineTokenValidator = machineTokenValidator;
     }
 
     @PostMapping("/model-invocations")
@@ -52,15 +52,6 @@ public class ModelTelemetryController {
     }
 
     private void requireIngestionToken(String token) {
-        String configured = telemetryService.ingestionToken();
-        if (configured.isBlank()) {
-            return;
-        }
-        if (token == null || !MessageDigest.isEqual(
-                configured.getBytes(StandardCharsets.UTF_8),
-                token.getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new BusinessException("模型遥测上报凭证无效");
-        }
+        machineTokenValidator.require(telemetryService.ingestionToken(), token, "模型遥测上报凭证");
     }
 }

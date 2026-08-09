@@ -87,7 +87,11 @@
         </div>
         <div class="topbar-actions">
           <el-input class="global-search" placeholder="搜索智能体、任务、策略" :prefix-icon="Search" />
-          <el-tag type="success" effect="plain">Local</el-tag>
+          <el-tag :type="hasAccessToken ? 'success' : 'info'" effect="plain">
+            {{ hasAccessToken ? 'JWT 已连接' : 'Local / 未认证' }}
+          </el-tag>
+          <el-button :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
+          <el-button v-if="hasAccessToken" @click="logout">退出</el-button>
           <el-button :icon="Bell" circle title="通知" />
         </div>
       </el-header>
@@ -96,13 +100,69 @@
       </el-main>
     </el-container>
   </el-container>
+
+  <el-dialog v-model="authDialogVisible" title="企业 JWT 认证" width="520px">
+    <el-alert
+      type="info"
+      :closable="false"
+      show-icon
+      title="Token 只保存在当前标签页的 sessionStorage，刷新后保留，关闭标签页即清除。"
+    />
+    <el-form label-position="top" style="margin-top: 18px">
+      <el-form-item label="Access Token">
+        <el-input
+          v-model="authTokenDraft"
+          type="password"
+          show-password
+          clearable
+          autocomplete="off"
+          placeholder="粘贴企业 IdP 签发的 JWT，可包含 Bearer 前缀"
+        />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="authDialogVisible = false">取消</el-button>
+      <el-button type="primary" :disabled="!authTokenDraft.trim()" @click="saveAuthToken">保存并连接</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Bell, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 
 const route = useRoute()
 const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
+const authDialogVisible = ref(false)
+const authTokenDraft = ref('')
+const hasAccessToken = ref(Boolean(getAccessToken()))
+
+function openAuthDialog() {
+  authTokenDraft.value = ''
+  authDialogVisible.value = true
+}
+
+function saveAuthToken() {
+  setAccessToken(authTokenDraft.value)
+  hasAccessToken.value = Boolean(getAccessToken())
+  authDialogVisible.value = false
+  authTokenDraft.value = ''
+  ElMessage.success('JWT 已保存，后续 API 请求将自动携带 Bearer Token')
+}
+
+function logout() {
+  clearAccessToken()
+  hasAccessToken.value = false
+  ElMessage.success('当前标签页的 JWT 已清除')
+}
+
+function requireAuthentication() {
+  if (!hasAccessToken.value) openAuthDialog()
+}
+
+onMounted(() => window.addEventListener('eap-auth-required', requireAuthentication))
+onBeforeUnmount(() => window.removeEventListener('eap-auth-required', requireAuthentication))
 </script>

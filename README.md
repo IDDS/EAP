@@ -44,6 +44,20 @@ Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面�
 - 数据库：MySQL 8.4。
  - 安全集成：gensee-crate compatible safety gateway。
 
+### 生产认证与权限
+
+本地开发默认使用 `EAP_SECURITY_MODE=DEVELOPMENT`，保持演示环境免登录。生产环境必须切换到 JWT Resource Server：
+
+```bash
+EAP_SECURITY_MODE=JWT
+EAP_SECURITY_ISSUER_URI='https://idp.example.com/realms/eap'
+EAP_SECURITY_AUDIENCE='eap-api'
+EAP_SECURITY_ROLES_CLAIM='roles'
+EAP_SECURITY_ALLOWED_ORIGINS='https://eap.example.com'
+```
+
+JWT 中配置的角色 Claim（支持 `realm_access.roles` 等点分嵌套路径）、`scope` 或 `scp` 会以大小写无关方式映射为 EAP 角色：`VIEWER`、`OPERATOR`、`GOVERNANCE_ADMIN`、`PLATFORM_ADMIN`。采集器和 OTLP 不使用用户 JWT，而使用各自的 `X-EAP-*-Token` 机器凭证；JWT 模式下未配置机器凭证的上报请求会被拒绝。浏览器 Token 只保存在当前标签页的 `sessionStorage` 中，不会写入前端构建产物或持久化到服务器。
+
 ## 目录
 
 ```text

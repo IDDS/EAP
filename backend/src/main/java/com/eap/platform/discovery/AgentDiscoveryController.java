@@ -1,6 +1,7 @@
 package com.eap.platform.discovery;
 
 import com.eap.platform.common.ApiResponse;
+import com.eap.platform.config.MachineTokenValidator;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,16 +12,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-
 @RestController
 @RequestMapping("/api/discovery")
 public class AgentDiscoveryController {
     private final AgentDiscoveryService discoveryService;
+    private final MachineTokenValidator machineTokenValidator;
 
-    public AgentDiscoveryController(AgentDiscoveryService discoveryService) {
+    public AgentDiscoveryController(AgentDiscoveryService discoveryService, MachineTokenValidator machineTokenValidator) {
         this.discoveryService = discoveryService;
+        this.machineTokenValidator = machineTokenValidator;
     }
 
     @GetMapping("/summary")
@@ -84,15 +84,6 @@ public class AgentDiscoveryController {
     }
 
     private void requireIngestionToken(String token) {
-        String configured = discoveryService.ingestionToken();
-        if (configured.isBlank()) {
-            return;
-        }
-        if (token == null || !MessageDigest.isEqual(
-                configured.getBytes(StandardCharsets.UTF_8),
-                token.getBytes(StandardCharsets.UTF_8)
-        )) {
-            throw new com.eap.platform.common.BusinessException("端点发现上报凭证无效");
-        }
+        machineTokenValidator.require(discoveryService.ingestionToken(), token, "端点发现上报凭证");
     }
 }
