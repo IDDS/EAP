@@ -1,0 +1,17 @@
+.DS_Store
+
+# Java / Maven
+backend/target/
+
+# Node / Vue
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
