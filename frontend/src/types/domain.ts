@@ -402,6 +402,26 @@ export interface ContentObservation {
   createdAt: string
 }
 
+export type TraceSpanKind = 'MODEL' | 'TOOL' | 'MCP' | 'RAG' | 'A2A' | 'AGENT'
+
+export interface TraceSpanObservation {
+  id: number
+  traceId: string
+  spanId: string
+  parentSpanId?: string
+  endpointKey: string
+  spanName: string
+  spanKind: TraceSpanKind
+  operation?: string
+  toolName?: string
+  mcpServerName?: string
+  ragSource?: string
+  status?: string
+  durationMs: number
+  attributesJson?: string
+  observedAt: string
+}
+
 export interface TelemetrySubjectUsage {
   subjectKey: string
   subjectName: string

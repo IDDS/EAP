@@ -44,6 +44,7 @@ import type {
   KnowledgeSummary,
   ModelInvocationEvent,
   ContentObservation,
+  TraceSpanObservation,
   ModelInvocationStatus,
   ModelGatewayStatus,
   PhysicalTelemetrySummary,
@@ -164,6 +165,7 @@ export const EapApi = {
   listModelInvocationEvents: (limit = 100) => getData<ModelInvocationEvent[]>(`/telemetry/model-invocations?limit=${limit}`),
   getContentObservationStatus: () => getData<{ enabled: boolean; captureMode: string; maxContentBytes: number; totalObservations: number; inputObservations: number; outputObservations: number; lastObservedAt?: string }>('/observability/status'),
   listContentObservations: (limit = 100) => getData<ContentObservation[]>(`/observability/content?limit=${limit}`),
+  listTraceSpanObservations: (limit = 100) => getData<TraceSpanObservation[]>(`/observability/otlp/spans?limit=${limit}`),
   recordModelInvocation: (payload: {
     eventKey: string
     traceId?: string

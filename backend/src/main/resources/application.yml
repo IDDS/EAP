@@ -106,3 +106,8 @@ eap:
     max-content-bytes: ${EAP_OBSERVABILITY_MAX_CONTENT_BYTES:65536}
     max-list-items: ${EAP_OBSERVABILITY_MAX_LIST_ITEMS:200}
     ingestion-token: ${EAP_OBSERVABILITY_INGESTION_TOKEN:}
+    otlp:
+      grpc:
+        enabled: ${EAP_OTLP_GRPC_ENABLED:true}
+        port: ${EAP_OTLP_GRPC_PORT:4317}
+        max-inbound-message-bytes: ${EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES:4194304}

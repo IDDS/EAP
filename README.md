@@ -152,6 +152,7 @@ npm run dev
 - `GET /api/observability/content?limit=100`：查看与模型调用 trace 关联的输入/输出观测。
 - `POST /api/observability/content`：由受控代理、SDK 插件或外部探针上报内容观测；生产环境使用 `X-EAP-Observability-Token`。
 - `POST /api/observability/otlp/v1/traces`：接收 OTLP/HTTP JSON Trace，自动识别 GenAI Span、登记工作负载端点并归一化模型调用与内容观测。
+- `GET /api/observability/otlp/spans?limit=100`：查看模型、工具、MCP、RAG、A2A 和 Agent 深度 Span 摘要。
 - `GET /api/knowledge/summary?hours=24`：知识输入、过程、输出、采用率和复用率汇总。
 - `GET /api/knowledge/interactions?limit=100`：知识交互及过程步骤明细。
 - `POST /api/knowledge/interactions`：上报一次知识交互和过程步骤；生产环境使用 `X-EAP-Knowledge-Token`。
@@ -339,6 +340,16 @@ exporters:
 ```
 
 直接发送 OTLP/HTTP JSON 时，完整入口为 `http://eap.example.com:8080/api/observability/otlp/v1/traces`。
+
+同一入口同时接受 OTLP/HTTP Protobuf（`Content-Type: application/x-protobuf`），并默认启动标准 OTLP TraceService gRPC 端口 `4317`。gRPC 客户端通过 metadata `x-eap-observability-token` 传递采集凭证：
+
+```bash
+EAP_OTLP_GRPC_ENABLED=true
+EAP_OTLP_GRPC_PORT=4317
+EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES=4194304
+```
+
+EAP 不仅记录 GenAI 模型 Span，还会被动分类并持久化 `MODEL`、`TOOL`、`MCP`、`RAG`、`A2A`、`AGENT` Span，保存父子 Span 关系、工具名、MCP Server、RAG 来源、耗时、状态和脱敏属性摘要。工具参数、MCP 请求、RAG 查询/文档和 A2A 消息会复用深度观测模式处理；正文不会进入普通 Span 属性表。控制台或审计系统可通过 `GET /api/observability/otlp/spans?limit=100` 查看最近深度 Span。
 
 如配置了 `EAP_OBSERVABILITY_INGESTION_TOKEN`，Collector 需要增加请求头 `X-EAP-Observability-Token`。EAP 会根据 `service.instance.id`、`k8s.pod.uid`、`container.id`、`host.id` 等资源属性自动生成稳定端点，不要求应用提供 EAP Agent ID。OTLP 观察到的调用会标记为 `OTLP / 被动发现` 和 `governanceCovered=false`，避免把“已经发生但未经过治理网关”的流量误报为已治理。
 

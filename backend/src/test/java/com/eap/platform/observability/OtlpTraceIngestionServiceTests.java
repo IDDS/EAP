@@ -13,19 +13,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class OtlpTraceIngestionServiceTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AgentDiscoveryService discoveryService = mock(AgentDiscoveryService.class);
     private final ModelTelemetryService telemetryService = mock(ModelTelemetryService.class);
     private final ContentObservationService contentObservationService = mock(ContentObservationService.class);
+    private final TraceSpanObservationRepository traceSpanRepository = mock(TraceSpanObservationRepository.class);
 
     @Test
     void normalizesCurrentGenAiAttributesAndRedactsSensitiveInput() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
-                new SensitiveContentSanitizer()
+                new SensitiveContentSanitizer(), traceSpanRepository
         );
+        when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
         JsonNode payload = objectMapper.readTree("""
                 {
                   "resourceSpans": [{
@@ -62,6 +65,7 @@ class OtlpTraceIngestionServiceTests {
         assertThat(response.genAiSpansDetected()).isEqualTo(1);
         assertThat(response.invocationsRecorded()).isEqualTo(1);
         assertThat(response.contentObservationsRecorded()).isEqualTo(2);
+        assertThat(response.traceSpansRecorded()).isEqualTo(1);
 
         ArgumentCaptor<ModelTelemetryDtos.ModelInvocationRequest> invocation = ArgumentCaptor.forClass(ModelTelemetryDtos.ModelInvocationRequest.class);
         ArgumentCaptor<ModelObservationSource> source = ArgumentCaptor.forClass(ModelObservationSource.class);
@@ -81,5 +85,33 @@ class OtlpTraceIngestionServiceTests {
         assertThat(input.redactedContent()).contains("[REDACTED_PHONE]", "[REDACTED_EMAIL]");
         assertThat(input.redactedContent()).doesNotContain("13800138000", "finance@example.com");
         assertThat(input.governanceAction()).isEqualTo("PASSIVE_REDACT");
+    }
+
+    @Test
+    void recordsToolMcpRagAndA2aSpansWithContentSeparated() throws Exception {
+        OtlpTraceIngestionService service = new OtlpTraceIngestionService(
+                objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository
+        );
+        when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
+        JsonNode payload = objectMapper.readTree("""
+                {"resourceSpans":[{"resource":{"attributes":{"service.name":"agent-runtime"}},"scopeSpans":[{"spans":[
+                  {"traceId":"t1","spanId":"s1","name":"tool execute","attributes":{"tool.name":"search","tool.input":"secret=abc","tool.output":"done"}},
+                  {"traceId":"t1","spanId":"s2","name":"mcp call","attributes":{"mcp.server.name":"filesystem","mcp.request":"list","mcp.response":"ok"}},
+                  {"traceId":"t1","spanId":"s3","name":"retrieval query","attributes":{"rag.source":"kb-main","rag.query":"policy","rag.documents":"doc-1"}},
+                  {"traceId":"t1","spanId":"s4","name":"agent handoff","attributes":{"a2a.peer.agent":"reviewer","a2a.message.input":"review","a2a.message.output":"accepted"}}
+                ]}]}]}
+                """);
+
+        OtlpTraceIngestionDtos.IngestionResponse response = service.ingest(payload);
+
+        assertThat(response.traceSpansRecorded()).isEqualTo(4);
+        assertThat(response.toolSpansRecorded()).isEqualTo(1);
+        assertThat(response.mcpSpansRecorded()).isEqualTo(1);
+        assertThat(response.ragSpansRecorded()).isEqualTo(1);
+        assertThat(response.a2aSpansRecorded()).isEqualTo(1);
+        assertThat(response.contentObservationsRecorded()).isEqualTo(8);
+        verify(traceSpanRepository, times(4)).save(org.mockito.ArgumentMatchers.any());
+        verify(contentObservationService, times(8)).capture(org.mockito.ArgumentMatchers.any(ContentObservationService.CaptureCommand.class));
     }
 }

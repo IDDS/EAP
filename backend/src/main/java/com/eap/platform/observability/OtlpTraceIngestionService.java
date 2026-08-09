@@ -31,19 +31,22 @@ public class OtlpTraceIngestionService {
     private final ModelTelemetryService telemetryService;
     private final ContentObservationService contentObservationService;
     private final SensitiveContentSanitizer sanitizer;
+    private final TraceSpanObservationRepository traceSpanRepository;
 
     public OtlpTraceIngestionService(
             ObjectMapper objectMapper,
             AgentDiscoveryService discoveryService,
             ModelTelemetryService telemetryService,
             ContentObservationService contentObservationService,
-            SensitiveContentSanitizer sanitizer
+            SensitiveContentSanitizer sanitizer,
+            TraceSpanObservationRepository traceSpanRepository
     ) {
         this.objectMapper = objectMapper;
         this.discoveryService = discoveryService;
         this.telemetryService = telemetryService;
         this.contentObservationService = contentObservationService;
         this.sanitizer = sanitizer;
+        this.traceSpanRepository = traceSpanRepository;
     }
 
     public OtlpTraceIngestionDtos.IngestionResponse ingest(JsonNode payload) {
@@ -72,7 +75,11 @@ public class OtlpTraceIngestionService {
                         return response(counters, warnings);
                     }
                     Map<String, JsonNode> attrs = attributes(span.path("attributes"));
-                    if (!isGenAiSpan(span, attrs)) continue;
+                    TraceSpanKind spanKind = classify(span, attrs);
+                    if (spanKind != null) {
+                        recordTraceSpan(span, attrs, endpointKey, spanKind, counters);
+                    }
+                    if (spanKind != TraceSpanKind.MODEL) continue;
                     counters.genAiSpansDetected++;
                     try {
                         ingestSpan(span, attrs, endpointKey, counters);
@@ -83,6 +90,127 @@ public class OtlpTraceIngestionService {
             }
         }
         return response(counters, warnings);
+    }
+
+    public List<OtlpTraceIngestionDtos.TraceSpanResponse> listTraceSpans(int limit) {
+        return traceSpanRepository.findTop500ByOrderByObservedAtDesc().stream()
+                .limit(Math.max(1, Math.min(limit, 500)))
+                .map(this::toResponse).toList();
+    }
+
+    private void recordTraceSpan(
+            JsonNode span,
+            Map<String, JsonNode> attrs,
+            String endpointKey,
+            TraceSpanKind spanKind,
+            Counters counters
+    ) {
+        String traceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
+        String spanId = text(span, "spanId", hash(span.toString()).substring(0, 16));
+        TraceSpanObservation observation = traceSpanRepository.findByTraceIdAndSpanId(traceId, spanId)
+                .orElseGet(TraceSpanObservation::new);
+        observation.traceId = traceId;
+        observation.spanId = spanId;
+        observation.parentSpanId = text(span, "parentSpanId", null);
+        observation.endpointKey = endpointKey;
+        observation.spanName = normalize(text(span, "name", spanKind.name()), 256);
+        observation.spanKind = spanKind;
+        observation.operation = firstText(attrs, "gen_ai.operation.name", "tool.operation", "rpc.method", "db.operation", "http.request.method");
+        observation.toolName = firstText(attrs, "gen_ai.tool.name", "gen_ai.tool.call.name", "tool.name", "function.name");
+        observation.mcpServerName = firstText(attrs, "mcp.server.name", "mcp.server", "server.address");
+        observation.ragSource = firstText(attrs, "rag.source", "retrieval.source", "db.namespace", "vector_db.namespace");
+        observation.status = status(span, attrs).name();
+        observation.durationMs = durationMillis(span, attrs);
+        observation.attributesJson = traceAttributesJson(attrs);
+        observation.observedAt = observedAt(span);
+        traceSpanRepository.save(observation);
+        counters.traceSpansRecorded++;
+        switch (spanKind) {
+            case TOOL -> counters.toolSpansRecorded++;
+            case MCP -> counters.mcpSpansRecorded++;
+            case RAG -> counters.ragSpansRecorded++;
+            case A2A -> counters.a2aSpansRecorded++;
+            default -> { }
+        }
+        if (spanKind != TraceSpanKind.MODEL) captureTracePayloads(
+                traceId, spanId, endpointKey, spanKind, attrs, observation.observedAt, counters);
+    }
+
+    private void captureTracePayloads(
+            String traceId,
+            String spanId,
+            String endpointKey,
+            TraceSpanKind kind,
+            Map<String, JsonNode> attrs,
+            Instant observedAt,
+            Counters counters
+    ) {
+        JsonNode input = firstNode(attrs,
+                "tool.input", "tool.arguments", "gen_ai.tool.call.arguments", "mcp.request", "mcp.request.arguments",
+                "rag.query", "retrieval.query", "a2a.message.input", "agent.input");
+        JsonNode output = firstNode(attrs,
+                "tool.output", "tool.result", "gen_ai.tool.call.result", "mcp.response", "mcp.response.result",
+                "rag.documents", "retrieval.documents", "a2a.message.output", "agent.output");
+        String eventKey = normalize("otlp-span-" + traceId + "-" + spanId, 128);
+        if (input != null) {
+            capture(eventKey + "-input", eventKey, traceId, spanId, endpointKey,
+                    "trace", kind.name(), ContentDirection.INPUT, input, observedAt);
+            counters.contentObservationsRecorded++;
+        }
+        if (output != null) {
+            capture(eventKey + "-output", eventKey, traceId, spanId, endpointKey,
+                    "trace", kind.name(), ContentDirection.OUTPUT, output, observedAt);
+            counters.contentObservationsRecorded++;
+        }
+    }
+
+    private TraceSpanKind classify(JsonNode span, Map<String, JsonNode> attrs) {
+        String name = text(span, "name", "").toLowerCase(Locale.ROOT);
+        String keys = String.join(" ", attrs.keySet()).toLowerCase(Locale.ROOT);
+        if (hasAny(attrs, "gen_ai.request.model", "gen_ai.response.model", "gen_ai.provider.name",
+                "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens", "llm.request.model", "llm.response.model", "ai.model.id")
+                || containsAny(name, "chat", "completion", "generate_content", "embeddings")) return TraceSpanKind.MODEL;
+        if (keys.contains("mcp.") || name.contains("mcp")) return TraceSpanKind.MCP;
+        if (keys.contains("rag.") || keys.contains("retrieval.") || keys.contains("vector_db.")
+                || name.contains("retriev") || name.contains("vector search") || name.contains("rag")) return TraceSpanKind.RAG;
+        if (keys.contains("a2a.") || keys.contains("agent.peer") || name.contains("a2a")
+                || name.contains("handoff") || name.contains("delegate")) return TraceSpanKind.A2A;
+        if (keys.contains("tool.") || keys.contains("gen_ai.tool") || name.contains("tool") || name.contains("function")) {
+            return TraceSpanKind.TOOL;
+        }
+        if (isGenAiSpan(span, attrs)) return TraceSpanKind.MODEL;
+        if (keys.contains("agent.") || keys.contains("gen_ai.agent") || name.contains("agent")) return TraceSpanKind.AGENT;
+        return null;
+    }
+
+    private String traceAttributesJson(Map<String, JsonNode> attrs) {
+        Map<String, Object> safe = new LinkedHashMap<>();
+        attrs.entrySet().stream().limit(128).forEach(entry -> {
+            String key = entry.getKey();
+            String normalized = key.toLowerCase(Locale.ROOT);
+            if (normalized.contains("secret") || normalized.contains("token") || normalized.contains("password")
+                    || normalized.contains("api_key") || normalized.contains("apikey")) {
+                safe.put(key, "[REDACTED]");
+            } else if (containsAny(normalized, "input", "output", "prompt", "completion", "arguments", "result", "documents")) {
+                safe.put(key, "[CONTENT_CAPTURED_SEPARATELY]");
+            } else {
+                JsonNode value = entry.getValue();
+                safe.put(key, value == null ? null : value.isValueNode() ? value.asText() : value.toString());
+            }
+        });
+        try {
+            return normalize(objectMapper.writeValueAsString(safe), 32768);
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
+    private OtlpTraceIngestionDtos.TraceSpanResponse toResponse(TraceSpanObservation item) {
+        return new OtlpTraceIngestionDtos.TraceSpanResponse(
+                item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.spanName,
+                item.spanKind, item.operation, item.toolName, item.mcpServerName, item.ragSource,
+                item.status, item.durationMs == null ? 0L : item.durationMs, item.attributesJson, item.observedAt
+        );
     }
 
     private void ingestSpan(JsonNode span, Map<String, JsonNode> attrs, String endpointKey, Counters counters) {
@@ -319,7 +447,9 @@ public class OtlpTraceIngestionService {
     private OtlpTraceIngestionDtos.IngestionResponse response(Counters counters, List<String> warnings) {
         return new OtlpTraceIngestionDtos.IngestionResponse(
                 counters.spansScanned, counters.genAiSpansDetected, counters.invocationsRecorded,
-                counters.contentObservationsRecorded, counters.endpointsRegistered, List.copyOf(warnings)
+                counters.contentObservationsRecorded, counters.endpointsRegistered, counters.traceSpansRecorded,
+                counters.toolSpansRecorded, counters.mcpSpansRecorded, counters.ragSpansRecorded,
+                counters.a2aSpansRecorded, List.copyOf(warnings)
         );
     }
 
@@ -329,5 +459,10 @@ public class OtlpTraceIngestionService {
         int invocationsRecorded;
         int contentObservationsRecorded;
         int endpointsRegistered;
+        int traceSpansRecorded;
+        int toolSpansRecorded;
+        int mcpSpansRecorded;
+        int ragSpansRecorded;
+        int a2aSpansRecorded;
     }
 }

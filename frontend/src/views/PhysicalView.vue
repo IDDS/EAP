@@ -280,6 +280,33 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-card shadow="never" class="panel">
+      <template #header>
+        <div class="panel-header">
+          <span>Agent 深度 Trace</span>
+          <span class="muted">无侵入识别模型、工具、MCP、RAG、A2A 与 Agent Span</span>
+        </div>
+      </template>
+      <el-table :data="traceSpans" v-loading="loading" row-key="id">
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.spanKind }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="Span" min-width="230">
+          <template #default="{ row }"><strong>{{ row.spanName }}</strong><div class="muted">{{ row.traceId }} · {{ row.spanId }}</div></template>
+        </el-table-column>
+        <el-table-column label="工具 / MCP / RAG" min-width="220">
+          <template #default="{ row }">{{ row.toolName || '-' }} · {{ row.mcpServerName || '-' }} · {{ row.ragSource || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="状态 / 延迟" width="145">
+          <template #default="{ row }">{{ row.status || '-' }} · {{ row.durationMs }} ms</template>
+        </el-table-column>
+        <el-table-column label="端点" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.endpointKey }}</template>
+        </el-table-column>
+        <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
+      </el-table>
+    </el-card>
   </section>
 </template>
 
@@ -297,6 +324,8 @@ import type {
   ModelInvocationEvent,
   ModelInvocationStatus,
   PhysicalTelemetrySummary,
+  TraceSpanObservation,
+  TraceSpanKind,
 } from '@/types/domain'
 
 const emptySummary: PhysicalTelemetrySummary = {
@@ -329,6 +358,7 @@ const telemetrySaving = ref(false)
 const summary = ref<PhysicalTelemetrySummary>({ ...emptySummary })
 const events = ref<ModelInvocationEvent[]>([])
 const contentObservations = ref<ContentObservation[]>([])
+const traceSpans = ref<TraceSpanObservation[]>([])
 const endpoints = ref<DiscoveryEndpoint[]>([])
 const assets = ref<DiscoveredAgentAsset[]>([])
 const agents = ref<Agent[]>([])
@@ -398,13 +428,14 @@ const physicalNodes = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent] = await Promise.all([
+    const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans] = await Promise.all([
       EapApi.getPhysicalTelemetrySummary(windowHours.value),
       EapApi.listModelInvocationEvents(100),
       EapApi.listDiscoveryEndpoints(),
       EapApi.listDiscoveredAgentAssets(),
       EapApi.listAgents(),
       EapApi.listContentObservations(100),
+      EapApi.listTraceSpanObservations(100),
     ])
     summary.value = nextSummary
     events.value = nextEvents
@@ -412,10 +443,18 @@ async function load() {
     assets.value = nextAssets
     agents.value = nextAgents
     contentObservations.value = nextContent
+    traceSpans.value = nextTraceSpans
     if (!telemetryForm.agentId) telemetryForm.agentId = nextAgents[0]?.id
   } finally {
     loading.value = false
   }
+}
+
+function traceTagType(kind: TraceSpanKind) {
+  if (kind === 'MODEL') return 'primary'
+  if (kind === 'MCP' || kind === 'TOOL') return 'warning'
+  if (kind === 'RAG') return 'success'
+  return 'info'
 }
 
 async function triggerDiscovery() {

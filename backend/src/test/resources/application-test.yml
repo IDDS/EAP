@@ -43,3 +43,7 @@ eap:
     ingestion-token:
     allow-unauthenticated: false
     max-response-bytes: 4194304
+  observability:
+    otlp:
+      grpc:
+        enabled: false
