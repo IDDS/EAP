@@ -17,7 +17,7 @@ public final class AgentControlDtos {
     public record CommandRequest(
             @NotNull Long agentId,
             @NotBlank @Size(max = 64) String commandType,
-            String payloadJson,
+            @Size(max = 65536) String payloadJson,
             @Size(max = 128) String issuedBy
     ) {
     }
@@ -31,10 +31,14 @@ public final class AgentControlDtos {
             ControlCommandStatus status,
             String issuedBy,
             String dispatchMode,
+            String runtimeInstanceKey,
+            Integer attemptCount,
+            Integer httpStatus,
             String resultMessage,
             Instant createdAt,
             Instant updatedAt,
-            Instant dispatchedAt
+            Instant dispatchedAt,
+            Instant acknowledgedAt
     ) {
     }
 
@@ -48,10 +52,14 @@ public final class AgentControlDtos {
                 command.status,
                 command.issuedBy,
                 command.dispatchMode,
+                command.runtimeInstanceKey,
+                command.attemptCount,
+                command.httpStatus,
                 command.resultMessage,
                 command.createdAt,
                 command.updatedAt,
-                command.dispatchedAt
+                command.dispatchedAt,
+                command.acknowledgedAt
         );
     }
 

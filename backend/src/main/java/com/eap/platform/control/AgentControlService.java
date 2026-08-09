@@ -6,6 +6,9 @@ import com.eap.platform.audit.AuditLog;
 import com.eap.platform.audit.AuditLogRepository;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.common.TraceContext;
+import com.eap.platform.registry.AgentRuntimeInstance;
+import com.eap.platform.registry.AgentRuntimeInstanceRepository;
+import com.eap.platform.registry.RuntimeStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,12 +31,25 @@ public class AgentControlService {
 
     private final AgentControlCommandRepository commandRepository;
     private final AgentRepository agentRepository;
+    private final AgentRuntimeInstanceRepository runtimeRepository;
     private final AuditLogRepository auditLogRepository;
+    private final ControlDispatchProperties dispatchProperties;
+    private final AgentControlAdapter httpAdapter;
 
-    public AgentControlService(AgentControlCommandRepository commandRepository, AgentRepository agentRepository, AuditLogRepository auditLogRepository) {
+    public AgentControlService(
+            AgentControlCommandRepository commandRepository,
+            AgentRepository agentRepository,
+            AgentRuntimeInstanceRepository runtimeRepository,
+            AuditLogRepository auditLogRepository,
+            ControlDispatchProperties dispatchProperties,
+            AgentControlAdapter httpAdapter
+    ) {
         this.commandRepository = commandRepository;
         this.agentRepository = agentRepository;
+        this.runtimeRepository = runtimeRepository;
         this.auditLogRepository = auditLogRepository;
+        this.dispatchProperties = dispatchProperties;
+        this.httpAdapter = httpAdapter;
     }
 
     @Transactional(readOnly = true)
@@ -62,12 +78,63 @@ public class AgentControlService {
         command.payloadJson = request.payloadJson();
         command.issuedBy = request.issuedBy() == null || request.issuedBy().isBlank() ? "platform-admin" : request.issuedBy();
         command.dispatchMode = "CONTROL_PLANE_OUTBOX";
-        command.status = ControlCommandStatus.DISPATCHED;
-        command.dispatchedAt = Instant.now();
-        command.resultMessage = "控制命令已写入 outbox，并以模拟派发模式送达 Agent Runtime。";
+        command.status = ControlCommandStatus.QUEUED;
+        command.attemptCount = 0;
+        command.resultMessage = dispatchProperties.isEnabled()
+                ? "控制命令已写入 outbox，准备投递到在线 Agent Runtime。"
+                : "控制命令已写入 outbox；HTTP Runtime 适配器未启用。";
         command = commandRepository.save(command);
+        if (dispatchProperties.isEnabled()) dispatch(command);
         writeAudit(command);
         return AgentControlDtos.from(command);
+    }
+
+    @Transactional
+    public AgentControlDtos.CommandResponse retry(String commandKey) {
+        AgentControlCommand command = commandRepository.findByCommandKey(commandKey)
+                .orElseThrow(() -> new BusinessException("控制命令不存在"));
+        if (command.status == ControlCommandStatus.ACKED) {
+            throw new BusinessException("已 ACK 的控制命令不能重试");
+        }
+        if ((command.attemptCount == null ? 0 : command.attemptCount) >= dispatchProperties.getMaxAttempts()) {
+            throw new BusinessException("控制命令已达到最大重试次数 " + dispatchProperties.getMaxAttempts());
+        }
+        command.status = ControlCommandStatus.QUEUED;
+        command.resultMessage = dispatchProperties.isEnabled() ? "正在重试控制命令。" : "控制命令已回到 outbox；HTTP Runtime 适配器未启用。";
+        command = commandRepository.save(command);
+        if (dispatchProperties.isEnabled()) dispatch(command);
+        writeAudit(command);
+        return AgentControlDtos.from(command);
+    }
+
+    private void dispatch(AgentControlCommand command) {
+        AgentRuntimeInstance runtime = runtimeRepository
+                .findFirstByAgentIdAndStatusOrderByLoadScoreAsc(command.agentId, RuntimeStatus.ONLINE)
+                .orElse(null);
+        if (runtime == null) {
+            command.status = ControlCommandStatus.FAILED;
+            command.dispatchMode = "HTTP_RUNTIME";
+            command.resultMessage = "没有可用的 ONLINE Agent Runtime。";
+            command.attemptCount = 1;
+            commandRepository.save(command);
+            return;
+        }
+        command.runtimeInstanceKey = runtime.getInstanceKey();
+        command.dispatchMode = "HTTP_RUNTIME";
+        command.attemptCount = (command.attemptCount == null ? 0 : command.attemptCount) + 1;
+        command.dispatchedAt = Instant.now();
+        try {
+            AgentControlAdapter.DispatchResult result = httpAdapter.dispatch(command, runtime);
+            command.status = result.status();
+            command.dispatchMode = result.dispatchMode();
+            command.resultMessage = result.resultMessage();
+            command.httpStatus = result.httpStatus();
+            command.acknowledgedAt = result.acknowledgedAt();
+        } catch (RuntimeException exception) {
+            command.status = ControlCommandStatus.FAILED;
+            command.resultMessage = exception.getMessage() == null ? "控制适配器执行失败" : exception.getMessage();
+        }
+        commandRepository.save(command);
     }
 
     private void writeAudit(AgentControlCommand command) {
@@ -78,7 +145,7 @@ public class AgentControlService {
         auditLog.setResourceId(String.valueOf(command.agentId));
         auditLog.setBeforeJson(null);
         auditLog.setAfterJson("{\"commandKey\":\"" + command.commandKey + "\",\"commandType\":\"" + command.commandType + "\",\"status\":\"" + command.status + "\"}");
-        auditLog.setResult("SUCCESS");
+        auditLog.setResult(command.status == ControlCommandStatus.FAILED ? "FAILED" : "SUCCESS");
         auditLog.setTraceId(TraceContext.traceId());
         auditLog.setCreatedAt(Instant.now());
         auditLogRepository.save(auditLog);

@@ -25,8 +25,8 @@ Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面�
 - 左侧智能体/系统节点面板：支持把 Agent、开始、决策、制品、结束节点拖入画布。
 - 中间画布：支持节点拖动定位、点击节点建立连线。
 - 右侧属性面板：维护节点名称、类型、能力声明和 JSON 配置。
-- 后端持久化：工作流、节点、边统一落库，后续可接入计划编排和安全网关执行。
-- 受控执行：第一版提供模拟执行器，按工作流边顺序遍历节点，并把每个节点提交到安全网关审计；真实业务工具调用需要在后续执行适配器中接入。
+- 后端持久化：工作流、节点、边统一落库，运行时仍经过安全网关决策。
+- 受控执行：工作流按边顺序遍历节点并提交安全审计；Agent 控制命令已支持可选的 HTTP Runtime 真实适配器，业务工具调用仍需按企业协议接入。
 
 当前已加入第一版自主智能体发现：
 
@@ -145,6 +145,9 @@ npm run dev
 - `POST /api/discovery/connectors/kubernetes/watch`：接收 Kubernetes Watch 的 `ADDED/MODIFIED/DELETED` 事件，提取 Pod/Deployment 容器、镜像、框架标签、端口和安全上下文。
 - `POST /api/discovery/connectors/kubernetes/admission`：接收 Kubernetes AdmissionReview 的 `request.object`，在工作负载落地前记录 Agent/MCP 候选及特权、hostNetwork 等风险。
 - `POST /api/discovery/connectors/ebpf/observations`：接收主机 eBPF 网络探针归一化的进程—远端服务流，识别模型供应商、模型、MCP 和 Agent 运行时。
+- `GET /api/control/commands`：查看控制命令 outbox、投递实例、ACK/失败状态和 HTTP 状态。
+- `POST /api/control/commands`：提交 `PAUSE`、`RESUME`、`RELOAD_POLICY`、`UPDATE_CONFIG`、`RUN_HEALTH_CHECK` 或 `SET_RATE_LIMIT` 控制命令。
+- `POST /api/control/commands/{commandKey}/retry`：对未 ACK 的控制命令执行受限重试（默认最多 3 次）。
 - `GET /api/telemetry/physical-summary?hours=24`：物理界面 Token、费用、延迟、成功率和运行状况汇总。
 - `GET /api/telemetry/model-invocations?limit=100`：最近模型调用遥测事件。
 - `POST /api/telemetry/model-invocations`：上报一次模型调用元数据；生产环境使用 `X-EAP-Telemetry-Token`。
@@ -153,6 +156,16 @@ npm run dev
 - `POST /api/observability/content`：由受控代理、SDK 插件或外部探针上报内容观测；生产环境使用 `X-EAP-Observability-Token`。
 - `POST /api/observability/otlp/v1/traces`：接收 OTLP/HTTP JSON Trace，自动识别 GenAI Span、登记工作负载端点并归一化模型调用与内容观测。
 - `GET /api/observability/otlp/spans?limit=100`：查看模型、工具、MCP、RAG、A2A 和 Agent 深度 Span 摘要。
+
+控制面默认只写入 outbox，不会主动访问运行时。启用 HTTP Runtime 适配器前，运行实例通过 `/api/agents/{agentId}/runtime-instances` 注册在线 endpoint，然后设置：
+
+```bash
+EAP_CONTROL_DISPATCH_ENABLED=true
+EAP_CONTROL_DISPATCH_PATH=/eap/control
+EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=false
+```
+
+适配器选择同一 Agent 负载最低的 `ONLINE` 实例，使用 `X-EAP-Control-Command-Key` 和 `Idempotency-Key` 防止重复执行；2xx 记录 `ACKED`，连接、协议或 HTTP 错误记录 `FAILED`。私网、回环和 `.local` endpoint 默认被 SSRF 防护阻断，内网部署必须由运维显式开启 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。Runtime 只需实现 `POST /eap/control`，无需嵌入 EAP SDK。
 - `GET /api/knowledge/summary?hours=24`：知识输入、过程、输出、采用率和复用率汇总。
 - `GET /api/knowledge/interactions?limit=100`：知识交互及过程步骤明细。
 - `POST /api/knowledge/interactions`：上报一次知识交互和过程步骤；生产环境使用 `X-EAP-Knowledge-Token`。
@@ -350,6 +363,8 @@ EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES=4194304
 ```
 
 EAP 不仅记录 GenAI 模型 Span，还会被动分类并持久化 `MODEL`、`TOOL`、`MCP`、`RAG`、`A2A`、`AGENT` Span，保存父子 Span 关系、工具名、MCP Server、RAG 来源、耗时、状态和脱敏属性摘要。工具参数、MCP 请求、RAG 查询/文档和 A2A 消息会复用深度观测模式处理；正文不会进入普通 Span 属性表。控制台或审计系统可通过 `GET /api/observability/otlp/spans?limit=100` 查看最近深度 Span。
+
+当 OTLP Trace 中出现 RAG 检索 Span 时，EAP 会自动生成一条知识交互：检索引用来自 `rag.documents` / `retrieval.documents`，输入来自 `rag.query` / `retrieval.query`；若同一 Trace 后续存在模型 Span，则将知识采用标记为推断采用，并保留 `OTLP_TRACE` 过程证据。显式提供 `rag.adopted`、`rag.reused` 时优先使用显式结果。知识采用率和复用率会自动进入知识、管理摘要；业务 ROI 仍只使用业务方确认的价值事件，不用模型自行臆测金额。
 
 如配置了 `EAP_OBSERVABILITY_INGESTION_TOKEN`，Collector 需要增加请求头 `X-EAP-Observability-Token`。EAP 会根据 `service.instance.id`、`k8s.pod.uid`、`container.id`、`host.id` 等资源属性自动生成稳定端点，不要求应用提供 EAP Agent ID。OTLP 观察到的调用会标记为 `OTLP / 被动发现` 和 `governanceCovered=false`，避免把“已经发生但未经过治理网关”的流量误报为已治理。
 

@@ -100,6 +100,15 @@ eap:
     max-response-bytes: ${EAP_GATEWAY_MAX_RESPONSE_BYTES:4194304}
     input-cost-per-1k-tokens: ${EAP_GATEWAY_INPUT_COST_PER_1K_TOKENS:0}
     output-cost-per-1k-tokens: ${EAP_GATEWAY_OUTPUT_COST_PER_1K_TOKENS:0}
+  control:
+    dispatch:
+      enabled: ${EAP_CONTROL_DISPATCH_ENABLED:false}
+      path: ${EAP_CONTROL_DISPATCH_PATH:/eap/control}
+      connect-timeout-ms: ${EAP_CONTROL_DISPATCH_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_CONTROL_DISPATCH_READ_TIMEOUT_MS:10000}
+      max-response-bytes: ${EAP_CONTROL_DISPATCH_MAX_RESPONSE_BYTES:65536}
+      max-attempts: ${EAP_CONTROL_DISPATCH_MAX_ATTEMPTS:3}
+      allow-private-networks: ${EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS:false}
   observability:
     enabled: ${EAP_OBSERVABILITY_ENABLED:true}
     capture-mode: ${EAP_OBSERVABILITY_CAPTURE_MODE:HASH_ONLY}

@@ -65,6 +65,18 @@ public class AgentRuntimeInstance {
         return agentId;
     }
 
+    public String getInstanceKey() {
+        return instanceKey;
+    }
+
+    public String getEndpoint() {
+        return endpoint;
+    }
+
+    public String getProtocol() {
+        return protocol;
+    }
+
     public RuntimeStatus getStatus() {
         return status;
     }

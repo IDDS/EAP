@@ -8,6 +8,7 @@ import java.util.Optional;
 public interface AgentRuntimeInstanceRepository extends JpaRepository<AgentRuntimeInstance, Long> {
     List<AgentRuntimeInstance> findByAgentId(Long agentId);
 
+    Optional<AgentRuntimeInstance> findFirstByAgentIdAndStatusOrderByLoadScoreAsc(Long agentId, RuntimeStatus status);
+
     Optional<AgentRuntimeInstance> findByInstanceKey(String instanceKey);
 }
-

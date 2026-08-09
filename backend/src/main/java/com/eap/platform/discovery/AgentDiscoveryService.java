@@ -359,6 +359,12 @@ public class AgentDiscoveryService {
         agent.firstSeenAt = newAsset ? now : agent.firstSeenAt;
         agent.lastSeenAt = now;
         DiscoveredAgent saved = agentRepository.save(agent);
+        if (saved == null) saved = agent;
+        if (saved.id == null) {
+            DiscoveredAgent flushed = agentRepository.saveAndFlush(saved);
+            if (flushed != null) saved = flushed;
+        }
+        if (saved.id == null) throw new BusinessException("发现资产写入后未获得稳定 ID");
         linkIdentity(saved, item, identity, now);
         return saved;
     }

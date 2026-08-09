@@ -18,7 +18,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(20);
+        assertThat(result.migrationsExecuted).isEqualTo(21);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("select count(*) from agents")) {
@@ -28,6 +28,13 @@ class FlywayMigrationTests {
             try (var columns = statement.executeQuery(
                     "select count(*) from information_schema.columns " +
                             "where table_name = 'governance_preflight_decisions' and column_name = 'approval_status'"
+            )) {
+                columns.next();
+                assertThat(columns.getLong(1)).isEqualTo(1);
+            }
+            try (var columns = statement.executeQuery(
+                    "select count(*) from information_schema.columns " +
+                            "where table_name = 'agent_control_commands' and column_name = 'runtime_instance_key'"
             )) {
                 columns.next();
                 assertThat(columns.getLong(1)).isEqualTo(1);

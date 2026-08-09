@@ -1,6 +1,7 @@
 package com.eap.platform.observability;
 
 import com.eap.platform.discovery.AgentDiscoveryService;
+import com.eap.platform.knowledge.KnowledgeService;
 import com.eap.platform.telemetry.ModelObservationSource;
 import com.eap.platform.telemetry.ModelTelemetryDtos;
 import com.eap.platform.telemetry.ModelTelemetryService;
@@ -21,12 +22,13 @@ class OtlpTraceIngestionServiceTests {
     private final ModelTelemetryService telemetryService = mock(ModelTelemetryService.class);
     private final ContentObservationService contentObservationService = mock(ContentObservationService.class);
     private final TraceSpanObservationRepository traceSpanRepository = mock(TraceSpanObservationRepository.class);
+    private final KnowledgeService knowledgeService = mock(KnowledgeService.class);
 
     @Test
     void normalizesCurrentGenAiAttributesAndRedactsSensitiveInput() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
-                new SensitiveContentSanitizer(), traceSpanRepository
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService
         );
         when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
         JsonNode payload = objectMapper.readTree("""
@@ -91,7 +93,7 @@ class OtlpTraceIngestionServiceTests {
     void recordsToolMcpRagAndA2aSpansWithContentSeparated() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
-                new SensitiveContentSanitizer(), traceSpanRepository
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService
         );
         when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
         JsonNode payload = objectMapper.readTree("""
@@ -110,6 +112,7 @@ class OtlpTraceIngestionServiceTests {
         assertThat(response.mcpSpansRecorded()).isEqualTo(1);
         assertThat(response.ragSpansRecorded()).isEqualTo(1);
         assertThat(response.a2aSpansRecorded()).isEqualTo(1);
+        assertThat(response.knowledgeInteractionsRecorded()).isEqualTo(1);
         assertThat(response.contentObservationsRecorded()).isEqualTo(8);
         verify(traceSpanRepository, times(4)).save(org.mockito.ArgumentMatchers.any());
         verify(contentObservationService, times(8)).capture(org.mockito.ArgumentMatchers.any(ContentObservationService.CaptureCommand.class));

@@ -18,6 +18,7 @@ public final class OtlpTraceIngestionDtos {
             int mcpSpansRecorded,
             int ragSpansRecorded,
             int a2aSpansRecorded,
+            int knowledgeInteractionsRecorded,
             List<String> warnings
     ) {
     }

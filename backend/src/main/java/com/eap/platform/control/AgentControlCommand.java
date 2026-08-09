@@ -42,6 +42,15 @@ public class AgentControlCommand {
     @Column(name = "dispatch_mode", nullable = false, length = 64)
     String dispatchMode;
 
+    @Column(name = "runtime_instance_key", length = 128)
+    String runtimeInstanceKey;
+
+    @Column(name = "attempt_count", nullable = false)
+    Integer attemptCount = 0;
+
+    @Column(name = "http_status")
+    Integer httpStatus;
+
     @Column(name = "result_message", length = 512)
     String resultMessage;
 
@@ -53,6 +62,9 @@ public class AgentControlCommand {
 
     @Column(name = "dispatched_at")
     Instant dispatchedAt;
+
+    @Column(name = "acknowledged_at")
+    Instant acknowledgedAt;
 
     @PrePersist
     void prePersist() {

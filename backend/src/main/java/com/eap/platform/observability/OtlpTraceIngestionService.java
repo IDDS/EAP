@@ -3,6 +3,11 @@ package com.eap.platform.observability;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.discovery.AgentDiscoveryDtos;
 import com.eap.platform.discovery.AgentDiscoveryService;
+import com.eap.platform.knowledge.KnowledgeDtos;
+import com.eap.platform.knowledge.KnowledgeInteractionStatus;
+import com.eap.platform.knowledge.KnowledgeService;
+import com.eap.platform.knowledge.KnowledgeStepStatus;
+import com.eap.platform.knowledge.KnowledgeStepType;
 import com.eap.platform.telemetry.ModelInvocationStatus;
 import com.eap.platform.telemetry.ModelObservationSource;
 import com.eap.platform.telemetry.ModelTelemetryDtos;
@@ -32,6 +37,7 @@ public class OtlpTraceIngestionService {
     private final ContentObservationService contentObservationService;
     private final SensitiveContentSanitizer sanitizer;
     private final TraceSpanObservationRepository traceSpanRepository;
+    private final KnowledgeService knowledgeService;
 
     public OtlpTraceIngestionService(
             ObjectMapper objectMapper,
@@ -39,7 +45,8 @@ public class OtlpTraceIngestionService {
             ModelTelemetryService telemetryService,
             ContentObservationService contentObservationService,
             SensitiveContentSanitizer sanitizer,
-            TraceSpanObservationRepository traceSpanRepository
+            TraceSpanObservationRepository traceSpanRepository,
+            KnowledgeService knowledgeService
     ) {
         this.objectMapper = objectMapper;
         this.discoveryService = discoveryService;
@@ -47,6 +54,7 @@ public class OtlpTraceIngestionService {
         this.contentObservationService = contentObservationService;
         this.sanitizer = sanitizer;
         this.traceSpanRepository = traceSpanRepository;
+        this.knowledgeService = knowledgeService;
     }
 
     public OtlpTraceIngestionDtos.IngestionResponse ingest(JsonNode payload) {
@@ -69,6 +77,13 @@ public class OtlpTraceIngestionService {
             for (JsonNode scope : scopes) {
                 ArrayNode spans = array(scope.path("spans"));
                 if (spans == null) continue;
+                java.util.Set<String> modelTraces = new java.util.HashSet<>();
+                for (JsonNode candidate : spans) {
+                    Map<String, JsonNode> candidateAttrs = attributes(candidate.path("attributes"));
+                    if (classify(candidate, candidateAttrs) == TraceSpanKind.MODEL) {
+                        modelTraces.add(text(candidate, "traceId", hash(candidate.toString()).substring(0, 32)));
+                    }
+                }
                 for (JsonNode span : spans) {
                     if (++counters.spansScanned > MAX_SPANS) {
                         warnings.add("超过单次最大 Span 数量 " + MAX_SPANS + "，其余数据已忽略");
@@ -77,7 +92,8 @@ public class OtlpTraceIngestionService {
                     Map<String, JsonNode> attrs = attributes(span.path("attributes"));
                     TraceSpanKind spanKind = classify(span, attrs);
                     if (spanKind != null) {
-                        recordTraceSpan(span, attrs, endpointKey, spanKind, counters);
+                        String spanTraceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
+                        recordTraceSpan(span, attrs, endpointKey, spanKind, modelTraces.contains(spanTraceId), counters);
                     }
                     if (spanKind != TraceSpanKind.MODEL) continue;
                     counters.genAiSpansDetected++;
@@ -103,6 +119,7 @@ public class OtlpTraceIngestionService {
             Map<String, JsonNode> attrs,
             String endpointKey,
             TraceSpanKind spanKind,
+            boolean modelInTrace,
             Counters counters
     ) {
         String traceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
@@ -134,6 +151,88 @@ public class OtlpTraceIngestionService {
         }
         if (spanKind != TraceSpanKind.MODEL) captureTracePayloads(
                 traceId, spanId, endpointKey, spanKind, attrs, observation.observedAt, counters);
+        if (spanKind == TraceSpanKind.RAG) inferKnowledgeInteraction(
+                traceId, spanId, endpointKey, attrs, modelInTrace, observation.observedAt, observation.durationMs, counters);
+    }
+
+    private void inferKnowledgeInteraction(
+            String traceId,
+            String spanId,
+            String endpointKey,
+            Map<String, JsonNode> attrs,
+            boolean modelInTrace,
+            Instant observedAt,
+            long durationMs,
+            Counters counters
+    ) {
+        JsonNode documents = firstNode(attrs, "rag.documents", "retrieval.documents", "rag.source.documents");
+        JsonNode query = firstNode(attrs, "rag.query", "retrieval.query");
+        List<String> refs = refs(documents);
+        int sourceCount = refs.isEmpty() ? (documents == null ? 0 : 1) : refs.size();
+        Boolean adopted = nullableBoolean(attrs, "rag.adopted", "knowledge.adopted");
+        Boolean reused = nullableBoolean(attrs, "rag.reused", "knowledge.reused");
+        if (adopted == null) adopted = modelInTrace && sourceCount > 0;
+        if (reused == null) reused = duplicateRefs(refs);
+        knowledgeService.record(new KnowledgeDtos.KnowledgeInteractionRequest(
+                normalize("otlp-knowledge-" + traceId + "-" + spanId, 128),
+                traceId, null, endpointKey, null,
+                "RAG_QUERY", sourceCount, estimateTokens(query), textValue(query), refs,
+                "RAG_CONTEXT", sourceCount, estimateTokens(documents), textValue(documents), refs,
+                List.of(new KnowledgeDtos.KnowledgeStepRequest(
+                        0, KnowledgeStepType.RETRIEVAL, "OTLP RAG span", KnowledgeStepStatus.SUCCEEDED,
+                        sourceCount, estimateTokens(query), estimateTokens(documents), durationMs, refs,
+                        Map.of("inferenceSource", "OTLP_TRACE", "modelInSameTrace", modelInTrace)
+                )),
+                KnowledgeInteractionStatus.SUCCEEDED, adopted, reused, null, observedAt, observedAt
+        ));
+        counters.knowledgeInteractionsRecorded++;
+    }
+
+    private List<String> refs(JsonNode value) {
+        if (value == null || value.isNull()) return List.of();
+        if (value.isArray()) {
+            List<String> result = new ArrayList<>();
+            for (JsonNode item : value) {
+                JsonNode ref = item;
+                if (item.isObject()) {
+                    ref = firstNode(item, "id", "ref", "documentId", "source", "uri", "key");
+                }
+                String itemText = textValue(ref == null ? item : ref);
+                if (itemText != null && !itemText.isBlank()) result.add(normalize(itemText, 256));
+                if (result.size() >= 100) break;
+            }
+            return result;
+        }
+        String text = textValue(value);
+        if (text == null) return List.of();
+        return java.util.Arrays.stream(text.split("[,\\s]+"))
+                .filter(item -> !item.isBlank()).map(item -> normalize(item, 256)).limit(100).toList();
+    }
+
+    private JsonNode firstNode(JsonNode object, String... fields) {
+        if (object == null || !object.isObject()) return null;
+        for (String field : fields) {
+            JsonNode value = object.get(field);
+            if (value != null && !value.isNull() && !value.isMissingNode()) return value;
+        }
+        return null;
+    }
+
+    private boolean duplicateRefs(List<String> refs) { return refs.size() != new java.util.LinkedHashSet<>(refs).size(); }
+
+    private long estimateTokens(JsonNode value) {
+        String text = textValue(value);
+        return text == null ? 0L : Math.max(0L, (text.length() + 3L) / 4L);
+    }
+
+    private String textValue(JsonNode value) {
+        if (value == null || value.isNull() || value.isMissingNode()) return null;
+        return value.isTextual() ? normalize(value.asText(), 2048) : normalize(value.toString(), 2048);
+    }
+
+    private Boolean nullableBoolean(Map<String, JsonNode> attrs, String... keys) {
+        JsonNode value = firstNode(attrs, keys);
+        return value == null ? null : value.asBoolean(false);
     }
 
     private void captureTracePayloads(
@@ -449,7 +548,7 @@ public class OtlpTraceIngestionService {
                 counters.spansScanned, counters.genAiSpansDetected, counters.invocationsRecorded,
                 counters.contentObservationsRecorded, counters.endpointsRegistered, counters.traceSpansRecorded,
                 counters.toolSpansRecorded, counters.mcpSpansRecorded, counters.ragSpansRecorded,
-                counters.a2aSpansRecorded, List.copyOf(warnings)
+                counters.a2aSpansRecorded, counters.knowledgeInteractionsRecorded, List.copyOf(warnings)
         );
     }
 
@@ -464,5 +563,6 @@ public class OtlpTraceIngestionService {
         int mcpSpansRecorded;
         int ragSpansRecorded;
         int a2aSpansRecorded;
+        int knowledgeInteractionsRecorded;
     }
 }
