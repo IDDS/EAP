@@ -74,7 +74,13 @@
       title="尚未录入业务方确认价值，ROI 暂不计算。请在下方登记与 Agent 或发现端点关联的价值事件。"
     />
 
-    <div class="metric-strip">
+    <div class="interface-tabs" role="tablist" aria-label="管理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">价值总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'attribution' }" :effect="activeSection === 'attribution' ? 'dark' : 'plain'" @click="activeSection = 'attribution'">投入产出</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
+    </div>
+
+    <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-warning">
         <div><strong>{{ formatMoney(summary.totalCost) }}</strong><span>模型投入 USD</span></div>
         <el-icon><Money /></el-icon>
@@ -93,7 +99,7 @@
       </div>
     </div>
 
-    <div class="management-stat-grid">
+    <div v-show="activeSection === 'overview'" class="management-stat-grid">
       <div><span>任务数</span><strong>{{ formatNumber(summary.totalTasks) }}</strong></div>
       <div><span>模型调用</span><strong>{{ formatNumber(summary.totalModelCalls) }}</strong></div>
       <div><span>总 Token</span><strong>{{ formatNumber(summary.totalTokens) }}</strong></div>
@@ -102,7 +108,7 @@
       <div><span>知识复用率</span><strong>{{ reusePercent }}%</strong></div>
     </div>
 
-    <div class="chart-grid management-chart-grid">
+    <div v-show="activeSection === 'overview'" class="chart-grid management-chart-grid">
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
           <div class="panel-header">
@@ -123,7 +129,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel management-leaderboard-panel">
+    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-leaderboard-panel">
       <template #header>
         <div class="panel-header">
           <span>Agent 价值排行</span>
@@ -145,7 +151,7 @@
       <el-empty v-else description="当前窗口没有可排行的 Agent 价值数据" />
     </el-card>
 
-    <div class="management-two-column">
+    <div v-show="activeSection === 'attribution'" class="management-two-column">
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
@@ -236,7 +242,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'value'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>价值事件记录</span>
@@ -297,6 +303,7 @@ const emptySummary: ManagementSummary = {
 }
 
 const windowHours = ref(24)
+const activeSection = ref<'overview' | 'attribution' | 'value'>('overview')
 const loading = ref(false)
 const saving = ref(false)
 const summary = ref<ManagementSummary>({ ...emptySummary })

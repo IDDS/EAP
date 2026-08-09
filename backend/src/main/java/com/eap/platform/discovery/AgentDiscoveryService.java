@@ -51,6 +51,7 @@ public class AgentDiscoveryService {
         this.objectMapper = objectMapper;
     }
 
+    @Transactional
     public AgentDiscoveryDtos.DiscoveryRunResponse runScan(DiscoveryTriggerType triggerType) {
         if (!scanRunning.compareAndSet(false, true)) {
             throw new BusinessException("已有自动发现扫描正在运行");

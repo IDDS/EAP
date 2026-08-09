@@ -83,7 +83,14 @@
       title="治理策略已经启用，但 OpenAI-compatible 模型网关尚未配置上游；生产 Agent 还不能经由统一入口调用模型。"
     />
 
-    <div class="governance-enforcement-strip">
+    <div class="interface-tabs" role="tablist" aria-label="治理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">治理总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'preflight' }" :effect="activeSection === 'preflight' ? 'dark' : 'plain'" @click="activeSection = 'preflight'">实时预检</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'audit' }" :effect="activeSection === 'audit' ? 'dark' : 'plain'" @click="activeSection = 'audit'">事件审计</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'policies' }" :effect="activeSection === 'policies' ? 'dark' : 'plain'" @click="activeSection = 'policies'">治理策略</el-tag>
+    </div>
+
+    <div v-show="activeSection === 'overview'" class="governance-enforcement-strip">
       <div>
         <span>执行模式</span>
         <strong>{{ enforcement.enforcementEnabled ? 'ENFORCE' : 'OBSERVE' }}</strong>
@@ -105,7 +112,7 @@
       <div><span>客户端鉴权</span><strong>{{ gateway.authenticationConfigured ? 'READY' : 'MISSING' }}</strong></div>
     </div>
 
-    <el-card shadow="never" class="panel gateway-integration-card">
+    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel gateway-integration-card">
       <template #header>
         <div class="panel-header">
           <span>生产接入入口</span>
@@ -123,7 +130,7 @@
       <p class="muted">兼容非流式与安全缓冲式 SSE Chat Completions；请求和输出分别执行治理预检，正文不落库。外部 DLP 可通过 X-EAP-Sensitivity、X-EAP-Company-Secret、X-EAP-Detected-Types 提交分类标签。</p>
     </el-card>
 
-    <div class="metric-strip">
+    <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-primary">
         <div><strong>{{ formatNumber(summary.modelInputEvents) }}</strong><span>进入模型事件</span></div>
         <el-icon><DataAnalysis /></el-icon>
@@ -142,7 +149,7 @@
       </div>
     </div>
 
-    <div class="governance-stat-grid">
+    <div v-show="activeSection === 'overview'" class="governance-stat-grid">
       <div><span>内部信息占比</span><strong>{{ internalPercent }}%</strong></div>
       <div><span>保密信息占比</span><strong>{{ secretPercent }}%</strong></div>
       <div><span>阻断率</span><strong>{{ blockPercent }}%</strong></div>
@@ -151,7 +158,7 @@
       <div><span>治理 Token</span><strong>{{ formatNumber(summary.totalTokens) }}</strong></div>
     </div>
 
-    <div class="governance-two-column">
+    <div v-show="activeSection === 'preflight'" class="governance-two-column">
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
@@ -249,7 +256,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'preflight'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>最近预检与执行指令</span>
@@ -300,7 +307,7 @@
       <el-empty v-if="visibleDecisions.length === 0" description="尚未执行模型网关预检" />
     </el-card>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'audit'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>最近治理事件</span>
@@ -338,7 +345,7 @@
       <el-empty v-if="visibleEvents.length === 0" description="尚未收到治理数据事件" />
     </el-card>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'policies'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>治理策略</span>
@@ -423,7 +430,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, DataAnalysis, Lock, OfficeBuilding, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
@@ -493,6 +500,7 @@ const enforcement = ref<GovernanceEnforcementStatus>({ ...emptyEnforcement })
 const decisions = ref<GovernancePreflightDecision[]>([])
 const gateway = ref<ModelGatewayStatus>({ ...emptyGateway })
 const windowHours = ref(24)
+const activeSection = ref<'overview' | 'preflight' | 'audit' | 'policies'>('overview')
 const loading = ref(false)
 const saving = ref(false)
 const policyDialogVisible = ref(false)
@@ -542,6 +550,11 @@ const drilldownLabel = computed(() => {
   if (contextPolicyId.value) parts.push(`策略 #${contextPolicyId.value}`)
   return parts.join(' · ')
 })
+
+watch([contextPolicyId, contextEventKey], ([policyId, eventKey]) => {
+  if (policyId) activeSection.value = 'policies'
+  else if (eventKey) activeSection.value = 'audit'
+}, { immediate: true })
 
 const internalPercent = computed(() => Math.round(summary.value.internalExposureRate * 100))
 const secretPercent = computed(() => Math.round(summary.value.secretExposureRate * 100))

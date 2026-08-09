@@ -111,6 +111,14 @@
       title="尚未收到真实模型调用遥测。物理界面不会使用模拟 Token 数据，请通过遥测接口或模型网关上报。"
     />
 
+    <div class="interface-tabs" role="tablist" aria-label="物理界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">运行总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">调用接入</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">物理资产</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">深度 Trace</el-tag>
+    </div>
+
+    <div v-show="activeSection === 'ingest'">
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -180,8 +188,9 @@
         </div>
       </el-form>
     </el-card>
+    </div>
 
-    <div class="metric-strip">
+    <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-primary">
         <div><strong>{{ formatNumber(summary.totalTokens) }}</strong><span>总 Token</span></div>
         <el-icon><Tickets /></el-icon>
@@ -200,7 +209,7 @@
       </div>
     </div>
 
-    <div class="physical-stat-grid">
+    <div v-show="activeSection === 'overview'" class="physical-stat-grid">
       <div><span>输入 Token</span><strong>{{ formatNumber(summary.inputTokens) }}</strong></div>
       <div><span>输出 Token</span><strong>{{ formatNumber(summary.outputTokens) }}</strong></div>
       <div><span>缓存输入</span><strong>{{ formatNumber(summary.cachedInputTokens) }}</strong></div>
@@ -211,7 +220,7 @@
       <div><span>运行实例</span><strong>{{ summary.onlineRuntimeCount }} 在线</strong></div>
     </div>
 
-    <div class="chart-grid">
+    <div v-show="activeSection === 'overview'" class="chart-grid">
       <el-card shadow="never" class="panel chart-panel chart-panel-wide">
         <template #header>
           <div class="panel-header">
@@ -232,7 +241,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'assets'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>物理结构与端点分布</span>
@@ -261,7 +270,7 @@
       </div>
     </el-card>
 
-    <div class="physical-two-column">
+    <div v-show="activeSection === 'assets'" class="physical-two-column">
       <el-card shadow="never" class="panel">
         <template #header>Agent / 端点消耗排行</template>
         <el-table :data="summary.subjectUsage" size="small">
@@ -298,7 +307,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>最近模型调用</span>
@@ -357,7 +366,7 @@
       </el-table>
     </el-card>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>深度内容观测</span>
@@ -398,7 +407,7 @@
       </el-table>
     </el-card>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>Agent 深度 Trace</span>
@@ -428,7 +437,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
@@ -472,6 +481,7 @@ const emptySummary: PhysicalTelemetrySummary = {
 }
 
 const windowHours = ref(24)
+const activeSection = ref<'overview' | 'ingest' | 'assets' | 'trace'>('overview')
 const loading = ref(false)
 const scanLoading = ref(false)
 const telemetrySaving = ref(false)
@@ -516,6 +526,10 @@ const drilldownLabel = computed(() => {
   if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
   return parts.join(' · ')
 })
+
+watch([contextTraceId, contextEventKey], ([traceId, eventKey]) => {
+  if (traceId || eventKey) activeSection.value = 'trace'
+}, { immediate: true })
 
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))
 const endpointCoveragePercent = computed(() => summary.value.registeredEndpoints > 0

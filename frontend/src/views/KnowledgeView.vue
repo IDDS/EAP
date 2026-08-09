@@ -73,7 +73,13 @@
       title="尚未收到知识交互遥测。请由 Agent Runtime 上报输入、过程步骤和输出引用。"
     />
 
-    <el-card shadow="never" class="panel">
+    <div class="interface-tabs" role="tablist" aria-label="知识界面分区">
+      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">知识总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">交互接入</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">过程追踪</el-tag>
+    </div>
+
+    <el-card v-show="activeSection === 'ingest'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>知识交互接入</span>
@@ -145,7 +151,7 @@
       </el-form>
     </el-card>
 
-    <div class="metric-strip">
+    <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-primary">
         <div><strong>{{ summary.totalInteractions }}</strong><span>知识交互</span></div>
         <el-icon><DataAnalysis /></el-icon>
@@ -164,7 +170,7 @@
       </div>
     </div>
 
-    <div class="knowledge-stat-grid">
+    <div v-show="activeSection === 'overview'" class="knowledge-stat-grid">
       <div><span>输入 Token</span><strong>{{ formatNumber(summary.inputTokens) }}</strong></div>
       <div><span>输出 Token</span><strong>{{ formatNumber(summary.outputTokens) }}</strong></div>
       <div><span>输出知识来源</span><strong>{{ formatNumber(summary.outputSourceCount) }}</strong></div>
@@ -173,7 +179,7 @@
       <div><span>交互成功率</span><strong>{{ successPercent }}%</strong></div>
     </div>
 
-    <div class="chart-grid knowledge-chart-grid">
+    <div v-show="activeSection === 'overview'" class="chart-grid knowledge-chart-grid">
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
           <div class="panel-header">
@@ -194,7 +200,7 @@
       </el-card>
     </div>
 
-    <div class="knowledge-two-column">
+    <div v-show="activeSection === 'overview'" class="knowledge-two-column">
       <el-card shadow="never" class="panel">
         <template #header>Agent 知识采用与复用</template>
         <el-table :data="visibleAgentUsage" size="small">
@@ -222,7 +228,7 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="panel">
+    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>知识交互追踪</span>
@@ -281,7 +287,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Collection, DataAnalysis, Refresh, Select } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
@@ -316,6 +322,7 @@ const emptySummary: KnowledgeSummary = {
 }
 
 const windowHours = ref(24)
+const activeSection = ref<'overview' | 'ingest' | 'trace'>('overview')
 const loading = ref(false)
 const saving = ref(false)
 const summary = ref<KnowledgeSummary>({ ...emptySummary })
@@ -355,6 +362,9 @@ const drilldownLabel = computed(() => {
   if (contextTraceId.value) parts.push(`Trace ${contextTraceId.value}`)
   return parts.join(' · ')
 })
+watch(contextTraceId, traceId => {
+  if (traceId) activeSection.value = 'trace'
+}, { immediate: true })
 const adoptionPercent = computed(() => Math.round(summary.value.adoptionRate * 100))
 const reusePercent = computed(() => Math.round(summary.value.reuseRate * 100))
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))

@@ -1385,6 +1385,38 @@ body {
   }
 }
 
+.interface-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -2px 0 2px;
+}
+
+.interface-tabs .el-tag {
+  min-height: 30px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border-color: var(--eap-border);
+  color: var(--eap-muted);
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+  transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.interface-tabs .el-tag:hover {
+  color: var(--eap-blue);
+  border-color: rgba(49, 103, 232, .45);
+}
+
+.interface-tabs .el-tag.is-active {
+  color: #fff;
+  border-color: var(--eap-blue);
+  background: var(--eap-blue);
+  box-shadow: 0 4px 10px rgba(49, 103, 232, .18);
+}
+
 /* AdminLTE-inspired compact content rhythm. */
 .page-grid {
   gap: 16px;
