@@ -37,6 +37,16 @@ Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面�
 - 只读取配置和清单，不执行配置文件中的 MCP 命令。
 - 可通过 `EAP_DISCOVERY_ENABLED`、`EAP_DISCOVERY_SCAN_ROOTS` 和扫描周期参数控制范围与频率。
 
+协议级发现已经接入候选资产层：
+
+- A2A：探测标准 `/.well-known/agent-card.json`，兼容旧版 `/.well-known/agent.json`，登记 Agent Card 中的名称、版本、能力、技能、流式能力和认证声明。
+- MCP：支持官方 Registry 的 `/v0.1/servers`，以及 `server.json` / `/.well-known/mcp/*.json` 元数据，登记包、远程传输和仓库等证据；不会安装、启动或执行 MCP 包中的命令。
+- `AUTO` 会按顺序尝试 A2A、MCP Server Metadata 和 MCP Registry；所有响应都有大小限制、超时和禁止重定向控制。
+- 手动接口为 `POST /api/discovery/protocol/probe`，请求体：`{"targetUrl":"https://agent.example.com","discoveryType":"AUTO"}`。也可以通过 `EAP_DISCOVERY_PROTOCOL_TARGETS` 配置定时探测目标。
+- 出于 SSRF 防护，私有、回环、链路本地和云元数据地址默认拒绝；仅在受控内网部署时显式设置 `EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=true`。
+
+该层解决“已知地址的协议自描述发现”。要做到无需预先配置目标、覆盖 Kubernetes、服务网格和主机上所有 Agent，还需要后续接入 Kubernetes Watch/Admission、eBPF 网络证据和跨源身份图谱。
+
 ## 技术栈
 
 - 后端：Java 21 LTS、Spring Boot 3.5、Spring Data JPA、Spring Security、Flyway、MySQL。
@@ -130,6 +140,7 @@ npm run dev
 - `POST /api/discovery/agents/{id}/status`：更新候选资产的复核/纳管状态。
 - `POST /api/discovery/endpoints/register`：注册或更新端点采集器。
 - `POST /api/discovery/endpoints/observations`：批量上报端点发现观察结果。
+- `POST /api/discovery/protocol/probe`：从 A2A Agent Card、MCP Registry 或 MCP Server 元数据自动发现并登记候选资产。
 - `GET /api/telemetry/physical-summary?hours=24`：物理界面 Token、费用、延迟、成功率和运行状况汇总。
 - `GET /api/telemetry/model-invocations?limit=100`：最近模型调用遥测事件。
 - `POST /api/telemetry/model-invocations`：上报一次模型调用元数据；生产环境使用 `X-EAP-Telemetry-Token`。
@@ -164,6 +175,17 @@ EAP_DISCOVERY_SCAN_ROOTS=/srv/agents,/opt/company/workspaces \
 EAP_DISCOVERY_INTERVAL_MS=300000 \
 EAP_DISCOVERY_INCLUDE_KNOWN_USER_LOCATIONS=true
 ```
+
+协议发现配置示例：
+
+```bash
+EAP_DISCOVERY_PROTOCOL_ENABLED=true
+EAP_DISCOVERY_PROTOCOL_TARGETS=https://agents.example.com,https://registry.example.com
+EAP_DISCOVERY_PROTOCOL_INTERVAL_MS=300000
+EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=false
+```
+
+实现依据：A2A 官方 Agent Card 发现规范为 [`/.well-known/agent-card.json`](https://a2a-protocol.org/latest/topics/agent-discovery/)，MCP 官方 Registry API 使用 [`/v0.1/servers`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml)。
 
 端点采集与中央汇聚：
 

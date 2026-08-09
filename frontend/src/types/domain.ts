@@ -10,7 +10,7 @@ export type SafetySeverity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export type RuntimeStatus = 'ONLINE' | 'DEGRADED' | 'OFFLINE'
 export type DiscoveryAssetStatus = 'DISCOVERED' | 'REVIEWING' | 'CONFIRMED' | 'MANAGED' | 'IGNORED'
 export type DiscoveryAssetType = 'AGENT' | 'AGENT_PROJECT' | 'MCP_CONFIGURATION' | 'AGENT_SKILL' | 'AGENT_PLUGIN'
-export type DiscoverySourceType = 'PROCESS' | 'MANIFEST' | 'CONFIGURATION' | 'SKILL' | 'PLUGIN' | 'EXTERNAL'
+export type DiscoverySourceType = 'PROCESS' | 'MANIFEST' | 'CONFIGURATION' | 'SKILL' | 'PLUGIN' | 'EXTERNAL' | 'A2A' | 'MCP_REGISTRY'
 export type DiscoveryRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED'
 export type DiscoveryTriggerType = 'SCHEDULED' | 'MANUAL' | 'ENDPOINT'
 export type ModelInvocationStatus = 'STARTED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
@@ -318,6 +318,18 @@ export interface DiscoveryEndpoint {
   lastSeenAt: string
   createdAt: string
   updatedAt: string
+}
+
+export type ProtocolDiscoveryType = 'AUTO' | 'A2A' | 'MCP_REGISTRY' | 'MCP_SERVER_JSON'
+
+export interface ProtocolProbeResponse {
+  targetUrl: string
+  discoveryType: ProtocolDiscoveryType
+  endpointsRegistered: number
+  documentsFetched: number
+  a2aAgentsDiscovered: number
+  mcpServersDiscovered: number
+  warnings: string[]
 }
 
 export interface ModelInvocationEvent {

@@ -51,6 +51,16 @@ eap:
     max-file-bytes: ${EAP_DISCOVERY_MAX_FILE_BYTES:1048576}
     max-processes: ${EAP_DISCOVERY_MAX_PROCESSES:2000}
     ingestion-token: ${EAP_DISCOVERY_INGESTION_TOKEN:}
+    protocol:
+      enabled: ${EAP_DISCOVERY_PROTOCOL_ENABLED:true}
+      targets: ${EAP_DISCOVERY_PROTOCOL_TARGETS:}
+      initial-delay-ms: ${EAP_DISCOVERY_PROTOCOL_INITIAL_DELAY_MS:60000}
+      interval-ms: ${EAP_DISCOVERY_PROTOCOL_INTERVAL_MS:300000}
+      connect-timeout-ms: ${EAP_DISCOVERY_PROTOCOL_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_DISCOVERY_PROTOCOL_READ_TIMEOUT_MS:10000}
+      max-response-bytes: ${EAP_DISCOVERY_PROTOCOL_MAX_RESPONSE_BYTES:262144}
+      max-servers-per-registry: ${EAP_DISCOVERY_PROTOCOL_MAX_SERVERS_PER_REGISTRY:100}
+      allow-private-networks: ${EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS:false}
   safety:
     gensee:
       sidecar-enabled: ${EAP_GENSEE_SIDECAR_ENABLED:false}

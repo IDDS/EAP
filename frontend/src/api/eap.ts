@@ -18,6 +18,8 @@ import type {
   DiscoveredAgentAsset,
   DiscoveryAssetStatus,
   DiscoveryEndpoint,
+  ProtocolDiscoveryType,
+  ProtocolProbeResponse,
   AuditLog,
   DashboardNetwork,
   DashboardSummary,
@@ -154,6 +156,8 @@ export const EapApi = {
   listDiscoveredAgentAssets: () => getData<DiscoveredAgentAsset[]>('/discovery/agents'),
   listAgentDiscoveryRuns: () => getData<AgentDiscoveryRun[]>('/discovery/runs'),
   listDiscoveryEndpoints: () => getData<DiscoveryEndpoint[]>('/discovery/endpoints'),
+  probeProtocolDiscovery: (payload: { targetUrl: string; discoveryType: ProtocolDiscoveryType }) =>
+    postData<ProtocolProbeResponse, { targetUrl: string; discoveryType: ProtocolDiscoveryType }>('/discovery/protocol/probe', payload),
   getPhysicalTelemetrySummary: (hours = 24) => getData<PhysicalTelemetrySummary>(`/telemetry/physical-summary?hours=${hours}`),
   listModelInvocationEvents: (limit = 100) => getData<ModelInvocationEvent[]>(`/telemetry/model-invocations?limit=${limit}`),
   getContentObservationStatus: () => getData<{ enabled: boolean; captureMode: string; maxContentBytes: number; totalObservations: number; inputObservations: number; outputObservations: number; lastObservedAt?: string }>('/observability/status'),

@@ -16,6 +16,9 @@ eap:
   discovery:
     enabled: false
     ingestion-token:
+    protocol:
+      enabled: false
+      allow-private-networks: true
   telemetry:
     ingestion-token:
     require-governance-preflight: false

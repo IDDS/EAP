@@ -972,6 +972,31 @@ body {
   gap: 12px;
 }
 
+.protocol-probe-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 180px auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.protocol-type-select {
+  width: 180px;
+}
+
+.protocol-result {
+  margin-top: 14px;
+}
+
+.protocol-warnings {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .summary-metric {
   display: grid;
   align-content: center;

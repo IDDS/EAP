@@ -6,5 +6,7 @@ public enum DiscoverySourceType {
     CONFIGURATION,
     SKILL,
     PLUGIN,
-    EXTERNAL
+    EXTERNAL,
+    A2A,
+    MCP_REGISTRY
 }

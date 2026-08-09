@@ -15,6 +15,36 @@
       :title="autonomousSummary?.autonomousDiscoveryEnabled ? '自主发现已启用：后台将按配置周期持续扫描' : '自主发现未启用：当前只能手动触发扫描'"
     />
 
+    <el-card shadow="never" class="panel">
+      <template #header>
+        <div class="panel-header">
+          <span>协议级 Agent / MCP 发现</span>
+          <span class="muted">读取 A2A Agent Card、MCP Registry 或 server.json 元数据，不执行远程命令</span>
+        </div>
+      </template>
+      <div class="protocol-probe-row">
+        <el-input v-model="protocolForm.targetUrl" placeholder="https://agent.example.com 或 MCP Registry 地址" />
+        <el-select v-model="protocolForm.discoveryType" class="protocol-type-select">
+          <el-option label="自动探测" value="AUTO" />
+          <el-option label="A2A Agent Card" value="A2A" />
+          <el-option label="MCP Registry" value="MCP_REGISTRY" />
+          <el-option label="MCP server.json" value="MCP_SERVER_JSON" />
+        </el-select>
+        <el-button type="primary" :loading="protocolLoading" @click="probeProtocol">探测并登记</el-button>
+      </div>
+      <el-alert
+        v-if="protocolResult"
+        class="protocol-result"
+        type="success"
+        :closable="false"
+        :title="`已登记 ${protocolResult.endpointsRegistered} 个端点，读取 ${protocolResult.documentsFetched} 份文档，发现 A2A ${protocolResult.a2aAgentsDiscovered} 个、MCP ${protocolResult.mcpServersDiscovered} 个`"
+      />
+      <div v-if="protocolResult?.warnings?.length" class="protocol-warnings">
+        <span>部分探测未命中：</span>
+        <el-tag v-for="warning in protocolResult.warnings.slice(0, 3)" :key="warning" type="warning" size="small">{{ warning }}</el-tag>
+      </div>
+    </el-card>
+
     <div class="discovery-overview">
       <div class="summary-metric">
         <span>Agent 候选</span>
@@ -293,6 +323,8 @@ import type {
   DiscoveryAssetStatus,
   DiscoveryCandidate,
   RiskLevel,
+  ProtocolDiscoveryType,
+  ProtocolProbeResponse,
 } from '@/types/domain'
 
 const agents = ref<Agent[]>([])
@@ -307,6 +339,8 @@ const autonomousSummary = ref<AgentDiscoverySummary>()
 const discoveredAssets = ref<DiscoveredAgentAsset[]>([])
 const discoveryEndpoints = ref<DiscoveryEndpoint[]>([])
 const endpointLoading = ref(false)
+const protocolLoading = ref(false)
+const protocolResult = ref<ProtocolProbeResponse>()
 const heartbeatLoad = ref(22)
 
 const capabilityForm = reactive({
@@ -326,6 +360,11 @@ const discoveryForm = reactive({
   maxRiskLevel: 'HIGH' as RiskLevel,
   department: '',
   protocol: 'HTTP',
+})
+
+const protocolForm = reactive({
+  targetUrl: '',
+  discoveryType: 'AUTO' as ProtocolDiscoveryType,
 })
 
 async function load() {
@@ -362,6 +401,24 @@ async function triggerAutonomousScan() {
     await loadAutonomousDiscovery()
   } finally {
     scanLoading.value = false
+  }
+}
+
+async function probeProtocol() {
+  if (!protocolForm.targetUrl.trim()) {
+    ElMessage.warning('请输入 A2A Agent 或 MCP Registry 地址')
+    return
+  }
+  protocolLoading.value = true
+  try {
+    protocolResult.value = await EapApi.probeProtocolDiscovery({
+      targetUrl: protocolForm.targetUrl.trim(),
+      discoveryType: protocolForm.discoveryType,
+    })
+    ElMessage.success('协议发现完成，资产已进入候选清单')
+    await loadAutonomousDiscovery()
+  } finally {
+    protocolLoading.value = false
   }
 }
 

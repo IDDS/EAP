@@ -20,6 +20,23 @@ public final class AgentDiscoveryDtos {
     public record StatusRequest(@NotNull DiscoveryAssetStatus status) {
     }
 
+    public record ProtocolProbeRequest(
+            @NotBlank @Size(max = 2048) String targetUrl,
+            @NotNull ProtocolDiscoveryType discoveryType
+    ) {
+    }
+
+    public record ProtocolProbeResponse(
+            String targetUrl,
+            ProtocolDiscoveryType discoveryType,
+            int endpointsRegistered,
+            int documentsFetched,
+            int a2aAgentsDiscovered,
+            int mcpServersDiscovered,
+            List<String> warnings
+    ) {
+    }
+
     public record EndpointRegistrationRequest(
             @NotBlank @Size(max = 128) String endpointKey,
             @NotBlank @Size(max = 256) String hostName,

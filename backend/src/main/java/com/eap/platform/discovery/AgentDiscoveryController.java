@@ -17,10 +17,16 @@ import java.util.List;
 public class AgentDiscoveryController {
     private final AgentDiscoveryService discoveryService;
     private final MachineTokenValidator machineTokenValidator;
+    private final ProtocolDiscoveryService protocolDiscoveryService;
 
-    public AgentDiscoveryController(AgentDiscoveryService discoveryService, MachineTokenValidator machineTokenValidator) {
+    public AgentDiscoveryController(
+            AgentDiscoveryService discoveryService,
+            MachineTokenValidator machineTokenValidator,
+            ProtocolDiscoveryService protocolDiscoveryService
+    ) {
         this.discoveryService = discoveryService;
         this.machineTokenValidator = machineTokenValidator;
+        this.protocolDiscoveryService = protocolDiscoveryService;
     }
 
     @GetMapping("/summary")
@@ -41,6 +47,13 @@ public class AgentDiscoveryController {
     @GetMapping("/endpoints")
     public ApiResponse<List<AgentDiscoveryDtos.DiscoveryEndpointResponse>> endpoints() {
         return ApiResponse.ok(discoveryService.listEndpoints());
+    }
+
+    @PostMapping("/protocol/probe")
+    public ApiResponse<AgentDiscoveryDtos.ProtocolProbeResponse> probeProtocol(
+            @Valid @RequestBody AgentDiscoveryDtos.ProtocolProbeRequest request
+    ) {
+        return ApiResponse.ok(protocolDiscoveryService.probe(request));
     }
 
     @PostMapping("/scans")
