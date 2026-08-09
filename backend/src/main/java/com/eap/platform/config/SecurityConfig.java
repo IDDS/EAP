@@ -74,7 +74,10 @@ public class SecurityConfig {
                                 "/api/observability/otlp/v1/traces",
                                 "/api/discovery/endpoints/register",
                                 "/api/discovery/endpoints/observations",
-                                "/api/discovery/connectors/microsoft-defender/ingest").permitAll()
+                                "/api/discovery/connectors/microsoft-defender/ingest",
+                                "/api/discovery/connectors/kubernetes/watch",
+                                "/api/discovery/connectors/kubernetes/admission",
+                                "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole("VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")

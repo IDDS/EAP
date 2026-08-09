@@ -2,6 +2,7 @@ package com.eap.platform.discovery;
 
 import com.eap.platform.common.ApiResponse;
 import com.eap.platform.config.MachineTokenValidator;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,15 +19,21 @@ public class AgentDiscoveryController {
     private final AgentDiscoveryService discoveryService;
     private final MachineTokenValidator machineTokenValidator;
     private final ProtocolDiscoveryService protocolDiscoveryService;
+    private final KubernetesDiscoveryService kubernetesDiscoveryService;
+    private final EbpfDiscoveryService ebpfDiscoveryService;
 
     public AgentDiscoveryController(
             AgentDiscoveryService discoveryService,
             MachineTokenValidator machineTokenValidator,
-            ProtocolDiscoveryService protocolDiscoveryService
+            ProtocolDiscoveryService protocolDiscoveryService,
+            KubernetesDiscoveryService kubernetesDiscoveryService,
+            EbpfDiscoveryService ebpfDiscoveryService
     ) {
         this.discoveryService = discoveryService;
         this.machineTokenValidator = machineTokenValidator;
         this.protocolDiscoveryService = protocolDiscoveryService;
+        this.kubernetesDiscoveryService = kubernetesDiscoveryService;
+        this.ebpfDiscoveryService = ebpfDiscoveryService;
     }
 
     @GetMapping("/summary")
@@ -54,6 +61,33 @@ public class AgentDiscoveryController {
             @Valid @RequestBody AgentDiscoveryDtos.ProtocolProbeRequest request
     ) {
         return ApiResponse.ok(protocolDiscoveryService.probe(request));
+    }
+
+    @PostMapping("/connectors/kubernetes/watch")
+    public ApiResponse<AgentDiscoveryDtos.KubernetesDiscoveryResponse> ingestKubernetesWatch(
+            @RequestHeader(value = "X-EAP-Discovery-Token", required = false) String token,
+            @RequestBody JsonNode payload
+    ) {
+        requireIngestionToken(token);
+        return ApiResponse.ok(kubernetesDiscoveryService.ingestWatch(payload));
+    }
+
+    @PostMapping("/connectors/kubernetes/admission")
+    public ApiResponse<AgentDiscoveryDtos.KubernetesDiscoveryResponse> ingestKubernetesAdmission(
+            @RequestHeader(value = "X-EAP-Discovery-Token", required = false) String token,
+            @RequestBody JsonNode payload
+    ) {
+        requireIngestionToken(token);
+        return ApiResponse.ok(kubernetesDiscoveryService.ingestAdmission(payload));
+    }
+
+    @PostMapping("/connectors/ebpf/observations")
+    public ApiResponse<AgentDiscoveryDtos.EbpfDiscoveryResponse> ingestEbpf(
+            @RequestHeader(value = "X-EAP-Discovery-Token", required = false) String token,
+            @Valid @RequestBody EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfObservationRequest request
+    ) {
+        requireIngestionToken(token);
+        return ApiResponse.ok(ebpfDiscoveryService.ingest(request));
     }
 
     @PostMapping("/scans")

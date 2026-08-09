@@ -17,7 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "eap.security.mode=JWT",
         "eap.security.jwk-set-uri=https://idp.invalid.example/jwks",
-        "eap.observability.ingestion-token=observation-secret"
+        "eap.observability.ingestion-token=observation-secret",
+        "eap.discovery.ingestion-token=discovery-secret",
+        "spring.flyway.enabled=true"
 })
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
@@ -55,6 +57,17 @@ class JwtSecurityIntegrationTests {
                         .header("X-EAP-Observability-Token", "observation-secret")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"resourceSpans\":[]}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/discovery/connectors/kubernetes/watch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/discovery/connectors/kubernetes/watch")
+                        .header("X-EAP-Discovery-Token", "discovery-secret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"DELETED\",\"object\":{\"kind\":\"Pod\",\"metadata\":{\"name\":\"plain\"},\"spec\":{\"containers\":[]}}}"))
                 .andExpect(status().isOk());
     }
 }

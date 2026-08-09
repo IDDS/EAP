@@ -141,6 +141,9 @@ npm run dev
 - `POST /api/discovery/endpoints/register`：注册或更新端点采集器。
 - `POST /api/discovery/endpoints/observations`：批量上报端点发现观察结果。
 - `POST /api/discovery/protocol/probe`：从 A2A Agent Card、MCP Registry 或 MCP Server 元数据自动发现并登记候选资产。
+- `POST /api/discovery/connectors/kubernetes/watch`：接收 Kubernetes Watch 的 `ADDED/MODIFIED/DELETED` 事件，提取 Pod/Deployment 容器、镜像、框架标签、端口和安全上下文。
+- `POST /api/discovery/connectors/kubernetes/admission`：接收 Kubernetes AdmissionReview 的 `request.object`，在工作负载落地前记录 Agent/MCP 候选及特权、hostNetwork 等风险。
+- `POST /api/discovery/connectors/ebpf/observations`：接收主机 eBPF 网络探针归一化的进程—远端服务流，识别模型供应商、模型、MCP 和 Agent 运行时。
 - `GET /api/telemetry/physical-summary?hours=24`：物理界面 Token、费用、延迟、成功率和运行状况汇总。
 - `GET /api/telemetry/model-invocations?limit=100`：最近模型调用遥测事件。
 - `POST /api/telemetry/model-invocations`：上报一次模型调用元数据；生产环境使用 `X-EAP-Telemetry-Token`。
@@ -184,6 +187,18 @@ EAP_DISCOVERY_PROTOCOL_TARGETS=https://agents.example.com,https://registry.examp
 EAP_DISCOVERY_PROTOCOL_INTERVAL_MS=300000
 EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=false
 ```
+
+Kubernetes Watch/Admission 与 eBPF 连接器使用同一个 `EAP_DISCOVERY_INGESTION_TOKEN`，请求头为 `X-EAP-Discovery-Token`。连接器只接收元数据和网络流摘要：Kubernetes 环境变量只保存变量名，不保存值；eBPF 只保存进程、地址、端口、TLS SNI、模型/供应商和字节数，不保存 Prompt、响应正文或密钥。
+
+```bash
+EAP_DISCOVERY_KUBERNETES_ENABLED=true
+EAP_DISCOVERY_KUBERNETES_MAX_PAYLOAD_BYTES=1048576
+EAP_DISCOVERY_KUBERNETES_MAX_CONTAINERS=256
+EAP_DISCOVERY_EBPF_ENABLED=true
+EAP_DISCOVERY_EBPF_MAX_FLOWS=1000
+```
+
+部署时可使用 Kubernetes Informer/Watch、Admission Webhook 或 Tetragon/eBPF Collector 作为外部采集器；EAP 端不需要修改 Agent 代码。Admission 连接器当前是“观察型”接收器，不会自动修改或阻断 Kubernetes 请求，策略决策将在后续治理控制面实现。
 
 实现依据：A2A 官方 Agent Card 发现规范为 [`/.well-known/agent-card.json`](https://a2a-protocol.org/latest/topics/agent-discovery/)，MCP 官方 Registry API 使用 [`/v0.1/servers`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml)。
 

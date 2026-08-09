@@ -19,6 +19,10 @@ eap:
     protocol:
       enabled: false
       allow-private-networks: true
+    kubernetes:
+      enabled: true
+    ebpf:
+      enabled: true
   telemetry:
     ingestion-token:
     require-governance-preflight: false

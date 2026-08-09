@@ -8,5 +8,8 @@ public enum DiscoverySourceType {
     PLUGIN,
     EXTERNAL,
     A2A,
-    MCP_REGISTRY
+    MCP_REGISTRY,
+    KUBERNETES_WATCH,
+    KUBERNETES_ADMISSION,
+    EBPF
 }

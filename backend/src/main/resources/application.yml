@@ -61,6 +61,13 @@ eap:
       max-response-bytes: ${EAP_DISCOVERY_PROTOCOL_MAX_RESPONSE_BYTES:262144}
       max-servers-per-registry: ${EAP_DISCOVERY_PROTOCOL_MAX_SERVERS_PER_REGISTRY:100}
       allow-private-networks: ${EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS:false}
+    kubernetes:
+      enabled: ${EAP_DISCOVERY_KUBERNETES_ENABLED:true}
+      max-payload-bytes: ${EAP_DISCOVERY_KUBERNETES_MAX_PAYLOAD_BYTES:1048576}
+      max-containers: ${EAP_DISCOVERY_KUBERNETES_MAX_CONTAINERS:256}
+    ebpf:
+      enabled: ${EAP_DISCOVERY_EBPF_ENABLED:true}
+      max-flows: ${EAP_DISCOVERY_EBPF_MAX_FLOWS:1000}
   safety:
     gensee:
       sidecar-enabled: ${EAP_GENSEE_SIDECAR_ENABLED:false}

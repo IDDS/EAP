@@ -37,6 +37,27 @@ public final class AgentDiscoveryDtos {
     ) {
     }
 
+    public record KubernetesDiscoveryResponse(
+            String endpointKey,
+            String eventType,
+            int containersInspected,
+            int agentsDiscovered,
+            int mcpServersDiscovered,
+            int observationsRecorded,
+            List<String> warnings
+    ) {
+    }
+
+    public record EbpfDiscoveryResponse(
+            String endpointKey,
+            int flowsInspected,
+            int agentsDiscovered,
+            int mcpServersDiscovered,
+            int observationsRecorded,
+            List<String> warnings
+    ) {
+    }
+
     public record EndpointRegistrationRequest(
             @NotBlank @Size(max = 128) String endpointKey,
             @NotBlank @Size(max = 256) String hostName,
