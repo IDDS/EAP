@@ -1,15 +1,17 @@
 <template>
   <el-container class="app-shell">
-    <el-aside width="248px" class="sidebar">
+    <el-aside :width="sidebarCollapsed ? '78px' : '264px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
-        <div>
+        <div class="brand-copy">
           <strong>Enterprise Agent Platform</strong>
           <span>EAP Control Plane</span>
         </div>
+        <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
-      <div class="nav-section">控制台</div>
-      <el-menu router :default-active="$route.path" class="nav-menu">
+      <div class="sidebar-nav">
+        <div class="nav-section">控制台</div>
+        <el-menu router :default-active="$route.path" class="nav-menu">
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
           <span>工作台</span>
@@ -50,9 +52,9 @@
           <el-icon><TrendCharts /></el-icon>
           <span>自适应学习</span>
         </el-menu-item>
-      </el-menu>
-      <div class="nav-section">治理与安全</div>
-      <el-menu router :default-active="$route.path" class="nav-menu">
+        </el-menu>
+        <div class="nav-section">治理与安全</div>
+        <el-menu router :default-active="$route.path" class="nav-menu">
         <el-menu-item index="/governance">
           <el-icon><ScaleToOriginal /></el-icon>
           <span>治理中心</span>
@@ -69,10 +71,11 @@
           <el-icon><DocumentChecked /></el-icon>
           <span>审计日志</span>
         </el-menu-item>
-      </el-menu>
+        </el-menu>
+      </div>
       <div class="sidebar-status">
         <span class="status-dot"></span>
-        <div>
+        <div class="sidebar-status-copy">
           <strong>Safety Gateway</strong>
           <span>EAP_LOCAL_POLICY</span>
         </div>
@@ -82,17 +85,23 @@
     <el-container>
       <el-header class="topbar">
         <div class="topbar-title">
-          <span>Enterprise Agent Platform · EAP</span>
+          <div class="breadcrumb-line">
+            <span class="topbar-kicker">CONTROL PLANE</span>
+            <span class="breadcrumb-separator">/</span>
+            <span>{{ routeTitle }}</span>
+          </div>
           <h1>{{ routeTitle }}</h1>
+          <p>让每一个智能体都可发现、可观测、可治理、可度量</p>
         </div>
         <div class="topbar-actions">
           <el-input class="global-search" placeholder="搜索智能体、任务、策略" :prefix-icon="Search" />
-          <el-tag :type="hasAccessToken ? 'success' : 'info'" effect="plain">
+          <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
+          <el-tag class="auth-state" :type="hasAccessToken ? 'success' : 'info'" effect="plain">
             {{ hasAccessToken ? 'JWT 已连接' : 'Local / 未认证' }}
           </el-tag>
-          <el-button :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
-          <el-button v-if="hasAccessToken" @click="logout">退出</el-button>
-          <el-button :icon="Bell" circle title="通知" />
+          <el-button class="auth-button" :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
+          <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
+          <el-button class="notification-button" :icon="Bell" circle title="通知" />
         </div>
       </el-header>
       <el-main class="main">
@@ -130,12 +139,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { Bell, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
+import { Bell, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 
 const route = useRoute()
 const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
+const sidebarCollapsed = ref(false)
 const authDialogVisible = ref(false)
 const authTokenDraft = ref('')
 const hasAccessToken = ref(Boolean(getAccessToken()))
