@@ -17,6 +17,48 @@
       </div>
     </div>
 
+    <div class="analysis-hero management-hero">
+      <div class="analysis-hero-copy">
+        <span class="analysis-eyebrow">MANAGEMENT PLANE / {{ windowHours }}H OBSERVATION</span>
+        <h2>价值回路</h2>
+        <p>把模型投入、任务执行、知识贡献与业务确认价值放在同一个回路里，避免只看调用量而忽略实际产出。</p>
+        <div class="analysis-tags">
+          <span class="analysis-tag">INVEST</span>
+          <span class="analysis-tag">EXECUTE</span>
+          <span class="analysis-tag">ADOPT</span>
+          <span class="analysis-tag analysis-tag-muted">VALIDATE</span>
+        </div>
+      </div>
+      <div class="management-value-card">
+        <span class="analysis-eyebrow">RETURN SIGNAL</span>
+        <strong>{{ roiLabel }}</strong>
+        <span>ROI · {{ summary.hasValidatedValue ? '业务方已确认' : '等待业务方确认' }}</span>
+        <div class="management-value-meta"><span>净收益 <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>确认价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
+      </div>
+    </div>
+
+    <div class="management-flow-strip">
+      <div class="management-flow-step">
+        <span class="management-flow-index">01</span>
+        <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} tokens</small></div>
+      </div>
+      <span class="management-flow-arrow">→</span>
+      <div class="management-flow-step">
+        <span class="management-flow-index">02</span>
+        <div><span>执行</span><strong>{{ formatNumber(summary.totalTasks) }}</strong><small>{{ successPercent }}% tasks succeeded</small></div>
+      </div>
+      <span class="management-flow-arrow">→</span>
+      <div class="management-flow-step">
+        <span class="management-flow-index">03</span>
+        <div><span>知识贡献</span><strong>{{ adoptionPercent }}% / {{ reusePercent }}%</strong><small>adoption / reuse</small></div>
+      </div>
+      <span class="management-flow-arrow">→</span>
+      <div class="management-flow-step">
+        <span class="management-flow-index">04</span>
+        <div><span>业务价值</span><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><small>{{ summary.hasValidatedValue ? 'validated' : 'not validated' }}</small></div>
+      </div>
+    </div>
+
     <el-alert
       v-if="!summary.hasValidatedValue"
       type="warning"
@@ -52,6 +94,28 @@
       <div><span>知识采用率</span><strong>{{ adoptionPercent }}%</strong></div>
       <div><span>知识复用率</span><strong>{{ reusePercent }}%</strong></div>
     </div>
+
+    <el-card shadow="never" class="panel management-leaderboard-panel">
+      <template #header>
+        <div class="panel-header">
+          <span>Agent 价值排行</span>
+          <span class="muted">优先展示已有业务价值归因的 Agent</span>
+        </div>
+      </template>
+      <div v-if="topAgentUsage.length" class="management-leaderboard">
+        <div v-for="(row, index) in topAgentUsage" :key="row.subjectKey" class="management-leader-row">
+          <span class="management-rank">{{ String(index + 1).padStart(2, '0') }}</span>
+          <div class="management-leader-name"><strong>{{ row.subjectName }}</strong><span>{{ row.subjectKey }}</span></div>
+          <div class="management-leader-metric"><span>ROI</span><strong>{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</strong></div>
+          <div class="management-leader-metric"><span>确认价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
+          <div class="management-leader-bars">
+            <div><span>采用 {{ Math.round(row.knowledgeAdoptionRate * 100) }}%</span><i><b :style="{ width: `${Math.round(row.knowledgeAdoptionRate * 100)}%` }"></b></i></div>
+            <div><span>复用 {{ Math.round(row.knowledgeReuseRate * 100) }}%</span><i><b class="reuse" :style="{ width: `${Math.round(row.knowledgeReuseRate * 100)}%` }"></b></i></div>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="当前窗口没有可排行的 Agent 价值数据" />
+    </el-card>
 
     <div class="management-two-column">
       <el-card shadow="never" class="panel">
@@ -218,6 +282,9 @@ const successPercent = computed(() => Math.round(summary.value.taskSuccessRate *
 const adoptionPercent = computed(() => Math.round(summary.value.knowledgeAdoptionRate * 100))
 const reusePercent = computed(() => Math.round(summary.value.knowledgeReuseRate * 100))
 const roiLabel = computed(() => summary.value.hasValidatedValue ? summary.value.roi.toFixed(4) : '—')
+const topAgentUsage = computed(() => [...summary.value.agentUsage]
+  .sort((left, right) => right.validatedValue - left.validatedValue || right.totalCost - left.totalCost)
+  .slice(0, 3))
 
 async function load() {
   loading.value = true

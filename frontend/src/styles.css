@@ -1385,6 +1385,336 @@ body {
   }
 }
 
+/* Physical and management operating workbenches. */
+.analysis-hero.physical-hero {
+  background:
+    radial-gradient(circle at 88% 15%, rgba(123, 97, 217, 0.14), transparent 28%),
+    linear-gradient(135deg, #f7f8ff 0%, #ffffff 64%, #f8fbff 100%);
+}
+
+.physical-health-panel,
+.management-value-card {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-width: 255px;
+  padding: 17px 20px;
+  border: 1px solid #d7dff3;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.physical-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(58px, 1fr));
+  gap: 10px;
+}
+
+.physical-health-grid > div {
+  display: grid;
+  gap: 2px;
+}
+
+.physical-health-grid strong {
+  color: var(--eap-ink);
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.physical-health-grid span {
+  color: var(--eap-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.physical-health-grid > div:nth-child(2) strong {
+  color: #b87920;
+}
+
+.physical-health-grid > div:nth-child(3) strong {
+  color: #c65368;
+}
+
+.physical-health-foot,
+.management-value-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e9edf5;
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.physical-health-foot b,
+.management-value-meta b {
+  color: var(--eap-ink);
+  font-weight: 750;
+}
+
+.physical-ops-strip,
+.management-flow-strip {
+  display: grid;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.physical-ops-strip {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(150px, 0.8fr) minmax(150px, 0.8fr);
+}
+
+.physical-ops-card {
+  display: grid;
+  gap: 9px;
+  padding: 16px 18px;
+  border: 1px solid var(--eap-border);
+  border-radius: 13px;
+  background: var(--eap-surface);
+  box-shadow: var(--eap-shadow);
+}
+
+.physical-ops-card > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.physical-ops-card span,
+.physical-ops-card small {
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.physical-ops-card strong {
+  color: var(--eap-ink);
+  font-size: 21px;
+  letter-spacing: -0.03em;
+}
+
+.physical-ops-card .el-progress {
+  margin: 1px 0;
+}
+
+.physical-ops-card-compact {
+  align-content: center;
+  gap: 5px;
+}
+
+.physical-ops-card-compact strong {
+  font-size: 24px;
+}
+
+.analysis-hero.management-hero {
+  background:
+    radial-gradient(circle at 88% 14%, rgba(214, 139, 44, 0.16), transparent 28%),
+    linear-gradient(135deg, #fffaf3 0%, #ffffff 64%, #f7f8ff 100%);
+}
+
+.management-value-card {
+  min-width: 245px;
+  border-color: #eadcc7;
+}
+
+.management-value-card > strong {
+  color: var(--eap-ink);
+  font-size: 32px;
+  letter-spacing: -0.06em;
+}
+
+.management-value-card > span:not(.analysis-eyebrow) {
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.management-value-meta {
+  margin-top: 2px;
+}
+
+.management-flow-strip {
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr);
+  align-items: center;
+}
+
+.management-flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 92px;
+  padding: 16px 17px;
+  border: 1px solid var(--eap-border);
+  border-radius: 13px;
+  background: var(--eap-surface);
+  box-shadow: var(--eap-shadow);
+}
+
+.management-flow-index {
+  display: grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 10px;
+  color: #b2741c;
+  background: #fff4e5;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.management-flow-step > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.management-flow-step > div > span,
+.management-flow-step small {
+  color: var(--eap-muted);
+  font-size: 11px;
+}
+
+.management-flow-step strong {
+  overflow: hidden;
+  color: var(--eap-ink);
+  font-size: 20px;
+  letter-spacing: -0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.management-flow-arrow {
+  color: #b4a17d;
+  font-size: 21px;
+  text-align: center;
+}
+
+.management-leaderboard-panel .el-card__body {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.management-leaderboard {
+  display: grid;
+}
+
+.management-leader-row {
+  display: grid;
+  grid-template-columns: 42px minmax(180px, 1.3fr) 100px 135px minmax(220px, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 74px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--eap-border);
+}
+
+.management-leader-row:last-child {
+  border-bottom: 0;
+}
+
+.management-rank {
+  color: #ad884e;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.management-leader-name,
+.management-leader-metric,
+.management-leader-bars {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.management-leader-name strong,
+.management-leader-metric strong {
+  overflow: hidden;
+  color: var(--eap-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.management-leader-name span,
+.management-leader-metric span,
+.management-leader-bars span {
+  color: var(--eap-muted);
+  font-size: 10px;
+}
+
+.management-leader-bars {
+  gap: 7px;
+}
+
+.management-leader-bars > div {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.management-leader-bars i {
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1f7;
+}
+
+.management-leader-bars b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #3167e8;
+}
+
+.management-leader-bars b.reuse {
+  background: #16a085;
+}
+
+@media (max-width: 1120px) {
+  .physical-ops-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .management-leader-row {
+    grid-template-columns: 38px minmax(150px, 1.2fr) 90px 120px minmax(180px, 1fr);
+    gap: 11px;
+  }
+}
+
+@media (max-width: 900px) {
+  .physical-health-panel,
+  .management-value-card {
+    min-width: 0;
+  }
+
+  .physical-ops-strip,
+  .management-flow-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .physical-ops-card-compact {
+    min-height: 84px;
+  }
+
+  .management-flow-arrow {
+    transform: rotate(90deg);
+  }
+
+  .management-leader-row {
+    grid-template-columns: 30px minmax(0, 1fr) 90px;
+    gap: 10px;
+  }
+
+  .management-leader-bars {
+    grid-column: 2 / -1;
+  }
+}
+
 /* Analysis workbench patterns for the knowledge and governance planes. */
 .analysis-hero {
   display: flex;

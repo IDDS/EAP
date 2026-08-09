@@ -18,6 +18,44 @@
       </div>
     </div>
 
+    <div class="analysis-hero physical-hero">
+      <div class="analysis-hero-copy">
+        <span class="analysis-eyebrow">PHYSICAL PLANE / {{ windowHours }}H OBSERVATION</span>
+        <h2>运行面总览</h2>
+        <p>从端点、运行实例到模型调用建立一条物理观测链，实时定位哪里在运行、哪里变慢，以及 Token 和费用流向哪里。</p>
+        <div class="analysis-tags">
+          <span class="analysis-tag">ENDPOINTS</span>
+          <span class="analysis-tag">RUNTIMES</span>
+          <span class="analysis-tag">MODEL CALLS</span>
+          <span class="analysis-tag analysis-tag-muted">无侵入遥测</span>
+        </div>
+      </div>
+      <div class="physical-health-panel">
+        <span class="analysis-eyebrow">RUNTIME HEALTH</span>
+        <div class="physical-health-grid">
+          <div><strong>{{ summary.onlineRuntimeCount }}</strong><span>ONLINE</span></div>
+          <div><strong>{{ summary.degradedRuntimeCount }}</strong><span>DEGRADED</span></div>
+          <div><strong>{{ summary.offlineRuntimeCount }}</strong><span>OFFLINE</span></div>
+        </div>
+        <div class="physical-health-foot"><span>端点覆盖</span><b>{{ summary.activeEndpoints }}/{{ summary.registeredEndpoints }}</b></div>
+      </div>
+    </div>
+
+    <div class="physical-ops-strip">
+      <div class="physical-ops-card">
+        <div><span>端点覆盖率</span><strong>{{ endpointCoveragePercent }}%</strong></div>
+        <el-progress :percentage="endpointCoveragePercent" :show-text="false" :stroke-width="6" color="#3167e8" />
+        <small>{{ summary.activeEndpoints }} 个活跃 / {{ summary.registeredEndpoints }} 个注册</small>
+      </div>
+      <div class="physical-ops-card">
+        <div><span>运行实例健康度</span><strong>{{ runtimeHealthPercent }}%</strong></div>
+        <el-progress :percentage="runtimeHealthPercent" :show-text="false" :stroke-width="6" color="#16a085" />
+        <small>{{ summary.onlineRuntimeCount }} 在线 · {{ summary.degradedRuntimeCount }} 降级 · {{ summary.offlineRuntimeCount }} 离线</small>
+      </div>
+      <div class="physical-ops-card physical-ops-card-compact"><span>观测吞吐</span><strong>{{ formatNumber(summary.totalCalls) }}</strong><small>model calls / {{ windowHours }}h</small></div>
+      <div class="physical-ops-card physical-ops-card-compact"><span>延迟窗口</span><strong>{{ summary.averageLatencyMs }} ms</strong><small>P95 {{ summary.p95LatencyMs }} ms</small></div>
+    </div>
+
     <el-alert
       v-if="!summary.lastEventAt"
       type="warning"
@@ -381,6 +419,13 @@ const telemetryForm = reactive({
 })
 
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))
+const endpointCoveragePercent = computed(() => summary.value.registeredEndpoints > 0
+  ? Math.min(100, Math.round(summary.value.activeEndpoints / summary.value.registeredEndpoints * 100))
+  : 0)
+const runtimeHealthPercent = computed(() => {
+  const total = summary.value.onlineRuntimeCount + summary.value.degradedRuntimeCount + summary.value.offlineRuntimeCount
+  return total > 0 ? Math.min(100, Math.round(summary.value.onlineRuntimeCount / total * 100)) : 0
+})
 const physicalNodes = computed(() => {
   const nodes = new Map<string, {
     key: string
