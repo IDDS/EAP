@@ -69,8 +69,8 @@ public class KubernetesDiscoveryService {
             String image = text(container, "image");
             String name = clean(text(container, "name"), image == null ? workloadName : imageName(image), 256);
             String envNames = envNames(container.path("env"));
-            String labelsText = safeLabelValue(metadata.path("labels"), "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "app.kubernetes.io/component");
-            String annotationText = safeLabelValue(metadata.path("annotations"), "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "eap.ai/auto-approve");
+            String labelsText = safeLabelValue(metadata.path("labels"), "eap.ai/identity", "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "app.kubernetes.io/component");
+            String annotationText = safeLabelValue(metadata.path("annotations"), "eap.ai/identity", "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "eap.ai/auto-approve");
             String signal = String.join(" ", name, image == null ? "" : image, envNames, labelsText, annotationText).toLowerCase(Locale.ROOT);
             boolean explicitAgent = hasText(labelsText) || hasText(annotationText);
             boolean mcp = signal.contains("mcp") || signal.contains("modelcontextprotocol");
@@ -89,6 +89,7 @@ public class KubernetesDiscoveryService {
             evidence.put("workloadName", workloadName);
             evidence.put("workloadUid", uid);
             evidence.put("containerName", name);
+            putIfPresent(evidence, "identityKey", labelValue(metadata, "eap.ai/identity", "ai.eap/identity"));
             putIfPresent(evidence, "image", truncate(image, 512));
             putIfPresent(evidence, "envNames", truncate(envNames, 1024));
             putIfPresent(evidence, "frameworkSignals", truncate(labelsText + " " + annotationText, 512));
@@ -213,6 +214,11 @@ public class KubernetesDiscoveryService {
             if (value != null) return Boolean.parseBoolean(value);
         }
         return null;
+    }
+
+    private String labelValue(JsonNode metadata, String... keys) {
+        String value = first(metadata.path("labels"), keys);
+        return value == null ? first(metadata.path("annotations"), keys) : value;
     }
 
     private String first(JsonNode node, String... paths) {

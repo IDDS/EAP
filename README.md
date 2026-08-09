@@ -136,6 +136,7 @@ npm run dev
 - `GET /api/discovery/agents`：候选 Agent 资产清单。
 - `GET /api/discovery/runs`：最近发现扫描记录。
 - `GET /api/discovery/endpoints`：已注册的端点采集器清单。
+- `GET /api/discovery/identity-links`：跨来源稳定身份键、关联方式、置信度和来源类型。
 - `POST /api/discovery/scans`：立即触发一次本地发现扫描。
 - `POST /api/discovery/agents/{id}/status`：更新候选资产的复核/纳管状态。
 - `POST /api/discovery/endpoints/register`：注册或更新端点采集器。
@@ -189,6 +190,8 @@ EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=false
 ```
 
 Kubernetes Watch/Admission 与 eBPF 连接器使用同一个 `EAP_DISCOVERY_INGESTION_TOKEN`，请求头为 `X-EAP-Discovery-Token`。连接器只接收元数据和网络流摘要：Kubernetes 环境变量只保存变量名，不保存值；eBPF 只保存进程、地址、端口、TLS SNI、模型/供应商和字节数，不保存 Prompt、响应正文或密钥。
+
+跨来源关联优先使用采集器提供的稳定 `eap.ai/identity`（Kubernetes label/annotation）或 eBPF `identityKey`；未提供时，EAP 根据 Agent URL、工作负载 UID、可执行路径、远端服务和规范化产品特征生成哈希身份键。`EXACT` 关联会合并到同一候选资产，`HEURISTIC` 关联保留为可复核的身份图谱边。
 
 ```bash
 EAP_DISCOVERY_KUBERNETES_ENABLED=true

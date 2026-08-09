@@ -320,6 +320,18 @@ export interface DiscoveryEndpoint {
   updatedAt: string
 }
 
+export interface DiscoveryIdentityLink {
+  id: number
+  identityKey: string
+  discoveredAgentId: number
+  relationType: 'EXACT' | 'HEURISTIC'
+  confidence: number
+  identityBasis?: string
+  sourceTypes: DiscoverySourceType[]
+  firstSeenAt: string
+  lastSeenAt: string
+}
+
 export type ProtocolDiscoveryType = 'AUTO' | 'A2A' | 'MCP_REGISTRY' | 'MCP_SERVER_JSON'
 
 export interface ProtocolProbeResponse {

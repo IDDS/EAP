@@ -56,6 +56,11 @@ public class AgentDiscoveryController {
         return ApiResponse.ok(discoveryService.listEndpoints());
     }
 
+    @GetMapping("/identity-links")
+    public ApiResponse<List<AgentDiscoveryDtos.DiscoveryIdentityResponse>> identityLinks() {
+        return ApiResponse.ok(discoveryService.listIdentityLinks());
+    }
+
     @PostMapping("/protocol/probe")
     public ApiResponse<AgentDiscoveryDtos.ProtocolProbeResponse> probeProtocol(
             @Valid @RequestBody AgentDiscoveryDtos.ProtocolProbeRequest request

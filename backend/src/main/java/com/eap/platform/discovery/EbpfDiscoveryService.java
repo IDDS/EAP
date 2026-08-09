@@ -39,7 +39,7 @@ public class EbpfDiscoveryService {
         for (EbpfDiscoveryDtos.EbpfFlow flow : request.flows().stream().limit(Math.max(1, properties.getMaxFlows())).toList()) {
             inspected++;
             String signal = String.join(" ", safe(flow.processName()), safe(flow.executablePath()), safe(flow.protocolHint()),
-                    safe(flow.provider()), safe(flow.modelName()), safe(flow.tlsServerName())).toLowerCase(Locale.ROOT);
+                    safe(flow.provider()), safe(flow.modelName()), safe(flow.tlsServerName()), safe(flow.identityKey())).toLowerCase(Locale.ROOT);
             boolean mcp = signal.contains("mcp") || signal.contains("modelcontextprotocol");
             boolean agent = mcp || hasText(flow.provider()) || hasText(flow.modelName()) || containsAgent(signal);
             if (!agent) continue;
@@ -48,6 +48,7 @@ public class EbpfDiscoveryService {
             String provider = truncate(flow.provider(), 128, inferProvider(remote));
             Map<String, Object> evidence = new LinkedHashMap<>();
             evidence.put("sourceSystem", "EBPF");
+            putIfPresent(evidence, "identityKey", truncate(flow.identityKey(), 256));
             putIfPresent(evidence, "processName", process);
             putIfPresent(evidence, "executablePath", truncate(flow.executablePath(), 1024));
             putIfPresent(evidence, "localAddress", truncate(flow.localAddress(), 128));
@@ -143,7 +144,8 @@ public class EbpfDiscoveryService {
                 @Size(max = 128) String modelName,
                 @Size(max = 256) String tlsServerName,
                 @Min(0) long bytesSent,
-                @Min(0) long bytesReceived
+                @Min(0) long bytesReceived,
+                @Size(max = 256) String identityKey
         ) { }
     }
 }

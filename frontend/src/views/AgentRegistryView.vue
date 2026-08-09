@@ -103,6 +103,37 @@
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
+          <span>跨来源身份关联</span>
+          <span class="muted">把本地、协议、Kubernetes 与 eBPF 证据归并到稳定身份键</span>
+        </div>
+      </template>
+      <el-table :data="identityLinks" v-loading="endpointLoading" row-key="id">
+        <el-table-column prop="discoveredAgentId" label="候选资产" width="100" />
+        <el-table-column label="身份键" min-width="230" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.identityKey }}</template>
+        </el-table-column>
+        <el-table-column label="关联方式" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.relationType === 'EXACT' ? 'success' : 'warning'" size="small">{{ row.relationType }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源" min-width="190">
+          <template #default="{ row }">
+            <el-tag v-for="source in row.sourceTypes" :key="source" size="small" effect="plain">{{ source }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="置信度" width="120">
+          <template #default="{ row }"><el-progress :percentage="row.confidence" :stroke-width="8" /></template>
+        </el-table-column>
+        <el-table-column label="最后观测" width="170">
+          <template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="panel">
+      <template #header>
+        <div class="panel-header">
           <span>自动发现资产清单</span>
           <span class="muted">候选资产不会自动进入正式 Agent，需完成复核与认领</span>
         </div>
@@ -320,6 +351,7 @@ import type {
   AgentRuntimeInstance,
   DiscoveredAgentAsset,
   DiscoveryEndpoint,
+  DiscoveryIdentityLink,
   DiscoveryAssetStatus,
   DiscoveryCandidate,
   RiskLevel,
@@ -338,6 +370,7 @@ const scanLoading = ref(false)
 const autonomousSummary = ref<AgentDiscoverySummary>()
 const discoveredAssets = ref<DiscoveredAgentAsset[]>([])
 const discoveryEndpoints = ref<DiscoveryEndpoint[]>([])
+const identityLinks = ref<DiscoveryIdentityLink[]>([])
 const endpointLoading = ref(false)
 const protocolLoading = ref(false)
 const protocolResult = ref<ProtocolProbeResponse>()
@@ -379,14 +412,16 @@ async function loadAutonomousDiscovery() {
   autonomousLoading.value = true
   try {
     endpointLoading.value = true
-    const [summary, assets, endpoints] = await Promise.all([
+    const [summary, assets, endpoints, links] = await Promise.all([
       EapApi.getAgentDiscoverySummary(),
       EapApi.listDiscoveredAgentAssets(),
       EapApi.listDiscoveryEndpoints(),
+      EapApi.listDiscoveryIdentityLinks(),
     ])
     autonomousSummary.value = summary
     discoveredAssets.value = assets
     discoveryEndpoints.value = endpoints
+    identityLinks.value = links
   } finally {
     autonomousLoading.value = false
     endpointLoading.value = false

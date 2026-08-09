@@ -84,10 +84,10 @@ class InfrastructureDiscoveryServiceTests {
                 "host-01", "worker-01", "svc-agent", "Linux", List.of(
                 new EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfFlow(
                         "langgraph-worker", "/opt/agent/bin/worker", "10.0.0.2", 45000,
-                        "104.18.1.1", 443, "TCP", "OUTBOUND", "HTTPS", "OpenAI", "gpt-4o", "api.openai.com", 1200, 800),
+                        "104.18.1.1", 443, "TCP", "OUTBOUND", "HTTPS", "OpenAI", "gpt-4o", "api.openai.com", 1200, 800, "ops-agent"),
                 new EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfFlow(
                         "mcp-client", "/opt/agent/bin/mcp", "10.0.0.2", 45001,
-                        "10.0.0.9", 3000, "TCP", "OUTBOUND", "MCP", null, null, "mcp.internal", 100, 200)
+                        "10.0.0.9", 3000, "TCP", "OUTBOUND", "MCP", null, null, "mcp.internal", 100, 200, "ops-agent")
         )));
 
         assertThat(response.flowsInspected()).isEqualTo(2);

@@ -31,6 +31,8 @@ class EndpointDiscoveryIngestionTests {
     private DiscoveryRunRepository runRepository;
     @Mock
     private DiscoveryObservationRepository observationRepository;
+    @Mock
+    private DiscoveryIdentityLinkRepository identityLinkRepository;
 
     private AgentDiscoveryService service;
 
@@ -38,7 +40,7 @@ class EndpointDiscoveryIngestionTests {
     void setUp() {
         service = new AgentDiscoveryService(
                 new DiscoveryProperties(), scanner, agentRepository, endpointRepository,
-                runRepository, observationRepository, new ObjectMapper()
+                runRepository, observationRepository, identityLinkRepository, new ObjectMapper()
         );
     }
 

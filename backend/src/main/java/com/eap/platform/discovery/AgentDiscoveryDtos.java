@@ -185,6 +185,19 @@ public final class AgentDiscoveryDtos {
     ) {
     }
 
+    public record DiscoveryIdentityResponse(
+            Long id,
+            String identityKey,
+            Long discoveredAgentId,
+            String relationType,
+            Integer confidence,
+            String identityBasis,
+            List<String> sourceTypes,
+            Instant firstSeenAt,
+            Instant lastSeenAt
+    ) {
+    }
+
     static DiscoveredAgentResponse from(DiscoveredAgent agent) {
         List<String> sourceTypes = agent.sourceTypes == null || agent.sourceTypes.isBlank()
                 ? List.of()
@@ -195,6 +208,21 @@ public final class AgentDiscoveryDtos {
                 agent.processName, agent.executablePath, agent.autoApprove, agent.trustedProcess,
                 agent.mcpServerCount, agent.evidenceCount, agent.managedAgentId,
                 agent.firstSeenAt, agent.lastSeenAt, agent.createdAt, agent.updatedAt
+        );
+    }
+
+    static DiscoveryIdentityResponse from(DiscoveryIdentityLink link) {
+        return new DiscoveryIdentityResponse(
+                link.id,
+                link.identityKey,
+                link.discoveredAgent == null ? null : link.discoveredAgent.id,
+                link.relationType,
+                link.confidence,
+                link.identityBasis,
+                link.sourceTypes == null || link.sourceTypes.isBlank()
+                        ? List.of() : List.of(link.sourceTypes.split(",")),
+                link.firstSeenAt,
+                link.lastSeenAt
         );
     }
 

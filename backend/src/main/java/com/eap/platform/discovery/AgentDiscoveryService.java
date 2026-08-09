@@ -27,6 +27,7 @@ public class AgentDiscoveryService {
     private final DiscoveryEndpointRepository endpointRepository;
     private final DiscoveryRunRepository runRepository;
     private final DiscoveryObservationRepository observationRepository;
+    private final DiscoveryIdentityLinkRepository identityLinkRepository;
     private final ObjectMapper objectMapper;
     private final AtomicBoolean scanRunning = new AtomicBoolean(false);
 
@@ -37,6 +38,7 @@ public class AgentDiscoveryService {
             DiscoveryEndpointRepository endpointRepository,
             DiscoveryRunRepository runRepository,
             DiscoveryObservationRepository observationRepository,
+            DiscoveryIdentityLinkRepository identityLinkRepository,
             ObjectMapper objectMapper
     ) {
         this.properties = properties;
@@ -45,6 +47,7 @@ public class AgentDiscoveryService {
         this.endpointRepository = endpointRepository;
         this.runRepository = runRepository;
         this.observationRepository = observationRepository;
+        this.identityLinkRepository = identityLinkRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -93,6 +96,12 @@ public class AgentDiscoveryService {
     @Transactional(readOnly = true)
     public List<AgentDiscoveryDtos.DiscoveryEndpointResponse> listEndpoints() {
         return endpointRepository.findAllByOrderByLastSeenAtDesc().stream().map(AgentDiscoveryDtos::from).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentDiscoveryDtos.DiscoveryIdentityResponse> listIdentityLinks() {
+        return identityLinkRepository.findTop100ByOrderByLastSeenAtDesc().stream()
+                .map(AgentDiscoveryDtos::from).toList();
     }
 
     @Transactional
@@ -325,7 +334,10 @@ public class AgentDiscoveryService {
 
     private DiscoveredAgent upsert(DiscoveryEvidence item) {
         Instant now = Instant.now();
-        DiscoveredAgent agent = agentRepository.findByFingerprint(item.fingerprint()).orElseGet(DiscoveredAgent::new);
+        Identity identity = identity(item);
+        DiscoveredAgent agent = agentRepository.findByFingerprint(item.fingerprint())
+                .orElseGet(() -> identityLinkRepository.findByIdentityKey(identity.key())
+                        .map(link -> link.discoveredAgent).orElseGet(DiscoveredAgent::new));
         boolean newAsset = agent.id == null;
         agent.fingerprint = item.fingerprint();
         agent.name = prefer(item.name(), agent.name);
@@ -346,8 +358,67 @@ public class AgentDiscoveryService {
         agent.evidenceCount = (agent.evidenceCount == null ? 0 : agent.evidenceCount) + 1;
         agent.firstSeenAt = newAsset ? now : agent.firstSeenAt;
         agent.lastSeenAt = now;
-        return agentRepository.save(agent);
+        DiscoveredAgent saved = agentRepository.save(agent);
+        linkIdentity(saved, item, identity, now);
+        return saved;
     }
+
+    private void linkIdentity(DiscoveredAgent agent, DiscoveryEvidence item, Identity identity, Instant now) {
+        DiscoveryIdentityLink link = identityLinkRepository.findByIdentityKey(identity.key())
+                .orElseGet(DiscoveryIdentityLink::new);
+        if (link.discoveredAgent != null && link.discoveredAgent.id != null
+                && !link.discoveredAgent.id.equals(agent.id)) {
+            // Keep the first canonical owner; the new observation still remains in its own evidence trail.
+            return;
+        }
+        link.identityKey = identity.key();
+        link.discoveredAgent = agent;
+        link.relationType = identity.relationType();
+        link.confidence = link.confidence == null ? identity.confidence() : Math.max(link.confidence, identity.confidence());
+        link.identityBasis = truncate(identity.basis(), 1024);
+        link.sourceTypes = mergeSourceType(link.sourceTypes, item.sourceType());
+        link.firstSeenAt = link.firstSeenAt == null ? now : link.firstSeenAt;
+        link.lastSeenAt = now;
+        identityLinkRepository.save(link);
+    }
+
+    private Identity identity(DiscoveryEvidence item) {
+        Map<String, Object> evidence = item.evidence() == null ? Map.of() : item.evidence();
+        String explicit = stringEvidence(evidence, "identityKey", "agentIdentity", "workloadUid", "agentUrl", "executablePath");
+        String basis = explicit;
+        if (basis == null || basis.isBlank()) {
+            basis = switch (item.sourceType()) {
+                case A2A -> item.sourceLocation();
+                case MCP_REGISTRY -> item.name() + "|" + item.version();
+                case KUBERNETES_WATCH, KUBERNETES_ADMISSION -> item.sourceLocation();
+                case EBPF -> item.executablePath() + "|" + stringEvidence(evidence, "tlsServerName", "remoteAddress");
+                default -> item.executablePath() == null ? item.sourceLocation() : item.executablePath();
+            };
+        }
+        String normalized = normalize(basis) + "|" + normalize(item.name()) + "|" + normalize(item.product())
+                + "|" + normalize(item.hostName());
+        boolean exact = stringEvidence(evidence, "identityKey", "agentIdentity", "workloadUid", "agentUrl") != null;
+        return new Identity(
+                fingerprint("identity", normalized),
+                basis == null ? normalized : basis,
+                exact ? "EXACT" : "HEURISTIC",
+                exact ? Math.max(90, item.confidence()) : Math.min(85, item.confidence())
+        );
+    }
+
+    private String stringEvidence(Map<String, Object> evidence, String... keys) {
+        for (String key : keys) {
+            Object value = evidence.get(key);
+            if (value != null && !String.valueOf(value).isBlank()) return String.valueOf(value);
+        }
+        return null;
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private record Identity(String key, String basis, String relationType, int confidence) { }
 
     private DiscoveryEndpoint upsertEndpoint(AgentDiscoveryDtos.EndpointRegistrationRequest request) {
         DiscoveryEndpoint endpoint = endpointRepository.findByEndpointKey(request.endpointKey())
