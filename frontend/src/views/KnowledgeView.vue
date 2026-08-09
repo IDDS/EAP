@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <span class="interface-eyebrow">KNOWLEDGE · TRACE</span>
+        <span class="interface-eyebrow">知识 · 追踪</span>
         <strong>智能体知识界面</strong>
         <span>分析输入知识、检索与处理过程、输出知识，以及知识采用和复用情况</span>
       </div>
@@ -25,15 +25,9 @@
 
     <div class="analysis-hero knowledge-hero">
       <div class="analysis-hero-copy">
-        <span class="analysis-eyebrow">KNOWLEDGE FLOW / {{ windowHours }}H OBSERVATION</span>
+        <span class="analysis-eyebrow">知识流转 / 最近 {{ windowHours }} 小时</span>
         <h2>知识流转链路</h2>
         <p>把输入知识、处理过程与输出结果放到同一条观测链上，快速判断知识是否真正被智能体采用并形成复用。</p>
-        <div class="analysis-tags">
-          <span class="analysis-tag">INPUT</span>
-          <span class="analysis-tag">PROCESS</span>
-          <span class="analysis-tag">OUTPUT</span>
-          <span class="analysis-tag analysis-tag-muted">脱敏元数据</span>
-        </div>
       </div>
       <div class="knowledge-gauges">
         <div class="knowledge-gauge">
@@ -50,7 +44,7 @@
     <div class="knowledge-stage-board">
       <div class="knowledge-stage">
         <span class="knowledge-stage-index">01</span>
-        <div><span class="knowledge-stage-label">输入知识</span><strong>{{ formatNumber(summary.inputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.inputTokens) }} input tokens</p></div>
+        <div><span class="knowledge-stage-label">输入知识</span><strong>{{ formatNumber(summary.inputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.inputTokens) }} 输入 Token</p></div>
       </div>
       <span class="knowledge-stage-arrow">→</span>
       <div class="knowledge-stage">
@@ -60,12 +54,12 @@
       <span class="knowledge-stage-arrow">→</span>
       <div class="knowledge-stage">
         <span class="knowledge-stage-index">03</span>
-        <div><span class="knowledge-stage-label">输出知识</span><strong>{{ formatNumber(summary.outputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.outputTokens) }} output tokens</p></div>
+        <div><span class="knowledge-stage-label">输出知识</span><strong>{{ formatNumber(summary.outputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.outputTokens) }} 输出 Token</p></div>
       </div>
     </div>
 
     <div v-if="drilldownLabel" class="drilldown-context">
-      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前知识交互已按上下文收敛</span>
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
@@ -76,7 +70,7 @@
       type="warning"
       :closable="false"
       show-icon
-      title="尚未收到知识交互遥测。请由 Agent Runtime 上报输入、过程步骤和输出引用。"
+      title="尚未收到知识交互遥测。请由智能体运行时上报输入、过程步骤和输出引用。"
     />
 
     <el-card v-show="activeSection === 'ingest'" shadow="never" class="panel">
@@ -88,10 +82,10 @@
       </template>
       <el-form label-position="top" @submit.prevent="recordInteraction">
         <div class="form-row">
-          <el-form-item label="交互 Key" required>
+          <el-form-item label="交互标识" required>
             <el-input v-model="form.interactionKey" placeholder="例如 knowledge-fin-001" />
           </el-form-item>
-          <el-form-item label="关联 Agent" required>
+          <el-form-item label="关联智能体" required>
             <el-select v-model="form.agentId" style="width: 100%" placeholder="选择智能体">
               <el-option v-for="agent in agents" :key="agent.id" :label="`${agent.name} (${agent.code})`" :value="agent.id" />
             </el-select>
@@ -145,7 +139,7 @@
           </el-form-item>
         </div>
         <div class="button-row governance-submit-row">
-          <span class="muted">交互 Key 幂等；过程步骤会单独持久化并计入采用率、复用率和管理指标。</span>
+          <span class="muted">交互标识幂等；过程步骤会单独持久化并计入采用率、复用率和管理指标。</span>
           <el-button type="primary" :loading="saving" @click="recordInteraction">上报知识交互</el-button>
         </div>
       </el-form>
@@ -192,7 +186,7 @@
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
           <div class="panel-header">
-            <span>Agent 知识效率</span>
+            <span>智能体知识效率</span>
             <span class="muted">采用 / 复用</span>
           </div>
         </template>
@@ -202,9 +196,9 @@
 
     <div v-show="activeSection === 'overview'" class="knowledge-two-column">
       <el-card shadow="never" class="panel">
-        <template #header>Agent 知识采用与复用</template>
+        <template #header>智能体知识采用与复用</template>
         <el-table :data="visibleAgentUsage" size="small">
-          <el-table-column prop="subjectName" label="Agent / 端点" min-width="170" />
+          <el-table-column prop="subjectName" label="智能体 / 端点" min-width="170" />
           <el-table-column prop="interactions" label="交互" width="75" />
           <el-table-column label="采用率" width="95">
             <template #default="{ row }">{{ Math.round(row.adoptionRate * 100) }}%</template>
@@ -240,7 +234,7 @@
           <template #default="{ row }">
             <div class="knowledge-steps">
               <div v-for="step in row.processSteps" :key="step.id" class="knowledge-step">
-                <el-tag size="small" effect="plain">{{ step.stepType }}</el-tag>
+                <el-tag size="small" effect="plain">{{ knowledgeStepLabel(step.stepType) }}</el-tag>
                 <strong>{{ step.name }}</strong>
                 <span>{{ step.sourceCount }} 来源 · {{ formatNumber(step.inputTokens + step.outputTokens) }} Token · {{ step.latencyMs }} ms</span>
               </div>
@@ -251,7 +245,7 @@
         <el-table-column label="交互" min-width="200">
           <template #default="{ row }">
             <strong>{{ row.inputType }} → {{ row.outputType || '未定义输出' }}</strong>
-            <div class="muted">{{ row.interactionKey }} · {{ row.traceId || '无 trace' }}</div>
+            <div class="muted">{{ row.interactionKey }} · {{ row.traceId || '无 Trace' }}</div>
           </template>
         </el-table-column>
         <el-table-column label="输入知识" min-width="220">
@@ -276,10 +270,10 @@
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
-          <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ knowledgeStatusLabel(row.status) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="钻取" width="82" fixed="right">
-          <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理 Trace</el-button></template>
+          <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -357,7 +351,7 @@ const contextEndpointKey = computed(() => String(route.query.endpointKey || '').
 const contextTraceId = computed(() => String(route.query.traceId || '').trim())
 const drilldownLabel = computed(() => {
   const parts: string[] = []
-  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextAgentId.value) parts.push(`智能体 #${contextAgentId.value}`)
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   if (contextTraceId.value) parts.push(`Trace ${contextTraceId.value}`)
   return parts.join(' · ')
@@ -441,7 +435,7 @@ async function load() {
 
 async function recordInteraction() {
   if (!form.interactionKey.trim() || !form.agentId || !form.inputType.trim()) {
-    ElMessage.warning('请填写交互 Key、Agent 和输入知识类型')
+    ElMessage.warning('请填写交互标识、智能体和输入知识类型')
     return
   }
   saving.value = true
@@ -510,6 +504,28 @@ function statusType(status: KnowledgeInteractionStatus) {
   if (status === 'FAILED') return 'danger'
   if (status === 'RUNNING') return 'warning'
   return 'info'
+}
+
+function knowledgeStepLabel(value: KnowledgeStepType) {
+  const labels: Record<KnowledgeStepType, string> = {
+    INPUT_ANALYSIS: '输入分析',
+    RETRIEVAL: '知识检索',
+    TOOL: '工具处理',
+    REASONING: '推理',
+    TRANSFORM: '转换',
+    OUTPUT_ANALYSIS: '输出分析',
+  }
+  return labels[value] || value
+}
+
+function knowledgeStatusLabel(value: KnowledgeInteractionStatus) {
+  const labels: Record<KnowledgeInteractionStatus, string> = {
+    RUNNING: '进行中',
+    SUCCEEDED: '成功',
+    FAILED: '失败',
+    CANCELLED: '已取消',
+  }
+  return labels[value] || value
 }
 
 onMounted(load)

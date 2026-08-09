@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <span class="interface-eyebrow">MANAGEMENT · VALUE</span>
+        <span class="interface-eyebrow">管理 · 价值</span>
         <strong>智能体管理界面</strong>
         <span>查看投入产出比、任务成效、知识采用与复用，并登记业务方确认的价值事件</span>
       </div>
@@ -25,20 +25,14 @@
 
     <div class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
-        <span class="analysis-eyebrow">MANAGEMENT PLANE / {{ windowHours }}H OBSERVATION</span>
+        <span class="analysis-eyebrow">价值分析 / 最近 {{ windowHours }} 小时</span>
         <h2>价值回路</h2>
         <p>把模型投入、任务执行、知识贡献与业务确认价值放在同一个回路里，避免只看调用量而忽略实际产出。</p>
-        <div class="analysis-tags">
-          <span class="analysis-tag">INVEST</span>
-          <span class="analysis-tag">EXECUTE</span>
-          <span class="analysis-tag">ADOPT</span>
-          <span class="analysis-tag analysis-tag-muted">VALIDATE</span>
-        </div>
       </div>
       <div class="management-value-card">
-        <span class="analysis-eyebrow">RETURN SIGNAL</span>
+        <span class="analysis-eyebrow">价值信号</span>
         <strong>{{ roiLabel }}</strong>
-        <span>ROI · {{ summary.hasValidatedValue ? '业务方已确认' : '等待业务方确认' }}</span>
+        <span>投入产出比 · {{ summary.hasValidatedValue ? '业务方已确认' : '等待业务方确认' }}</span>
         <div class="management-value-meta"><span>净收益 <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>确认价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
       </div>
     </div>
@@ -46,27 +40,27 @@
     <div class="management-flow-strip">
       <div class="management-flow-step">
         <span class="management-flow-index">01</span>
-        <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} tokens</small></div>
+        <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
       </div>
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
         <span class="management-flow-index">02</span>
-        <div><span>执行</span><strong>{{ formatNumber(summary.totalTasks) }}</strong><small>{{ successPercent }}% tasks succeeded</small></div>
+        <div><span>执行</span><strong>{{ formatNumber(summary.totalTasks) }}</strong><small>任务成功率 {{ successPercent }}%</small></div>
       </div>
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
         <span class="management-flow-index">03</span>
-        <div><span>知识贡献</span><strong>{{ adoptionPercent }}% / {{ reusePercent }}%</strong><small>adoption / reuse</small></div>
+        <div><span>知识贡献</span><strong>{{ adoptionPercent }}% / {{ reusePercent }}%</strong><small>采用率 / 复用率</small></div>
       </div>
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
         <span class="management-flow-index">04</span>
-        <div><span>业务价值</span><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><small>{{ summary.hasValidatedValue ? 'validated' : 'not validated' }}</small></div>
+        <div><span>业务价值</span><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><small>{{ summary.hasValidatedValue ? '已确认' : '待确认' }}</small></div>
       </div>
     </div>
 
     <div v-if="drilldownLabel" class="drilldown-context">
-      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前价值数据已按上下文收敛</span>
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
@@ -77,7 +71,7 @@
       type="warning"
       :closable="false"
       show-icon
-      title="尚未录入业务方确认价值，ROI 暂不计算。请在下方登记与 Agent 或发现端点关联的价值事件。"
+      title="尚未录入业务方确认价值，投入产出比暂不计算。请在下方登记与智能体或发现端点关联的价值事件。"
     />
 
     <div v-show="activeSection === 'overview'" class="metric-strip">
@@ -90,7 +84,7 @@
         <el-icon><TrendCharts /></el-icon>
       </div>
       <div class="small-box box-primary">
-        <div><strong>{{ roiLabel }}</strong><span>投入产出比 ROI</span></div>
+        <div><strong>{{ roiLabel }}</strong><span>投入产出比</span></div>
         <el-icon><DataAnalysis /></el-icon>
       </div>
       <div class="small-box box-info">
@@ -122,7 +116,7 @@
         <template #header>
           <div class="panel-header">
             <span>知识采用 / 复用对比</span>
-            <span class="muted">Agent 维度</span>
+            <span class="muted">智能体维度</span>
           </div>
         </template>
         <TrendChart :option="knowledgeRateOption" />
@@ -132,15 +126,15 @@
     <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-leaderboard-panel">
       <template #header>
         <div class="panel-header">
-          <span>Agent 价值排行</span>
-          <span class="muted">优先展示已有业务价值归因的 Agent</span>
+          <span>智能体价值排行</span>
+          <span class="muted">优先展示已有业务价值归因的智能体</span>
         </div>
       </template>
       <div v-if="topAgentUsage.length" class="management-leaderboard">
         <div v-for="(row, index) in topAgentUsage" :key="row.subjectKey" class="management-leader-row">
           <span class="management-rank">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="management-leader-name"><strong>{{ row.subjectName }}</strong><span>{{ row.subjectKey }}</span></div>
-          <div class="management-leader-metric"><span>ROI</span><strong>{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</strong></div>
+          <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</strong></div>
           <div class="management-leader-metric"><span>确认价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
           <div class="management-leader-bars">
             <div><span>采用 {{ Math.round(row.knowledgeAdoptionRate * 100) }}%</span><i><b :style="{ width: `${Math.round(row.knowledgeAdoptionRate * 100)}%` }"></b></i></div>
@@ -148,19 +142,19 @@
           </div>
         </div>
       </div>
-      <el-empty v-else description="当前窗口没有可排行的 Agent 价值数据" />
+      <el-empty v-else description="当前窗口没有可排行的智能体价值数据" />
     </el-card>
 
     <div v-show="activeSection === 'attribution'" class="management-two-column">
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
-            <span>Agent 投入产出与知识指标</span>
+            <span>智能体投入产出与知识指标</span>
             <span class="muted">按窗口聚合真实任务、遥测和知识交互</span>
           </div>
         </template>
         <el-table :data="visibleAgentUsage" v-loading="loading" size="small">
-          <el-table-column label="Agent / 端点" min-width="170">
+          <el-table-column label="智能体 / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
               <div class="muted">{{ row.subjectKey }}</div>
@@ -178,7 +172,7 @@
           <el-table-column label="确认价值" width="105">
             <template #default="{ row }">{{ formatMoney(row.validatedValue) }}</template>
           </el-table-column>
-          <el-table-column label="ROI" width="85">
+          <el-table-column label="投入产出比" width="85">
             <template #default="{ row }">{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</template>
           </el-table-column>
           <el-table-column label="采用 / 复用" width="112">
@@ -200,7 +194,7 @@
         </template>
         <el-form label-position="top" class="management-form" @submit.prevent="recordValue">
           <div class="form-row">
-            <el-form-item label="事件 Key" required>
+            <el-form-item label="事件标识" required>
               <el-input v-model="form.eventKey" placeholder="例如 task-2026-001-value" />
             </el-form-item>
             <el-form-item label="价值类型" required>
@@ -213,11 +207,11 @@
             </el-form-item>
           </div>
           <div class="form-row">
-            <el-form-item label="Agent ID">
+            <el-form-item label="智能体 ID">
               <el-input-number v-model="form.agentId" :min="1" :controls="false" style="width: 100%" placeholder="可选" />
             </el-form-item>
-            <el-form-item label="发现端点 Key">
-              <el-input v-model="form.endpointKey" placeholder="可选，至少填写 Agent 或端点之一" />
+            <el-form-item label="发现端点标识">
+              <el-input v-model="form.endpointKey" placeholder="可选，至少填写智能体或端点之一" />
             </el-form-item>
           </div>
           <div class="form-row">
@@ -235,7 +229,7 @@
             <el-input v-model="form.description" type="textarea" :rows="2" maxlength="2048" show-word-limit placeholder="只填写脱敏后的业务结果，不要粘贴公司机密或模型原文" />
           </el-form-item>
           <div class="button-row management-submit-row">
-            <span class="muted">提交后会进入 ROI 聚合，并保留幂等事件 Key。</span>
+            <span class="muted">提交后会计入投入产出汇总，并保留幂等事件标识。</span>
             <el-button type="primary" :loading="saving" @click="recordValue">登记确认价值</el-button>
           </div>
         </el-form>
@@ -253,13 +247,15 @@
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
-        <el-table-column label="Agent / 端点" min-width="170">
+        <el-table-column label="智能体 / 端点" min-width="170">
           <template #default="{ row }">
-            <strong>{{ row.agentId ? `Agent ${row.agentId}` : row.endpointKey }}</strong>
+            <strong>{{ row.agentId ? `智能体 ${row.agentId}` : row.endpointKey }}</strong>
             <div class="muted">{{ row.eventKey }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="valueType" label="价值类型" width="150" />
+        <el-table-column label="价值类型" width="150">
+          <template #default="{ row }">{{ managementValueTypeLabel(row.valueType) }}</template>
+        </el-table-column>
         <el-table-column label="确认价值" width="125">
           <template #default="{ row }">{{ row.benefitMoney.toFixed(2) }} {{ row.currency }}</template>
         </el-table-column>
@@ -327,7 +323,7 @@ const contextAgentId = computed(() => {
 const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
 const drilldownLabel = computed(() => {
   const parts: string[] = []
-  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextAgentId.value) parts.push(`智能体 #${contextAgentId.value}`)
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   return parts.join(' · ')
 })
@@ -412,11 +408,11 @@ async function load() {
 
 async function recordValue() {
   if (!form.eventKey.trim() || !form.validatedBy.trim() || !form.valueType.trim()) {
-    ElMessage.warning('请填写事件 Key、价值类型和确认人')
+    ElMessage.warning('请填写事件标识、价值类型和确认人')
     return
   }
   if (!form.agentId && !form.endpointKey.trim()) {
-    ElMessage.warning('请至少关联 Agent ID 或发现端点 Key')
+    ElMessage.warning('请至少关联智能体 ID 或发现端点标识')
     return
   }
   saving.value = true
@@ -449,6 +445,16 @@ function formatMoney(value: number) {
 
 function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
+}
+
+function managementValueTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    LABOR_SAVING: '节省人工成本',
+    REVENUE: '提升收入',
+    LOSS_AVOIDANCE: '减少损失',
+    OTHER: '其他已验证价值',
+  }
+  return labels[value] || value
 }
 
 onMounted(load)

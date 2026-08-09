@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <span class="interface-eyebrow">GOVERNANCE · POLICY</span>
+        <span class="interface-eyebrow">治理 · 策略</span>
         <strong>智能体治理界面</strong>
         <span>追踪内部信息进入模型、公司保密信息、策略动作和阻断结果，不保存敏感正文</span>
       </div>
@@ -26,24 +26,18 @@
 
     <div class="analysis-hero governance-hero">
       <div class="analysis-hero-copy">
-        <span class="analysis-eyebrow">GOVERNANCE FLOW / {{ windowHours }}H OBSERVATION</span>
+        <span class="analysis-eyebrow">治理策略流 / 最近 {{ windowHours }} 小时</span>
         <h2>治理策略流</h2>
         <p>将分类、预检、策略命中与网关执行串成一条控制链，所有判断只保留可审计的分类元数据，不落库敏感正文。</p>
-        <div class="analysis-tags">
-          <span class="analysis-tag">CLASSIFY</span>
-          <span class="analysis-tag">PREFLIGHT</span>
-          <span class="analysis-tag">POLICY</span>
-          <span class="analysis-tag">GATEWAY</span>
-        </div>
       </div>
       <div class="governance-health-card">
-        <span class="analysis-eyebrow">CONTROL PLANE</span>
+        <span class="analysis-eyebrow">控制状态</span>
         <div class="governance-health-main">
           <span class="governance-health-dot" :class="{ 'is-ready': enforcement.enforcementEnabled }"></span>
-          <strong>{{ enforcement.enforcementEnabled ? 'ENFORCE' : 'OBSERVE' }}</strong>
+          <strong>{{ enforcement.enforcementEnabled ? '强制' : '观察' }}</strong>
         </div>
         <div class="governance-health-meta">
-          <span>网关 <b>{{ gateway.configured ? 'READY' : gateway.enabled ? 'MISCONFIGURED' : 'OFF' }}</b></span>
+          <span>网关 <b>{{ gatewayStatusLabel }}</b></span>
           <span>待审批 <b>{{ enforcement.pendingApprovals }}</b></span>
         </div>
       </div>
@@ -60,7 +54,7 @@
     </div>
 
     <div v-if="drilldownLabel" class="drilldown-context">
-      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前治理事件和决策已按上下文收敛</span>
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
@@ -71,7 +65,7 @@
       type="warning"
       :closable="false"
       show-icon
-      title="尚未收到治理数据事件。请由模型网关、DLP 或 Agent Runtime 只上报分类、计数和策略动作。"
+      title="尚未收到治理数据事件。请由模型网关、DLP 或智能体运行时只上报分类、计数和策略动作。"
     />
 
     <el-alert
@@ -79,7 +73,7 @@
       type="success"
       :closable="false"
       show-icon
-      title="实时强制治理已启用：模型网关必须在发送请求前调用预检接口，并严格执行返回的 gatewayDirective。"
+      title="实时强制治理已启用：模型网关必须在发送请求前调用预检接口，并严格执行返回的网关指令。"
     />
 
     <el-alert
@@ -87,17 +81,17 @@
       type="warning"
       :closable="false"
       show-icon
-      title="治理策略已经启用，但 OpenAI-compatible 模型网关尚未配置上游；生产 Agent 还不能经由统一入口调用模型。"
+      title="治理策略已经启用，但兼容模型网关尚未配置上游；生产智能体还不能经由统一入口调用模型。"
     />
 
     <div v-show="activeSection === 'overview'" class="governance-enforcement-strip">
       <div>
         <span>执行模式</span>
-        <strong>{{ enforcement.enforcementEnabled ? 'ENFORCE' : 'OBSERVE' }}</strong>
+        <strong>{{ enforcement.enforcementEnabled ? '强制' : '观察' }}</strong>
       </div>
       <div>
         <span>保密信息默认策略</span>
-        <strong>{{ enforcement.failClosedOnSecret ? 'FAIL-CLOSED' : 'POLICY ONLY' }}</strong>
+        <strong>{{ enforcement.failClosedOnSecret ? '默认阻断' : '按策略' }}</strong>
       </div>
       <div><span>启用策略</span><strong>{{ enforcement.enabledPolicies }}</strong></div>
       <div><span>预检决策</span><strong>{{ enforcement.preflightDecisions }}</strong></div>
@@ -106,10 +100,10 @@
         <div><span>待审批</span><strong class="pending-approval-count">{{ enforcement.pendingApprovals }}</strong></div>
       <div>
         <span>模型网关</span>
-        <strong>{{ gateway.configured ? 'READY' : gateway.enabled ? 'MISCONFIGURED' : 'OFF' }}</strong>
+        <strong>{{ gatewayStatusLabel }}</strong>
       </div>
       <div><span>网关供应商</span><strong>{{ gateway.provider }}</strong></div>
-      <div><span>客户端鉴权</span><strong>{{ gateway.authenticationConfigured ? 'READY' : 'MISSING' }}</strong></div>
+      <div><span>客户端鉴权</span><strong>{{ gateway.authenticationConfigured ? '就绪' : '缺失' }}</strong></div>
     </div>
 
     <el-card v-show="activeSection === 'overview'" shadow="never" class="panel gateway-integration-card">
@@ -122,7 +116,7 @@
       <div class="gateway-integration-grid">
         <div><span>Base URL</span><code>/api/gateway/v1</code></div>
         <div><span>Chat Completions</span><code>POST /api/gateway/v1/chat/completions</code></div>
-        <div><span>Agent 归属</span><code>X-EAP-Agent-Id</code></div>
+        <div><span>智能体归属</span><code>X-EAP-Agent-Id</code></div>
         <div><span>端点归属</span><code>X-EAP-Endpoint-Key</code></div>
         <div><span>分类器</span><code>{{ gateway.classifier }}</code></div>
         <div><span>超时</span><code>{{ gateway.readTimeoutMs }} ms</code></div>
@@ -162,12 +156,12 @@
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
-            <span>Agent / 端点风险分布</span>
+            <span>智能体 / 端点风险分布</span>
             <span class="muted">仅聚合分类元数据</span>
           </div>
         </template>
         <el-table :data="visibleSubjectUsage" v-loading="loading" size="small">
-          <el-table-column label="Agent / 端点" min-width="170">
+          <el-table-column label="智能体 / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
               <div class="muted">{{ row.subjectKey }}</div>
@@ -194,7 +188,7 @@
         </template>
         <el-form label-position="top" class="governance-event-form">
           <div class="form-row">
-            <el-form-item label="事件 Key" required>
+            <el-form-item label="事件标识" required>
               <el-input v-model="form.eventKey" placeholder="例如 gateway-event-001" />
             </el-form-item>
             <el-form-item label="数据方向" required>
@@ -207,11 +201,11 @@
             </el-form-item>
           </div>
           <div class="form-row">
-            <el-form-item label="Agent ID">
+            <el-form-item label="智能体 ID">
               <el-input-number v-model="form.agentId" :min="1" :controls="false" style="width: 100%" />
             </el-form-item>
-            <el-form-item label="发现端点 Key">
-              <el-input v-model="form.endpointKey" placeholder="至少填写 Agent 或端点之一" />
+            <el-form-item label="发现端点标识">
+              <el-input v-model="form.endpointKey" placeholder="至少填写智能体或端点之一" />
             </el-form-item>
           </div>
           <div class="form-row">
@@ -260,21 +254,21 @@
       <template #header>
         <div class="panel-header">
           <span>最近预检与执行指令</span>
-          <span class="muted">PROCEED / REDACT_AND_RECHECK / REQUEST_APPROVAL / BLOCK</span>
+          <span class="muted">放行 · 脱敏后复检 · 请求审批 · 阻断</span>
         </div>
       </template>
       <el-table :data="visibleDecisions" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.decidedAt) }}</template>
         </el-table-column>
-        <el-table-column label="决策 Key" min-width="190">
+        <el-table-column label="决策标识" min-width="190">
           <template #default="{ row }">
             <strong>{{ row.decisionKey }}</strong>
             <div class="muted">事件 #{{ row.dataEventId }}</div>
           </template>
         </el-table-column>
         <el-table-column label="网关指令" width="210">
-          <template #default="{ row }"><el-tag :type="directiveType(row.gatewayDirective)">{{ row.gatewayDirective }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="directiveType(row.gatewayDirective)">{{ gatewayDirectiveLabel(row.gatewayDirective) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="请求模型" width="105">
           <template #default="{ row }"><el-tag :type="row.requestAllowed ? 'success' : 'danger'">{{ row.requestAllowed ? '允许' : '停止' }}</el-tag></template>
@@ -292,7 +286,7 @@
           <template #default="{ row }">{{ row.provider || '—' }} / {{ row.modelName || '—' }}</template>
         </el-table-column>
         <el-table-column label="审批状态" width="145">
-          <template #default="{ row }"><el-tag :type="approvalType(row.approvalStatus)">{{ row.approvalStatus }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="approvalType(row.approvalStatus)">{{ approvalStatusLabel(row.approvalStatus) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="审批操作" width="190" fixed="right">
           <template #default="{ row }">
@@ -318,19 +312,19 @@
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
-        <el-table-column label="Agent / 端点" min-width="170">
+        <el-table-column label="智能体 / 端点" min-width="170">
           <template #default="{ row }">
-            <strong>{{ row.agentId ? `Agent ${row.agentId}` : row.endpointKey }}</strong>
+            <strong>{{ row.agentId ? `智能体 ${row.agentId}` : row.endpointKey }}</strong>
             <div class="muted">{{ row.eventKey }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="direction" label="方向" width="150" />
+        <el-table-column label="方向" width="150"><template #default="{ row }">{{ governanceDirectionLabel(row.direction) }}</template></el-table-column>
         <el-table-column prop="dataCategory" label="数据类别" min-width="150" />
         <el-table-column label="敏感级别" width="115">
-          <template #default="{ row }"><el-tag :type="sensitivityType(row.sensitivity)">{{ row.sensitivity }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="sensitivityType(row.sensitivity)">{{ sensitivityLabel(row.sensitivity) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="策略动作" width="135">
-          <template #default="{ row }"><el-tag :type="actionType(row.action)">{{ row.action }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="actionType(row.action)">{{ governanceActionLabel(row.action) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="内部 / 保密" width="120">
           <template #default="{ row }">{{ row.internalData ? '是' : '否' }} / {{ row.companySecret ? '是' : '否' }}</template>
@@ -354,9 +348,9 @@
       </template>
       <el-table :data="visiblePolicies" v-loading="loading">
         <el-table-column prop="name" label="策略名称" min-width="180" />
-        <el-table-column prop="policyType" label="类型" width="140" />
-        <el-table-column prop="scopeType" label="范围" width="120" />
-        <el-table-column prop="enforcementMode" label="执行模式" width="170" />
+        <el-table-column label="类型" width="140"><template #default="{ row }">{{ policyTypeLabel(row.policyType) }}</template></el-table-column>
+        <el-table-column label="范围" width="120"><template #default="{ row }">{{ scopeTypeLabel(row.scopeType) }}</template></el-table-column>
+        <el-table-column label="执行模式" width="170"><template #default="{ row }">{{ enforcementModeLabel(row.enforcementMode) }}</template></el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-switch
@@ -393,7 +387,7 @@
           <el-form-item label="作用范围" required>
             <el-select v-model="policyForm.scopeType" style="width: 100%">
               <el-option label="全局" value="GLOBAL" />
-              <el-option label="指定 Agent" value="AGENT" />
+              <el-option label="指定智能体" value="AGENT" />
               <el-option label="指定端点" value="ENDPOINT" />
               <el-option label="数据类别" value="DATA_CATEGORY" />
               <el-option label="模型供应商" value="PROVIDER" />
@@ -401,7 +395,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="范围值" :required="policyForm.scopeType !== 'GLOBAL'">
-            <el-input v-model="policyForm.scopeValue" :disabled="policyForm.scopeType === 'GLOBAL'" placeholder="例如 Agent ID、端点 Key 或模型名" />
+            <el-input v-model="policyForm.scopeValue" :disabled="policyForm.scopeType === 'GLOBAL'" placeholder="例如智能体 ID、端点标识或模型名" />
           </el-form-item>
         </div>
         <div class="form-row">
@@ -499,6 +493,7 @@ const summary = ref<GovernanceDataSummary>({ ...emptySummary })
 const enforcement = ref<GovernanceEnforcementStatus>({ ...emptyEnforcement })
 const decisions = ref<GovernancePreflightDecision[]>([])
 const gateway = ref<ModelGatewayStatus>({ ...emptyGateway })
+const gatewayStatusLabel = computed(() => gateway.value.configured ? '就绪' : gateway.value.enabled ? '配置错误' : '关闭')
 const windowHours = ref(24)
 const activeSection = ref<'overview' | 'preflight' | 'audit' | 'policies'>('overview')
 const loading = ref(false)
@@ -544,7 +539,7 @@ const contextPolicyId = computed(() => {
 })
 const drilldownLabel = computed(() => {
   const parts: string[] = []
-  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextAgentId.value) parts.push(`智能体 #${contextAgentId.value}`)
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
   if (contextPolicyId.value) parts.push(`策略 #${contextPolicyId.value}`)
@@ -563,28 +558,28 @@ const governanceFlow = computed(() => [
   {
     index: '01',
     label: '分类',
-    value: gateway.value.configured ? 'READY' : 'WAITING',
+    value: gateway.value.configured ? '就绪' : '等待配置',
     detail: `${summary.value.totalEvents} 个治理事件`,
     ready: gateway.value.configured,
   },
   {
     index: '02',
     label: '预检',
-    value: enforcement.value.preflightDecisions > 0 ? 'LIVE' : 'IDLE',
+    value: enforcement.value.preflightDecisions > 0 ? '运行中' : '空闲',
     detail: `${enforcement.value.preflightDecisions} 次决策`,
     ready: enforcement.value.preflightDecisions > 0,
   },
   {
     index: '03',
     label: '策略',
-    value: enforcement.value.enabledPolicies > 0 ? 'ACTIVE' : 'EMPTY',
+    value: enforcement.value.enabledPolicies > 0 ? '启用' : '暂无',
     detail: `${enforcement.value.enabledPolicies} 条启用策略`,
     ready: enforcement.value.enabledPolicies > 0,
   },
   {
     index: '04',
     label: '网关指令',
-    value: enforcement.value.enforcementEnabled ? 'ENFORCE' : 'OBSERVE',
+    value: enforcement.value.enforcementEnabled ? '强制' : '观察',
     detail: `${enforcement.value.blockedDecisions} 次阻断`,
     ready: enforcement.value.enforcementEnabled,
   },
@@ -645,11 +640,11 @@ async function load() {
 
 async function runPreflight() {
   if (!form.eventKey.trim() || !form.dataCategory.trim()) {
-    ElMessage.warning('请填写事件 Key 和数据类别')
+    ElMessage.warning('请填写事件标识和数据类别')
     return
   }
   if (!form.agentId && !form.endpointKey.trim()) {
-    ElMessage.warning('请至少关联 Agent ID 或发现端点 Key')
+    ElMessage.warning('请至少关联智能体 ID 或发现端点标识')
     return
   }
   saving.value = true
@@ -671,7 +666,7 @@ async function runPreflight() {
       modelName: 'pending-routing',
       detectedTypes: form.detectedTypesText.split(',').map(value => value.trim()).filter(Boolean),
     })
-    const message = `网关指令：${result.gatewayDirective}`
+    const message = `网关指令：${gatewayDirectiveLabel(result.gatewayDirective)}`
     if (result.requestAllowed) ElMessage.success(message)
     else ElMessage.error(message)
     Object.assign(form, { eventKey: '', agentId: undefined, endpointKey: '', dataCategory: '', tokenCount: 0, payloadBytes: 0, detectedTypesText: '' })
@@ -771,7 +766,7 @@ async function approveDecision(row: GovernancePreflightDecision) {
   saving.value = true
   try {
     await EapApi.approveGovernanceDecision(row.decisionKey, { approver: 'governance-console', reason: '控制台人工审批通过' })
-    ElMessage.success('模型调用已批准；客户端可携带该决策 Key 重试原请求')
+    ElMessage.success('模型调用已批准；客户端可携带该决策标识重试原请求')
     await load()
   } finally {
     saving.value = false
@@ -823,6 +818,91 @@ function approvalType(value: GovernanceApprovalStatus) {
   if (value === 'REJECTED') return 'danger'
   if (value === 'PENDING') return 'warning'
   return 'info'
+}
+
+function sensitivityLabel(value: GovernanceDataSensitivity) {
+  const labels: Record<GovernanceDataSensitivity, string> = {
+    PUBLIC: '公开',
+    INTERNAL: '内部',
+    CONFIDENTIAL: '机密',
+    SECRET: '秘密',
+    RESTRICTED: '严格限制',
+  }
+  return labels[value] || value
+}
+
+function governanceDirectionLabel(value: GovernanceDataDirection) {
+  const labels: Record<GovernanceDataDirection, string> = {
+    INPUT_TO_MODEL: '进入模型',
+    OUTPUT_FROM_MODEL: '模型输出',
+    TOOL_INPUT: '工具输入',
+    TOOL_OUTPUT: '工具输出',
+  }
+  return labels[value] || value
+}
+
+function governanceActionLabel(value: GovernanceDataAction) {
+  const labels: Record<GovernanceDataAction, string> = {
+    ALLOW: '允许',
+    WARN: '告警',
+    REDACT: '脱敏',
+    BLOCK: '阻断',
+    APPROVAL_REQUIRED: '待审批',
+  }
+  return labels[value] || value
+}
+
+function gatewayDirectiveLabel(value: GovernanceGatewayDirective) {
+  const labels: Record<GovernanceGatewayDirective, string> = {
+    PROCEED: '放行',
+    PROCEED_WITH_WARNING: '告警放行',
+    REDACT_AND_RECHECK: '脱敏后复检',
+    REQUEST_APPROVAL: '请求审批',
+    BLOCK: '阻断',
+  }
+  return labels[value] || value
+}
+
+function approvalStatusLabel(value: GovernanceApprovalStatus) {
+  const labels: Record<GovernanceApprovalStatus, string> = {
+    NOT_REQUIRED: '无需审批',
+    PENDING: '待审批',
+    APPROVED: '已批准',
+    REJECTED: '已拒绝',
+  }
+  return labels[value] || value
+}
+
+function policyTypeLabel(value: PolicyType) {
+  const labels: Record<PolicyType, string> = {
+    PERMISSION: '权限',
+    PRIVACY: '隐私',
+    SECURITY: '安全',
+    ALGORITHM: '算法',
+    BENEFIT: '效益',
+  }
+  return labels[value] || value
+}
+
+function scopeTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    GLOBAL: '全局',
+    AGENT: '智能体',
+    ENDPOINT: '端点',
+    DATA_CATEGORY: '数据类别',
+    PROVIDER: '模型供应商',
+    MODEL: '模型',
+  }
+  return labels[value] || value
+}
+
+function enforcementModeLabel(value: EnforcementMode) {
+  const labels: Record<EnforcementMode, string> = {
+    WARN: '告警并放行',
+    BLOCK: '阻断',
+    APPROVAL_REQUIRED: '人工审批',
+  }
+  return labels[value] || value
 }
 
 function matchedPolicyNames(items: Array<{ name: string }>) {

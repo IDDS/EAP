@@ -16,7 +16,7 @@
     />
 
     <div v-if="drilldownLabel" class="drilldown-context">
-      <span class="drilldown-context-kicker">DRILLDOWN</span>
+        <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>发现端点列表已按上下文收敛</span>
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
@@ -90,7 +90,7 @@
           <span class="muted">端点采集器注册后，定期向中央 EAP 上报观察结果</span>
         </div>
       </template>
-      <el-table :data="visibleDiscoveryEndpoints" v-loading="endpointLoading" row-key="id">
+      <el-table :data="pagedDiscoveryEndpoints" v-loading="endpointLoading" row-key="id">
         <el-table-column prop="hostName" label="主机" min-width="180" />
         <el-table-column prop="endpointKey" label="端点标识" min-width="220" show-overflow-tooltip />
         <el-table-column prop="accountName" label="账户" width="140" />
@@ -105,6 +105,17 @@
           <template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template>
         </el-table-column>
       </el-table>
+      <div v-if="visibleDiscoveryEndpoints.length" class="pagination-row">
+        <el-pagination
+          v-model:current-page="endpointPage"
+          v-model:page-size="endpointPageSize"
+          :page-sizes="pageSizes"
+          :total="visibleDiscoveryEndpoints.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          small
+        />
+      </div>
     </el-card>
 
     <el-card shadow="never" class="panel">
@@ -114,7 +125,7 @@
           <span class="muted">把本地、协议、Kubernetes 与 eBPF 证据归并到稳定身份键</span>
         </div>
       </template>
-      <el-table :data="identityLinks" v-loading="endpointLoading" row-key="id">
+      <el-table :data="pagedIdentityLinks" v-loading="endpointLoading" row-key="id">
         <el-table-column prop="discoveredAgentId" label="候选资产" width="100" />
         <el-table-column label="身份键" min-width="230" show-overflow-tooltip>
           <template #default="{ row }">{{ row.identityKey }}</template>
@@ -136,16 +147,27 @@
           <template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template>
         </el-table-column>
       </el-table>
+      <div v-if="identityLinks.length" class="pagination-row">
+        <el-pagination
+          v-model:current-page="identityPage"
+          v-model:page-size="identityPageSize"
+          :page-sizes="pageSizes"
+          :total="identityLinks.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          small
+        />
+      </div>
     </el-card>
 
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>自动发现资产清单</span>
-          <span class="muted">候选资产不会自动进入正式 Agent，需完成复核与认领</span>
+          <span class="muted">共 {{ discoveredAssets.length }} 条；候选资产需完成复核与认领</span>
         </div>
       </template>
-      <el-table :data="discoveredAssets" v-loading="autonomousLoading" row-key="id">
+      <el-table :data="pagedDiscoveredAssets" v-loading="autonomousLoading" row-key="id">
         <el-table-column label="Agent / 产品" min-width="210">
           <template #default="{ row }">
             <strong>{{ row.name }}</strong>
@@ -203,6 +225,17 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-if="discoveredAssets.length" class="pagination-row">
+        <el-pagination
+          v-model:current-page="assetPage"
+          v-model:page-size="assetPageSize"
+          :page-sizes="pageSizes"
+          :total="discoveredAssets.length"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          small
+        />
+      </div>
     </el-card>
 
     <div class="toolbar registry-toolbar">
@@ -347,7 +380,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
@@ -383,6 +416,13 @@ const endpointLoading = ref(false)
 const protocolLoading = ref(false)
 const protocolResult = ref<ProtocolProbeResponse>()
 const heartbeatLoad = ref(22)
+const pageSizes = [10, 20, 50, 100]
+const endpointPage = ref(1)
+const endpointPageSize = ref(20)
+const identityPage = ref(1)
+const identityPageSize = ref(20)
+const assetPage = ref(1)
+const assetPageSize = ref(20)
 
 const capabilityForm = reactive({
   capability: 'ops.incident.triage',
@@ -414,9 +454,38 @@ const drilldownLabel = computed(() => contextEndpointKey.value ? `端点 ${conte
 const visibleDiscoveryEndpoints = computed(() => contextEndpointKey.value
   ? discoveryEndpoints.value.filter(endpoint => endpoint.endpointKey === contextEndpointKey.value)
   : discoveryEndpoints.value)
+const pagedDiscoveryEndpoints = computed(() => pageItems(visibleDiscoveryEndpoints.value, endpointPage.value, endpointPageSize.value))
+const pagedIdentityLinks = computed(() => pageItems(identityLinks.value, identityPage.value, identityPageSize.value))
+const pagedDiscoveredAssets = computed(() => pageItems(discoveredAssets.value, assetPage.value, assetPageSize.value))
+
+watch(contextEndpointKey, () => {
+  endpointPage.value = 1
+})
+
+watch([visibleDiscoveryEndpoints, endpointPageSize], () => {
+  endpointPage.value = clampPage(endpointPage.value, visibleDiscoveryEndpoints.value.length, endpointPageSize.value)
+})
+
+watch([identityLinks, identityPageSize], () => {
+  identityPage.value = clampPage(identityPage.value, identityLinks.value.length, identityPageSize.value)
+})
+
+watch([discoveredAssets, assetPageSize], () => {
+  assetPage.value = clampPage(assetPage.value, discoveredAssets.value.length, assetPageSize.value)
+})
 
 function clearDrilldown() {
   router.replace({ path: '/registry', query: {} })
+}
+
+function pageItems<T>(items: T[], page: number, pageSize: number) {
+  const start = Math.max(0, (page - 1) * pageSize)
+  return items.slice(start, start + pageSize)
+}
+
+function clampPage(page: number, total: number, pageSize: number) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  return Math.min(Math.max(1, page), pageCount)
 }
 
 async function load() {

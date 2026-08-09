@@ -3401,6 +3401,22 @@ body {
   grid-column: 1 / -1;
 }
 
+.pagination-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #edf1f7;
+}
+
+@media (max-width: 640px) {
+  .pagination-row {
+    justify-content: center;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+}
+
 @media (min-width: 901px) {
   .analysis-hero {
     min-height: 158px;

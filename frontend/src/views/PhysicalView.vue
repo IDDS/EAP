@@ -2,9 +2,9 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <span class="interface-eyebrow">PHYSICAL · OBSERVABILITY</span>
+        <span class="interface-eyebrow">物理 · 观测</span>
         <strong>智能体物理界面</strong>
-        <span>统一查看端点、Agent、模型调用、Token 消耗、费用、延迟与运行状况</span>
+        <span>统一查看端点、智能体、模型调用、Token 消耗、费用、延迟与运行状况</span>
       </div>
       <div class="button-row">
         <el-select v-model="windowHours" style="width: 150px" @change="load">
@@ -27,22 +27,16 @@
 
     <div class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
-        <span class="analysis-eyebrow">PHYSICAL PLANE / {{ windowHours }}H OBSERVATION</span>
+        <span class="analysis-eyebrow">物理观测 / 最近 {{ windowHours }} 小时</span>
         <h2>运行面总览</h2>
         <p>从端点、运行实例到模型调用建立一条物理观测链，实时定位哪里在运行、哪里变慢，以及 Token 和费用流向哪里。</p>
-        <div class="analysis-tags">
-          <span class="analysis-tag">ENDPOINTS</span>
-          <span class="analysis-tag">RUNTIMES</span>
-          <span class="analysis-tag">MODEL CALLS</span>
-          <span class="analysis-tag analysis-tag-muted">无侵入遥测</span>
-        </div>
       </div>
       <div class="physical-health-panel">
-        <span class="analysis-eyebrow">RUNTIME HEALTH</span>
+        <span class="analysis-eyebrow">运行状况</span>
         <div class="physical-health-grid">
-          <div><strong>{{ summary.onlineRuntimeCount }}</strong><span>ONLINE</span></div>
-          <div><strong>{{ summary.degradedRuntimeCount }}</strong><span>DEGRADED</span></div>
-          <div><strong>{{ summary.offlineRuntimeCount }}</strong><span>OFFLINE</span></div>
+          <div><strong>{{ summary.onlineRuntimeCount }}</strong><span>在线</span></div>
+          <div><strong>{{ summary.degradedRuntimeCount }}</strong><span>降级</span></div>
+          <div><strong>{{ summary.offlineRuntimeCount }}</strong><span>离线</span></div>
         </div>
         <div class="physical-health-foot"><span>端点覆盖</span><b>{{ summary.activeEndpoints }}/{{ summary.registeredEndpoints }}</b></div>
       </div>
@@ -59,12 +53,12 @@
         <el-progress :percentage="runtimeHealthPercent" :show-text="false" :stroke-width="6" color="#16a085" />
         <small>{{ summary.onlineRuntimeCount }} 在线 · {{ summary.degradedRuntimeCount }} 降级 · {{ summary.offlineRuntimeCount }} 离线</small>
       </div>
-      <div class="physical-ops-card physical-ops-card-compact"><span>观测吞吐</span><strong>{{ formatNumber(summary.totalCalls) }}</strong><small>model calls / {{ windowHours }}h</small></div>
+      <div class="physical-ops-card physical-ops-card-compact"><span>观测吞吐</span><strong>{{ formatNumber(summary.totalCalls) }}</strong><small>最近 {{ windowHours }} 小时模型调用</small></div>
       <div class="physical-ops-card physical-ops-card-compact"><span>延迟窗口</span><strong>{{ summary.averageLatencyMs }} ms</strong><small>P95 {{ summary.p95LatencyMs }} ms</small></div>
     </div>
 
     <div v-if="drilldownLabel" class="drilldown-context">
-      <span class="drilldown-context-kicker">DRILLDOWN</span>
+      <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前列表已按上下文收敛</span>
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
@@ -92,8 +86,8 @@
           <div v-for="(span, index) in visibleTraceSpans" :key="span.id" class="trace-timeline-item">
             <div class="trace-timeline-marker"><span>{{ String(index + 1).padStart(2, '0') }}</span></div>
             <div class="trace-timeline-body">
-            <div class="trace-timeline-title"><strong>{{ span.spanName }}</strong><el-tag size="small" :type="traceTagType(span.spanKind)">{{ span.synthetic ? '遥测根 Span' : span.spanKind }}</el-tag></div>
-              <div class="muted">{{ span.operation || '未命名操作' }} · {{ span.status || 'UNSET' }} · {{ span.durationMs }} ms</div>
+            <div class="trace-timeline-title"><strong>{{ span.spanName }}</strong><el-tag size="small" :type="traceTagType(span.spanKind)">{{ span.synthetic ? '遥测根 Span' : traceKindLabel(span.spanKind) }}</el-tag></div>
+              <div class="muted">{{ span.operation || '未命名操作' }} · {{ invocationStatusLabel(span.status) }} · {{ span.durationMs }} ms</div>
               <div class="trace-timeline-links">{{ span.toolName || '—' }} · {{ span.mcpServerName || '—' }} · {{ span.ragSource || '—' }}</div>
             </div>
           </div>
@@ -102,8 +96,8 @@
         <div class="trace-evidence-panel">
           <div class="trace-evidence-heading"><span>内容观测</span><small>仅展示脱敏元数据</small></div>
           <div v-for="observation in visibleContentObservations" :key="observation.id" class="trace-evidence-row">
-            <el-tag size="small" :type="observation.direction === 'INPUT' ? 'warning' : 'success'">{{ observation.direction }}</el-tag>
-            <div><strong>{{ observation.captureMode }}</strong><span>{{ observation.sensitivity || '未标注' }} · {{ observation.estimatedTokens }} tokens</span></div>
+            <el-tag size="small" :type="observation.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(observation.direction) }}</el-tag>
+            <div><strong>{{ captureModeLabel(observation.captureMode) }}</strong><span>{{ observation.sensitivity || '未标注' }} · {{ observation.estimatedTokens }} Token</span></div>
           </div>
           <span v-if="visibleContentObservations.length === 0" class="muted">当前 Trace 没有内容观测记录</span>
         </div>
@@ -128,10 +122,10 @@
       </template>
       <el-form label-position="top" @submit.prevent="recordInvocation">
         <div class="form-row">
-          <el-form-item label="调用事件 Key" required>
+          <el-form-item label="调用事件标识" required>
             <el-input v-model="telemetryForm.eventKey" placeholder="例如 fin-analysis-call-001" />
           </el-form-item>
-          <el-form-item label="关联 Agent" required>
+          <el-form-item label="关联智能体" required>
             <el-select v-model="telemetryForm.agentId" style="width: 100%" placeholder="选择智能体">
               <el-option v-for="agent in agents" :key="agent.id" :label="`${agent.name} (${agent.code})`" :value="agent.id" />
             </el-select>
@@ -242,7 +236,7 @@
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
           <div class="panel-header">
-            <span>Agent Token 消耗排行</span>
+            <span>智能体 Token 消耗排行</span>
             <span class="muted">输入 / 输出</span>
           </div>
         </template>
@@ -254,7 +248,7 @@
       <template #header>
         <div class="panel-header">
           <span>物理结构与端点分布</span>
-          <span class="muted">端点 → Agent / Agent 项目 / MCP 配置 / Skills 与插件</span>
+          <span class="muted">端点 → 智能体 / 智能体项目 / MCP 配置 / 技能与插件</span>
         </div>
       </template>
       <div class="physical-node-grid">
@@ -264,10 +258,10 @@
               <strong>{{ node.hostName }}</strong>
               <span>{{ node.endpointKey || '本机扫描器' }}</span>
             </div>
-            <el-tag :type="node.active ? 'success' : 'info'" effect="plain">{{ node.active ? 'ACTIVE' : 'OBSERVED' }}</el-tag>
+            <el-tag :type="node.active ? 'success' : 'info'" effect="plain">{{ node.active ? '活跃' : '已观测' }}</el-tag>
           </div>
           <div class="physical-node-stats">
-            <span>Agent <strong>{{ node.agentCount }}</strong></span>
+            <span>智能体 <strong>{{ node.agentCount }}</strong></span>
             <span>MCP <strong>{{ node.mcpCount }}</strong></span>
             <span>扩展 <strong>{{ node.extensionCount }}</strong></span>
             <span>高风险 <strong>{{ node.highRiskCount }}</strong></span>
@@ -281,9 +275,9 @@
 
     <div v-show="activeSection === 'assets'" class="physical-two-column">
       <el-card shadow="never" class="panel">
-        <template #header>Agent / 端点消耗排行</template>
+        <template #header>智能体 / 端点消耗排行</template>
         <el-table :data="visibleSubjectUsage" size="small">
-          <el-table-column prop="subjectName" label="Agent / 端点" min-width="170" />
+          <el-table-column prop="subjectName" label="智能体 / 端点" min-width="170" />
           <el-table-column prop="calls" label="调用" width="75" />
           <el-table-column label="Token" width="120">
             <template #default="{ row }">{{ formatNumber(row.totalTokens) }}</template>
@@ -327,9 +321,9 @@
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
-        <el-table-column label="Agent / 端点" min-width="170">
+        <el-table-column label="智能体 / 端点" min-width="170">
           <template #default="{ row }">
-            <strong>{{ row.agentId ? `Agent ${row.agentId}` : row.endpointKey }}</strong>
+            <strong>{{ row.agentId ? `智能体 ${row.agentId}` : row.endpointKey }}</strong>
             <div class="muted">{{ row.runtimeInstanceKey || row.traceId || row.eventKey }}</div>
             <div v-if="row.governanceDecisionKey" class="muted">治理 {{ row.governanceDecisionKey }}</div>
             <div class="table-tag-row">
@@ -345,7 +339,7 @@
         </el-table-column>
         <el-table-column label="状态" width="105">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)">{{ row.status }}</el-tag>
+            <el-tag :type="statusType(row.status)">{{ invocationStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="Token" width="145">
@@ -385,13 +379,13 @@
       <el-table :data="visibleContentObservations" v-loading="loading" row-key="id">
         <el-table-column label="方向" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ row.direction }}</el-tag>
-            <div class="muted">{{ row.captureMode }}</div>
+            <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(row.direction) }}</el-tag>
+            <div class="muted">{{ captureModeLabel(row.captureMode) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="Trace / 事件" min-width="230">
           <template #default="{ row }">
-            <strong>{{ row.traceId || '无 trace' }}</strong>
+            <strong>{{ row.traceId || '无 Trace' }}</strong>
             <div class="muted">{{ row.eventKey || row.observationKey }}</div>
           </template>
         </el-table-column>
@@ -401,7 +395,7 @@
         <el-table-column label="正文观测" min-width="420">
           <template #default="{ row }">
             <pre v-if="row.contentJson" class="content-observation-preview">{{ contentPreview(row.contentJson) }}</pre>
-            <div v-else class="muted">仅保留 Hash {{ row.contentHash }} · {{ row.contentBytes }} bytes · 约 {{ row.estimatedTokens }} tokens</div>
+            <div v-else class="muted">仅保留哈希 {{ row.contentHash }} · {{ row.contentBytes }} 字节 · 约 {{ row.estimatedTokens }} Token</div>
           </template>
         </el-table-column>
         <el-table-column label="治理" width="150">
@@ -419,13 +413,13 @@
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
-          <span>Agent 深度 Trace</span>
-          <span class="muted">OTLP Span 优先；暂无子 Span 时显示模型调用遥测根节点</span>
+          <span>智能体深度 Trace</span>
+          <span class="muted">优先显示 OTLP Span；暂无子 Span 时显示模型调用根节点</span>
         </div>
       </template>
       <el-table :data="visibleTraceSpans" v-loading="loading" row-key="id">
         <el-table-column label="类型" width="100">
-          <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.synthetic ? '遥测根 Span' : row.spanKind }}</el-tag></template>
+          <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.synthetic ? '遥测根 Span' : traceKindLabel(row.spanKind) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="Span" min-width="230">
           <template #default="{ row }"><strong>{{ row.spanName }}</strong><div class="muted">{{ row.traceId }} · {{ row.spanId }}</div></template>
@@ -434,7 +428,7 @@
           <template #default="{ row }">{{ row.toolName || '-' }} · {{ row.mcpServerName || '-' }} · {{ row.ragSource || '-' }}</template>
         </el-table-column>
         <el-table-column label="状态 / 延迟" width="145">
-          <template #default="{ row }">{{ row.status || '-' }} · {{ row.durationMs }} ms</template>
+          <template #default="{ row }">{{ invocationStatusLabel(row.status) }} · {{ row.durationMs }} ms</template>
         </el-table-column>
         <el-table-column label="端点" min-width="160" show-overflow-tooltip>
           <template #default="{ row }">{{ row.endpointKey }}</template>
@@ -529,7 +523,7 @@ const contextTraceId = computed(() => String(route.query.traceId || '').trim())
 const contextEventKey = computed(() => String(route.query.eventKey || '').trim())
 const drilldownLabel = computed(() => {
   const parts: string[] = []
-  if (contextAgentId.value) parts.push(`Agent #${contextAgentId.value}`)
+  if (contextAgentId.value) parts.push(`智能体 #${contextAgentId.value}`)
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   if (contextTraceId.value) parts.push(`Trace ${contextTraceId.value}`)
   if (contextEventKey.value) parts.push(`事件 ${contextEventKey.value}`)
@@ -720,7 +714,7 @@ const agentTokenUsageOption = computed<EChartsOption>(() => {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 10 } },
     xAxis: { type: 'value', name: 'Token', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
-    yAxis: { type: 'category', inverse: true, data: rows.map(row => row.subjectName || (row.agentId ? `Agent #${row.agentId}` : row.subjectKey)), axisLabel: { color: '#5f7188', fontSize: 10, width: 96, overflow: 'truncate' } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(row => row.subjectName || (row.agentId ? `智能体 #${row.agentId}` : row.subjectKey)), axisLabel: { color: '#5f7188', fontSize: 10, width: 96, overflow: 'truncate' } },
     series: [
       { name: '输入 Token', type: 'bar', stack: 'tokens', barMaxWidth: 18, data: rows.map(row => row.inputTokens), itemStyle: { borderRadius: [4, 0, 0, 4] } },
       { name: '输出 Token', type: 'bar', stack: 'tokens', barMaxWidth: 18, data: rows.map(row => row.outputTokens), itemStyle: { borderRadius: [0, 4, 4, 0] } },
@@ -814,7 +808,7 @@ async function triggerDiscovery() {
 
 async function recordInvocation() {
   if (!telemetryForm.eventKey.trim() || !telemetryForm.agentId || !telemetryForm.provider.trim() || !telemetryForm.modelName.trim()) {
-    ElMessage.warning('请填写事件 Key、Agent、模型供应商和模型名称')
+    ElMessage.warning('请填写事件标识、智能体、模型供应商和模型名称')
     return
   }
   telemetrySaving.value = true
@@ -895,6 +889,49 @@ function statusType(status: ModelInvocationStatus) {
   if (status === 'FAILED') return 'danger'
   if (status === 'STARTED') return 'warning'
   return 'info'
+}
+
+function invocationStatusLabel(value?: string) {
+  const labels: Record<string, string> = {
+    SUCCEEDED: '成功',
+    FAILED: '失败',
+    STARTED: '已开始',
+    CANCELLED: '已取消',
+    UNSET: '未设置',
+  }
+  return labels[value || ''] || value || '未设置'
+}
+
+function contentDirectionLabel(value: ContentObservation['direction']) {
+  const labels: Record<string, string> = {
+    INPUT: '输入',
+    OUTPUT: '输出',
+    TOOL_INPUT: '工具输入',
+    TOOL_OUTPUT: '工具输出',
+    SYSTEM: '系统',
+  }
+  return labels[value] || value
+}
+
+function captureModeLabel(value: ContentObservation['captureMode']) {
+  const labels: Record<string, string> = {
+    OFF: '关闭',
+    HASH_ONLY: '仅哈希',
+    REDACTED: '已脱敏',
+  }
+  return labels[value] || value
+}
+
+function traceKindLabel(value: TraceSpanKind) {
+  const labels: Record<TraceSpanKind, string> = {
+    MODEL: '模型调用',
+    TOOL: '工具调用',
+    MCP: 'MCP 工具',
+    RAG: '知识检索',
+    A2A: '智能体协作',
+    AGENT: '智能体',
+  }
+  return labels[value] || value
 }
 
 onMounted(load)
