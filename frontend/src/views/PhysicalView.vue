@@ -220,7 +220,7 @@
       <div><span>运行实例</span><strong>{{ summary.onlineRuntimeCount }} 在线</strong></div>
     </div>
 
-    <div v-show="activeSection === 'overview'" class="chart-grid">
+    <div v-show="activeSection === 'overview'" class="chart-grid physical-chart-grid">
       <el-card shadow="never" class="panel chart-panel chart-panel-wide">
         <template #header>
           <div class="panel-header">
@@ -238,6 +238,15 @@
           </div>
         </template>
         <TrendChart :option="modelUsageOption" height="270px" />
+      </el-card>
+      <el-card shadow="never" class="panel chart-panel">
+        <template #header>
+          <div class="panel-header">
+            <span>Agent Token 消耗排行</span>
+            <span class="muted">输入 / 输出</span>
+          </div>
+        </template>
+        <TrendChart :option="agentTokenUsageOption" height="270px" />
       </el-card>
     </div>
 
@@ -273,7 +282,7 @@
     <div v-show="activeSection === 'assets'" class="physical-two-column">
       <el-card shadow="never" class="panel">
         <template #header>Agent / 端点消耗排行</template>
-        <el-table :data="summary.subjectUsage" size="small">
+        <el-table :data="visibleSubjectUsage" size="small">
           <el-table-column prop="subjectName" label="Agent / 端点" min-width="170" />
           <el-table-column prop="calls" label="调用" width="75" />
           <el-table-column label="Token" width="120">
@@ -593,6 +602,11 @@ const visibleEvents = computed(() => events.value.filter(event => {
   if (contextEventKey.value && event.eventKey !== contextEventKey.value) return false
   return true
 }))
+const visibleSubjectUsage = computed(() => summary.value.subjectUsage.filter(subject => {
+  if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
+  return true
+}))
 const visibleContentObservations = computed(() => contentObservations.value.filter(observation => {
   if (contextTraceId.value && observation.traceId !== contextTraceId.value) return false
   if (contextEventKey.value && observation.eventKey !== contextEventKey.value) return false
@@ -694,6 +708,23 @@ const modelUsageOption = computed<EChartsOption>(() => {
     xAxis: { type: 'value', axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
     yAxis: { type: 'category', inverse: true, data: rows.map(row => `${row.provider} · ${row.modelName}`), axisLabel: { color: '#5f7188', fontSize: 10 } },
     series: [{ type: 'bar', barMaxWidth: 18, data: rows.map(row => row.totalTokens), itemStyle: { color: '#7b61d9', borderRadius: [0, 5, 5, 0] } }],
+  }
+})
+const agentTokenUsageOption = computed<EChartsOption>(() => {
+  const rows = [...visibleSubjectUsage.value]
+    .sort((left, right) => right.totalTokens - left.totalTokens)
+    .slice(0, 10)
+  return {
+    color: ['#3167e8', '#0c9f9a'],
+    grid: { top: 28, right: 18, bottom: 22, left: 112 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 10 } },
+    xAxis: { type: 'value', name: 'Token', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(row => row.subjectName || (row.agentId ? `Agent #${row.agentId}` : row.subjectKey)), axisLabel: { color: '#5f7188', fontSize: 10, width: 96, overflow: 'truncate' } },
+    series: [
+      { name: '输入 Token', type: 'bar', stack: 'tokens', barMaxWidth: 18, data: rows.map(row => row.inputTokens), itemStyle: { borderRadius: [4, 0, 0, 4] } },
+      { name: '输出 Token', type: 'bar', stack: 'tokens', barMaxWidth: 18, data: rows.map(row => row.outputTokens), itemStyle: { borderRadius: [0, 4, 4, 0] } },
+    ],
   }
 })
 

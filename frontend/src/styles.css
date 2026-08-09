@@ -3393,6 +3393,14 @@ body {
   box-shadow: 0 4px 10px rgba(49, 103, 232, .2);
 }
 
+.physical-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.physical-chart-grid .chart-panel-wide {
+  grid-column: 1 / -1;
+}
+
 @media (min-width: 901px) {
   .analysis-hero {
     min-height: 158px;
@@ -3424,5 +3432,13 @@ body {
   .toolbar .button-row {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .physical-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .physical-chart-grid .chart-panel-wide {
+    grid-column: auto;
   }
 }
