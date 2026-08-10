@@ -4,8 +4,8 @@
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
         <div class="brand-copy">
-          <strong>Enterprise Agent Platform</strong>
-          <span>EAP Control Plane</span>
+          <strong>企业智能体平台</strong>
+          <span>EAP · 智能体控制平面</span>
         </div>
         <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
@@ -76,8 +76,8 @@
       <div class="sidebar-status">
         <span class="status-dot"></span>
         <div class="sidebar-status-copy">
-          <strong>Safety Gateway</strong>
-          <span>EAP_LOCAL_POLICY</span>
+          <strong>安全网关在线</strong>
+          <span>本地策略已加载</span>
         </div>
       </div>
     </el-aside>
@@ -86,12 +86,11 @@
       <el-header class="topbar">
         <div class="topbar-title">
           <div class="breadcrumb-line">
-            <span class="topbar-kicker">CONTROL PLANE</span>
+            <span class="topbar-kicker">智能体控制平面</span>
             <span class="breadcrumb-separator">/</span>
-            <span>{{ routeTitle }}</span>
+            <span>实时运行</span>
           </div>
           <h1>{{ routeTitle }}</h1>
-          <p>让每一个智能体都可发现、可观测、可治理、可度量</p>
         </div>
         <div class="topbar-actions">
           <el-input
@@ -116,14 +115,18 @@
           </div>
           <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
           <el-tag class="auth-state" :type="hasAccessToken ? 'success' : 'info'" effect="plain">
-            {{ hasAccessToken ? 'JWT 已连接' : 'Local / 未认证' }}
+            {{ hasAccessToken ? '已认证' : '本地模式' }}
           </el-tag>
           <el-button class="auth-button" :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
         </div>
       </el-header>
       <el-main class="main">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" :key="route.path" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>

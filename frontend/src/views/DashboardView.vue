@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="dashboard-hero">
       <div class="dashboard-hero-copy">
-        <div class="dashboard-eyebrow"><span class="live-pulse"></span> AGENT OPERATIONS · 24H WINDOW</div>
+        <div class="dashboard-eyebrow"><span class="live-pulse"></span> 智能体运营中心 · 最近 24 小时</div>
         <h2>智能体运行总览</h2>
         <p>从自动发现到深度观测，再到治理和经营价值，统一掌握企业智能体运行闭环。</p>
         <div class="dashboard-hero-meta">
@@ -13,14 +13,14 @@
       </div>
       <div class="dashboard-hero-rail">
         <div>
-          <span>Agent 覆盖率</span>
+          <span>智能体覆盖率</span>
           <strong>{{ coveragePercent }}<small>%</small></strong>
           <em>{{ summary.activeAgentCount }} / {{ summary.agentCount }} 已启用</em>
         </div>
         <div>
           <span>平均响应延迟</span>
           <strong>{{ summary.averageLatencyMs }}<small>ms</small></strong>
-          <em>来自真实遥测</em>
+          <em>来自实时遥测</em>
         </div>
       </div>
     </div>
@@ -54,19 +54,19 @@
         <div class="command-strip">
           <div class="command-card">
             <strong>计划</strong>
-            <span>以业务目标、责任人和风险级别组织智能体上线计划。</span>
+            <span>业务目标、责任人、风险分级</span>
           </div>
           <div class="command-card">
             <strong>组织</strong>
-            <span>按部门、角色和工具授权形成多智能体协作边界。</span>
+            <span>部门、角色与工具授权边界</span>
           </div>
           <div class="command-card">
             <strong>控制</strong>
-            <span>运行事件进入策略评估，输出允许、确认或拦截。</span>
+            <span>运行事件策略评估：允许、确认、拦截</span>
           </div>
           <div class="command-card">
             <strong>审计</strong>
-            <span>保存任务、决策、制品和治理动作的追踪记录。</span>
+            <span>任务、决策、制品与治理动作留痕</span>
           </div>
         </div>
       </el-card>
@@ -96,7 +96,7 @@
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
-          <span>智能体网络控制面 / 数据面</span>
+          <span>智能体网络 · 控制面与数据面</span>
           <div class="plane-legend">
             <span><i class="legend-control" />控制面</span>
             <span><i class="legend-data" />数据面</span>
@@ -150,9 +150,9 @@
             @mousedown.stop="startNetworkDrag(node, $event)"
             @click="selectNetworkNode(node)"
           >
-            <span>{{ node.nodeType }}</span>
+            <span>{{ networkNodeTypeLabel(node.nodeType) }}</span>
             <strong>{{ node.label }}</strong>
-            <em>{{ node.status }} · {{ node.metric }}</em>
+            <em>{{ networkStatusLabel(node.status) }} · {{ formatNetworkMetric(node.metric) }}</em>
           </button>
         </div>
 
@@ -265,7 +265,7 @@ const planeCards = computed(() => [
   {
     title: '物理界面',
     description: '端点、进程、模型与 Token 消耗',
-    signal: `${network.value.stats.agentNodeCount} 个 Agent 节点`,
+    signal: `${network.value.stats.agentNodeCount} 个智能体节点`,
     route: '/physical',
     tone: 'physical',
     icon: Monitor,
@@ -326,6 +326,37 @@ const networkEdges = computed(() =>
     .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)),
 )
 const agentNodes = computed(() => network.value.nodes.filter((node) => node.nodeType === 'AGENT'))
+
+const networkNodeTypeLabels: Record<string, string> = {
+  CONTROL_PLANE: '控制平面',
+  REGISTRY: '注册发现',
+  SAFETY_GATEWAY: '安全网关',
+  ORCHESTRATOR: '编排中心',
+  AGENT: '智能体',
+}
+
+const networkStatusLabels: Record<string, string> = {
+  ONLINE: '在线',
+  OFFLINE: '离线',
+  DEGRADED: '降级',
+  UNKNOWN: '未知',
+}
+
+function networkNodeTypeLabel(value: string) {
+  return networkNodeTypeLabels[value] || value
+}
+
+function networkStatusLabel(value: string) {
+  return networkStatusLabels[value] || value
+}
+
+function formatNetworkMetric(value: string) {
+  return value
+    .replace(/\bcommand(s?)\b/gi, '命令')
+    .replace(/\bruntime(s?)\b/gi, '运行实例')
+    .replace(/\bdecision(s?)\b/gi, '决策')
+    .replace(/\bworkflow(s?)\b/gi, '工作流')
+}
 
 async function load() {
   const [nextSummary, nextNetwork, nextCommands] = await Promise.all([
