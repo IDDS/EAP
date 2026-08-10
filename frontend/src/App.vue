@@ -108,7 +108,6 @@
           </el-tag>
           <el-button class="auth-button" :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
-          <el-button class="notification-button" :icon="Bell" circle title="通知" />
         </div>
       </el-header>
       <el-main class="main">
@@ -166,7 +165,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowRight, Bell, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
+import { ArrowRight, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
