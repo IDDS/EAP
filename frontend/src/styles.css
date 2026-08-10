@@ -957,13 +957,43 @@ body {
 .registry-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.25fr);
+  align-items: start;
   gap: 16px;
+}
+
+.registry-column {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 16px;
+}
+
+.registry-layout > .panel,
+.registry-column > .panel {
+  min-width: 0;
+}
+
+.runtime-discovery-layout {
+  grid-template-columns: minmax(330px, 0.82fr) minmax(0, 1.18fr);
+}
+
+.registry-data-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .registry-toolbar {
   margin-top: 4px;
   padding-top: 18px;
   border-top: 1px solid #d7deea;
+  align-items: center;
+}
+
+.registry-toolbar .toolbar-title {
+  min-width: 0;
+}
+
+.registry-toolbar .agent-select {
+  flex: 0 0 320px;
 }
 
 .discovery-overview {
@@ -1371,6 +1401,11 @@ body {
 
   .discovery-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registry-toolbar .agent-select {
+    flex-basis: 100%;
+    width: 100%;
   }
 
   .summary-metric.last-run {

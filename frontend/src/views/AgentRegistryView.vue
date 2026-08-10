@@ -2,8 +2,8 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <strong>Autonomous Agent Discovery</strong>
-        <span>持续扫描受控目录和本机进程，发现未登记 Agent、MCP 配置与高风险运行方式</span>
+        <strong>自主智能体发现</strong>
+        <span>持续扫描受控目录和本机进程，发现未登记智能体、MCP 配置与高风险运行方式</span>
       </div>
       <el-button type="primary" :icon="Refresh" :loading="scanLoading" @click="triggerAutonomousScan">立即扫描</el-button>
     </div>
@@ -25,7 +25,7 @@
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
-          <span>协议级 Agent / MCP 发现</span>
+          <span>协议级智能体 / MCP 发现</span>
           <span class="muted">读取 A2A Agent Card、MCP Registry 或 server.json 元数据，不执行远程命令</span>
         </div>
       </template>
@@ -54,7 +54,7 @@
 
     <div class="discovery-overview">
       <div class="summary-metric">
-        <span>Agent 候选</span>
+        <span>智能体候选</span>
         <strong>{{ autonomousSummary?.agentCount ?? 0 }}</strong>
       </div>
       <div class="summary-metric mcp">
@@ -62,7 +62,7 @@
         <strong>{{ autonomousSummary?.mcpConfigurationCount ?? 0 }}</strong>
       </div>
       <div class="summary-metric extension">
-        <span>Skills / 插件</span>
+        <span>技能 / 插件</span>
         <strong>{{ autonomousSummary?.skillCount ?? 0 }} / {{ autonomousSummary?.pluginCount ?? 0 }}</strong>
       </div>
       <div class="summary-metric risk">
@@ -168,7 +168,7 @@
         </div>
       </template>
       <el-table :data="pagedDiscoveredAssets" v-loading="autonomousLoading" row-key="id">
-        <el-table-column label="Agent / 产品" min-width="210">
+        <el-table-column label="智能体 / 产品" min-width="210">
           <template #default="{ row }">
             <strong>{{ row.name }}</strong>
             <div class="muted">
@@ -240,16 +240,16 @@
 
     <div class="toolbar registry-toolbar">
       <div class="toolbar-title">
-        <strong>Registered Agent Runtime Discovery</strong>
-        <span>对已经登记和纳管的 Agent 注册能力、实例和心跳，并按任务能力选择运行节点</span>
+        <strong>已注册智能体运行时发现</strong>
+        <span>管理已登记智能体的能力、运行实例和心跳，并按任务能力选择运行节点</span>
       </div>
       <el-select v-model="selectedAgentId" class="agent-select" @change="loadAgentRegistry">
         <el-option v-for="agent in agents" :key="agent.id" :label="`${agent.name} · ${agent.code}`" :value="agent.id" />
       </el-select>
     </div>
 
-    <div class="registry-layout">
-      <div class="page-grid">
+    <div class="registry-layout runtime-discovery-layout">
+      <div class="registry-column">
         <el-card shadow="never" class="panel">
           <template #header>能力注册</template>
           <el-form label-position="top">
@@ -295,9 +295,9 @@
         </el-card>
       </div>
 
-      <div class="page-grid">
+      <div class="registry-column">
         <el-card shadow="never" class="panel">
-          <template #header>发现搜索</template>
+          <template #header>能力发现搜索</template>
           <el-form label-position="top">
             <div class="form-row">
               <el-form-item label="能力">
@@ -324,14 +324,14 @@
                 </el-select>
               </el-form-item>
             </div>
-            <el-button type="primary" :icon="Search" @click="discover">发现 Agent</el-button>
+            <el-button type="primary" :icon="Search" @click="discover">发现智能体</el-button>
           </el-form>
         </el-card>
 
         <el-card shadow="never" class="panel">
-          <template #header>候选 Agent</template>
+          <template #header>候选智能体</template>
           <el-table :data="candidates" v-loading="loading">
-            <el-table-column prop="name" label="Agent" min-width="170">
+            <el-table-column prop="name" label="智能体" min-width="170">
               <template #default="{ row }">
                 <strong>{{ row.name }}</strong>
                 <div class="muted">{{ row.code }}</div>
@@ -351,7 +351,7 @@
       </div>
     </div>
 
-    <div class="registry-layout">
+    <div class="registry-layout registry-data-layout">
       <el-card shadow="never" class="panel">
         <template #header>已注册能力</template>
         <el-table :data="capabilities">
@@ -563,10 +563,10 @@ function riskTagType(riskLevel: RiskLevel) {
 
 function assetTypeLabel(assetType: DiscoveredAgentAsset['assetType']) {
   if (assetType === 'MCP_CONFIGURATION') return 'MCP 配置'
-  if (assetType === 'AGENT_PROJECT') return 'Agent 项目'
-  if (assetType === 'AGENT_SKILL') return 'Agent Skill'
-  if (assetType === 'AGENT_PLUGIN') return 'Agent 插件'
-  return '运行 Agent'
+  if (assetType === 'AGENT_PROJECT') return '智能体项目'
+  if (assetType === 'AGENT_SKILL') return '智能体技能'
+  if (assetType === 'AGENT_PLUGIN') return '智能体插件'
+  return '运行智能体'
 }
 
 function formatTime(value: string) {
