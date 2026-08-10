@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+
 @RestController
 @RequestMapping("/api/observability/otlp")
 public class OtlpTraceIngestionController {
@@ -60,9 +62,15 @@ public class OtlpTraceIngestionController {
 
     @GetMapping("/spans")
     public ApiResponse<java.util.List<OtlpTraceIngestionDtos.TraceSpanResponse>> spans(
-            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") int limit
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") int limit,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Long agentId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String endpointKey,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) TraceSpanKind spanKind,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Instant from,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Instant to
     ) {
-        return ApiResponse.ok(service.listTraceSpans(limit));
+        return ApiResponse.ok(service.listTraceSpans(limit, agentId, endpointKey, traceId, spanKind, from, to));
     }
 
     private void requireIngestionToken(String token) {

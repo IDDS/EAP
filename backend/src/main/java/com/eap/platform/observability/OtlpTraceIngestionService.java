@@ -16,6 +16,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -91,14 +94,15 @@ public class OtlpTraceIngestionService {
                     }
                     Map<String, JsonNode> attrs = attributes(span.path("attributes"));
                     TraceSpanKind spanKind = classify(span, attrs);
+                    Long agentId = resolveAgentId(resource, attrs);
                     if (spanKind != null) {
                         String spanTraceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
-                        recordTraceSpan(span, attrs, endpointKey, spanKind, modelTraces.contains(spanTraceId), counters);
+                        recordTraceSpan(span, attrs, endpointKey, agentId, spanKind, modelTraces.contains(spanTraceId), counters);
                     }
                     if (spanKind != TraceSpanKind.MODEL) continue;
                     counters.genAiSpansDetected++;
                     try {
-                        ingestSpan(span, attrs, endpointKey, counters);
+                        ingestSpan(span, attrs, endpointKey, agentId, counters);
                     } catch (RuntimeException exception) {
                         if (warnings.size() < 20) warnings.add("Span " + text(span, "spanId", "unknown") + "：" + exception.getMessage());
                     }
@@ -109,8 +113,34 @@ public class OtlpTraceIngestionService {
     }
 
     public List<OtlpTraceIngestionDtos.TraceSpanResponse> listTraceSpans(int limit) {
-        return traceSpanRepository.findTop500ByOrderByObservedAtDesc().stream()
-                .limit(Math.max(1, Math.min(limit, 500)))
+        return listTraceSpans(limit, null, null, null, null, null, null);
+    }
+
+    public List<OtlpTraceIngestionDtos.TraceSpanResponse> listTraceSpans(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String traceId,
+            TraceSpanKind spanKind,
+            Instant from,
+            Instant to
+    ) {
+        int boundedLimit = Math.max(1, Math.min(limit, 500));
+        List<TraceSpanObservation> spans;
+        if (agentId == null && blank(endpointKey) && blank(traceId) && spanKind == null && from == null && to == null) {
+            spans = traceSpanRepository.findTop500ByOrderByObservedAtDesc().stream().limit(boundedLimit).toList();
+        } else {
+            Specification<TraceSpanObservation> specification = Specification.where(null);
+            if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
+            if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
+            if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
+            if (spanKind != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("spanKind"), spanKind));
+            if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
+            if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
+            spans = traceSpanRepository.findAll(specification,
+                    PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt"))).getContent();
+        }
+        return spans.stream()
                 .map(this::toResponse).toList();
     }
 
@@ -118,6 +148,7 @@ public class OtlpTraceIngestionService {
             JsonNode span,
             Map<String, JsonNode> attrs,
             String endpointKey,
+            Long agentId,
             TraceSpanKind spanKind,
             boolean modelInTrace,
             Counters counters
@@ -130,6 +161,7 @@ public class OtlpTraceIngestionService {
         observation.spanId = spanId;
         observation.parentSpanId = text(span, "parentSpanId", null);
         observation.endpointKey = endpointKey;
+        observation.agentId = agentId;
         observation.spanName = normalize(text(span, "name", spanKind.name()), 256);
         observation.spanKind = spanKind;
         observation.operation = firstText(attrs, "gen_ai.operation.name", "tool.operation", "rpc.method", "db.operation", "http.request.method");
@@ -150,15 +182,16 @@ public class OtlpTraceIngestionService {
             default -> { }
         }
         if (spanKind != TraceSpanKind.MODEL) captureTracePayloads(
-                traceId, spanId, endpointKey, spanKind, attrs, observation.observedAt, counters);
+                traceId, spanId, endpointKey, agentId, spanKind, attrs, observation.observedAt, counters);
         if (spanKind == TraceSpanKind.RAG) inferKnowledgeInteraction(
-                traceId, spanId, endpointKey, attrs, modelInTrace, observation.observedAt, observation.durationMs, counters);
+                traceId, spanId, endpointKey, agentId, attrs, modelInTrace, observation.observedAt, observation.durationMs, counters);
     }
 
     private void inferKnowledgeInteraction(
             String traceId,
             String spanId,
             String endpointKey,
+            Long agentId,
             Map<String, JsonNode> attrs,
             boolean modelInTrace,
             Instant observedAt,
@@ -175,7 +208,7 @@ public class OtlpTraceIngestionService {
         if (reused == null) reused = duplicateRefs(refs);
         knowledgeService.record(new KnowledgeDtos.KnowledgeInteractionRequest(
                 normalize("otlp-knowledge-" + traceId + "-" + spanId, 128),
-                traceId, null, endpointKey, null,
+                traceId, agentId, endpointKey, null,
                 "RAG_QUERY", sourceCount, estimateTokens(query), textValue(query), refs,
                 "RAG_CONTEXT", sourceCount, estimateTokens(documents), textValue(documents), refs,
                 List.of(new KnowledgeDtos.KnowledgeStepRequest(
@@ -239,6 +272,7 @@ public class OtlpTraceIngestionService {
             String traceId,
             String spanId,
             String endpointKey,
+            Long agentId,
             TraceSpanKind kind,
             Map<String, JsonNode> attrs,
             Instant observedAt,
@@ -252,12 +286,12 @@ public class OtlpTraceIngestionService {
                 "rag.documents", "retrieval.documents", "a2a.message.output", "agent.output");
         String eventKey = normalize("otlp-span-" + traceId + "-" + spanId, 128);
         if (input != null) {
-            capture(eventKey + "-input", eventKey, traceId, spanId, endpointKey,
+            capture(eventKey + "-input", eventKey, traceId, spanId, agentId, endpointKey,
                     "trace", kind.name(), ContentDirection.INPUT, input, observedAt);
             counters.contentObservationsRecorded++;
         }
         if (output != null) {
-            capture(eventKey + "-output", eventKey, traceId, spanId, endpointKey,
+            capture(eventKey + "-output", eventKey, traceId, spanId, agentId, endpointKey,
                     "trace", kind.name(), ContentDirection.OUTPUT, output, observedAt);
             counters.contentObservationsRecorded++;
         }
@@ -306,13 +340,13 @@ public class OtlpTraceIngestionService {
 
     private OtlpTraceIngestionDtos.TraceSpanResponse toResponse(TraceSpanObservation item) {
         return new OtlpTraceIngestionDtos.TraceSpanResponse(
-                item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.spanName,
+                item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.agentId, item.spanName,
                 item.spanKind, item.operation, item.toolName, item.mcpServerName, item.ragSource,
                 item.status, item.durationMs == null ? 0L : item.durationMs, item.attributesJson, item.observedAt
         );
     }
 
-    private void ingestSpan(JsonNode span, Map<String, JsonNode> attrs, String endpointKey, Counters counters) {
+    private void ingestSpan(JsonNode span, Map<String, JsonNode> attrs, String endpointKey, Long agentId, Counters counters) {
         String traceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
         String spanId = text(span, "spanId", hash(span.toString()).substring(0, 16));
         String eventKey = normalize("otlp-" + traceId + "-" + spanId, 128);
@@ -335,7 +369,7 @@ public class OtlpTraceIngestionService {
         String currency = firstText(attrs, "gen_ai.usage.cost.currency", "llm.usage.currency");
 
         telemetryService.recordPassive(new ModelTelemetryDtos.ModelInvocationRequest(
-                eventKey, traceId, spanId, null, endpointKey, null, null, null,
+                eventKey, traceId, spanId, agentId, endpointKey, null, null, null,
                 provider, model, status, inputTokens, outputTokens, cachedTokens, reasoningTokens,
                 latencyMs, cost, currency == null ? "USD" : currency, toolCalls, mcpServers,
                 errorType, observedAt
@@ -345,26 +379,51 @@ public class OtlpTraceIngestionService {
         JsonNode input = firstNode(attrs, "gen_ai.input.messages", "gen_ai.prompt", "llm.prompts", "llm.input_messages", "traceloop.entity.input");
         JsonNode output = firstNode(attrs, "gen_ai.output.messages", "gen_ai.completion", "llm.completions", "llm.output_messages", "traceloop.entity.output");
         if (input != null) {
-            capture(eventKey + "-input", eventKey, traceId, spanId, endpointKey, provider, model, ContentDirection.INPUT, input, observedAt);
+            capture(eventKey + "-input", eventKey, traceId, spanId, agentId, endpointKey, provider, model, ContentDirection.INPUT, input, observedAt);
             counters.contentObservationsRecorded++;
         }
         if (output != null) {
-            capture(eventKey + "-output", eventKey, traceId, spanId, endpointKey, provider, model, ContentDirection.OUTPUT, output, observedAt);
+            capture(eventKey + "-output", eventKey, traceId, spanId, agentId, endpointKey, provider, model, ContentDirection.OUTPUT, output, observedAt);
             counters.contentObservationsRecorded++;
         }
     }
 
     private void capture(
-            String observationKey, String eventKey, String traceId, String spanId, String endpointKey,
+            String observationKey, String eventKey, String traceId, String spanId, Long agentId, String endpointKey,
             String provider, String model, ContentDirection direction, JsonNode content, Instant observedAt
     ) {
         String original = content.isTextual() ? content.asText() : content.toString();
         SensitiveContentSanitizer.SanitizedContent safe = sanitizer.sanitize(original);
         contentObservationService.capture(new ContentObservationService.CaptureCommand(
-                normalize(observationKey, 128), eventKey, traceId, spanId, null, endpointKey, null,
+                normalize(observationKey, 128), eventKey, traceId, spanId, agentId, endpointKey, null,
                 provider, model, direction, original, safe.safeContent(), safe.dataCategory(),
                 safe.sensitivity(), safe.governanceAction(), observedAt
         ));
+    }
+
+    private Long resolveAgentId(Map<String, JsonNode> resource, Map<String, JsonNode> attrs) {
+        Long explicit = firstLongNullable(attrs, "eap.agent.id", "agent.id", "gen_ai.agent.id", "ai.eap.agent.id");
+        return explicit == null
+                ? firstLongNullable(resource, "eap.agent.id", "agent.id", "gen_ai.agent.id", "ai.eap.agent.id")
+                : explicit;
+    }
+
+    private Long firstLongNullable(Map<String, JsonNode> values, String... keys) {
+        for (String key : keys) {
+            JsonNode value = values.get(key);
+            if (value == null || value.isNull()) continue;
+            try {
+                long parsed = value.isNumber() ? value.longValue() : Long.parseLong(value.asText().trim());
+                return parsed > 0 ? parsed : null;
+            } catch (NumberFormatException ignored) {
+                // Keep endpoint-level attribution when an identity attribute is not numeric.
+            }
+        }
+        return null;
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private void registerEndpoint(String endpointKey, Map<String, JsonNode> resource) {

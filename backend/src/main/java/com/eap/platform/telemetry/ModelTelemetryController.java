@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.time.Instant;
 
 @Validated
 @RestController
@@ -39,9 +40,16 @@ public class ModelTelemetryController {
 
     @GetMapping("/model-invocations")
     public ApiResponse<List<ModelTelemetryDtos.ModelInvocationResponse>> list(
-            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit
+            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) String endpointKey,
+            @RequestParam(required = false) String runtimeInstanceKey,
+            @RequestParam(required = false) String traceId,
+            @RequestParam(required = false) ModelInvocationStatus status,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to
     ) {
-        return ApiResponse.ok(telemetryService.list(limit));
+        return ApiResponse.ok(telemetryService.list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, status, from, to));
     }
 
     @GetMapping("/physical-summary")

@@ -37,6 +37,7 @@ class OtlpTraceIngestionServiceTests {
                     "resource": {"attributes": [
                       {"key":"service.name","value":{"stringValue":"finance-agent"}},
                       {"key":"service.instance.id","value":{"stringValue":"finance-agent-7"}},
+                      {"key":"eap.agent.id","value":{"intValue":"1"}},
                       {"key":"host.name","value":{"stringValue":"worker-01"}},
                       {"key":"telemetry.sdk.name","value":{"stringValue":"opentelemetry"}},
                       {"key":"telemetry.sdk.version","value":{"stringValue":"1.50.0"}}
@@ -79,10 +80,12 @@ class OtlpTraceIngestionServiceTests {
         assertThat(invocation.getValue().outputTokens()).isEqualTo(9);
         assertThat(invocation.getValue().latencyMs()).isEqualTo(250);
         assertThat(invocation.getValue().endpointKey()).startsWith("otlp-finance-agent-");
+        assertThat(invocation.getValue().agentId()).isEqualTo(1L);
 
         ArgumentCaptor<ContentObservationService.CaptureCommand> observations = ArgumentCaptor.forClass(ContentObservationService.CaptureCommand.class);
         verify(contentObservationService, times(2)).capture(observations.capture());
         ContentObservationService.CaptureCommand input = observations.getAllValues().getFirst();
+        assertThat(input.agentId()).isEqualTo(1L);
         assertThat(input.direction()).isEqualTo(ContentDirection.INPUT);
         assertThat(input.redactedContent()).contains("[REDACTED_PHONE]", "[REDACTED_EMAIL]");
         assertThat(input.redactedContent()).doesNotContain("13800138000", "finance@example.com");

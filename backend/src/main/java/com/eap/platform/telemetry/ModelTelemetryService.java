@@ -11,6 +11,9 @@ import com.eap.platform.governance.GovernancePreflightDecisionRepository;
 import com.eap.platform.operations.AgentTaskService;
 import com.eap.platform.registry.AgentRuntimeInstanceRepository;
 import com.eap.platform.registry.RuntimeStatus;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -120,8 +123,37 @@ public class ModelTelemetryService {
 
     @Transactional(readOnly = true)
     public List<ModelTelemetryDtos.ModelInvocationResponse> list(int limit) {
-        List<ModelInvocationEvent> events = eventRepository.findTop500ByOrderByObservedAtDesc();
-        return events.stream().limit(limit).map(ModelTelemetryDtos::from).toList();
+        return list(limit, null, null, null, null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ModelTelemetryDtos.ModelInvocationResponse> list(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String runtimeInstanceKey,
+            String traceId,
+            ModelInvocationStatus status,
+            Instant from,
+            Instant to
+    ) {
+        int boundedLimit = Math.max(1, Math.min(limit, 500));
+        if (agentId == null && blankToNull(endpointKey) == null && blankToNull(runtimeInstanceKey) == null
+                && blankToNull(traceId) == null && status == null && from == null && to == null) {
+            return eventRepository.findTop500ByOrderByObservedAtDesc().stream()
+                    .limit(boundedLimit).map(ModelTelemetryDtos::from).toList();
+        }
+        Specification<ModelInvocationEvent> specification = Specification.where(null);
+        if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
+        if (blankToNull(endpointKey) != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
+        if (blankToNull(runtimeInstanceKey) != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("runtimeInstanceKey"), runtimeInstanceKey.trim()));
+        if (blankToNull(traceId) != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
+        if (status != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
+        if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
+        return eventRepository.findAll(specification,
+                        PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt")))
+                .map(ModelTelemetryDtos::from).getContent();
     }
 
     @Transactional(readOnly = true)

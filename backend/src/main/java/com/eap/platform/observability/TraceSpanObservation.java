@@ -31,6 +31,14 @@ public class TraceSpanObservation {
     @Column(name = "endpoint_key", nullable = false, length = 128)
     String endpointKey;
 
+    /**
+     * Managed agent attribution extracted from OTLP resource/span attributes.
+     * It remains nullable because endpoint-only telemetry cannot always identify
+     * a managed agent without an explicit identity signal.
+     */
+    @Column(name = "agent_id")
+    Long agentId;
+
     @Column(name = "span_name", nullable = false, length = 256)
     String spanName;
 

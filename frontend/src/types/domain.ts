@@ -410,6 +410,7 @@ export interface TraceSpanObservation {
   spanId: string
   parentSpanId?: string
   endpointKey: string
+  agentId?: number
   spanName: string
   spanKind: TraceSpanKind
   operation?: string

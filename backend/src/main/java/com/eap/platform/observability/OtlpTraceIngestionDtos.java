@@ -29,6 +29,7 @@ public final class OtlpTraceIngestionDtos {
             String spanId,
             String parentSpanId,
             String endpointKey,
+            Long agentId,
             String spanName,
             TraceSpanKind spanKind,
             String operation,

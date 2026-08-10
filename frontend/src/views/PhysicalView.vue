@@ -427,6 +427,13 @@
         <el-table-column label="工具 / MCP / RAG" min-width="220">
           <template #default="{ row }">{{ row.toolName || '-' }} · {{ row.mcpServerName || '-' }} · {{ row.ragSource || '-' }}</template>
         </el-table-column>
+        <el-table-column label="智能体" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.agentId ? 'success' : 'info'">
+              {{ row.agentId ? `#${row.agentId}` : '未归因' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="状态 / 延迟" width="145">
           <template #default="{ row }">{{ invocationStatusLabel(row.status) }} · {{ row.durationMs }} ms</template>
         </el-table-column>
@@ -602,12 +609,15 @@ const visibleSubjectUsage = computed(() => summary.value.subjectUsage.filter(sub
   return true
 }))
 const visibleContentObservations = computed(() => contentObservations.value.filter(observation => {
+  if (contextAgentId.value && observation.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && observation.endpointKey !== contextEndpointKey.value) return false
   if (contextTraceId.value && observation.traceId !== contextTraceId.value) return false
   if (contextEventKey.value && observation.eventKey !== contextEventKey.value) return false
   return true
 }))
 const visibleTraceSpans = computed<TraceSpanObservation[]>(() => {
   const spans = traceSpans.value.filter(span => {
+    if (contextAgentId.value && span.agentId !== contextAgentId.value) return false
     if (contextEndpointKey.value && span.endpointKey !== contextEndpointKey.value) return false
     if (contextTraceId.value && span.traceId !== contextTraceId.value) return false
     return true
@@ -768,12 +778,12 @@ async function load() {
   try {
     const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans] = await Promise.all([
       EapApi.getPhysicalTelemetrySummary(windowHours.value),
-      EapApi.listModelInvocationEvents(100),
+      EapApi.listModelInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listDiscoveryEndpoints(),
       EapApi.listDiscoveredAgentAssets(),
       EapApi.listAgents(),
-      EapApi.listContentObservations(100),
-      EapApi.listTraceSpanObservations(100),
+      EapApi.listContentObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
+      EapApi.listTraceSpanObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
     ])
     summary.value = nextSummary
     events.value = nextEvents

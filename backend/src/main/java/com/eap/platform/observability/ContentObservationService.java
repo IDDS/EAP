@@ -1,6 +1,9 @@
 package com.eap.platform.observability;
 
 import com.eap.platform.common.BusinessException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -79,8 +82,35 @@ public class ContentObservationService {
 
     @Transactional(readOnly = true)
     public List<ContentObservationDtos.ContentObservationResponse> list(int limit) {
-        return repository.findTop500ByOrderByObservedAtDesc().stream()
-                .limit(Math.min(limit, properties.getMaxListItems()))
+        return list(limit, null, null, null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ContentObservationDtos.ContentObservationResponse> list(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String traceId,
+            ContentDirection direction,
+            Instant from,
+            Instant to
+    ) {
+        int boundedLimit = Math.max(1, Math.min(Math.min(limit, 500), properties.getMaxListItems()));
+        List<ContentObservation> observations;
+        if (agentId == null && blank(endpointKey) && blank(traceId) && direction == null && from == null && to == null) {
+            observations = repository.findTop500ByOrderByObservedAtDesc().stream().limit(boundedLimit).toList();
+        } else {
+            Specification<ContentObservation> specification = Specification.where(null);
+            if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
+            if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
+            if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
+            if (direction != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("direction"), direction));
+            if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
+            if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
+            observations = repository.findAll(specification,
+                    PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt"))).getContent();
+        }
+        return observations.stream()
                 .map(ContentObservationDtos::from)
                 .toList();
     }
@@ -100,6 +130,10 @@ public class ContentObservationService {
         if (value == null || value.isBlank()) return null;
         String normalized = value.replaceAll("[\\r\\n\\t]", " ").trim();
         return normalized.length() > maxLength ? normalized.substring(0, maxLength) : normalized;
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String truncate(String value, long maxBytes) {

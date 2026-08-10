@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.time.Instant;
 
 @Validated
 @RestController
@@ -35,9 +36,15 @@ public class ContentObservationController {
 
     @GetMapping("/content")
     public ApiResponse<List<ContentObservationDtos.ContentObservationResponse>> list(
-            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit
+            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) String endpointKey,
+            @RequestParam(required = false) String traceId,
+            @RequestParam(required = false) ContentDirection direction,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to
     ) {
-        return ApiResponse.ok(service.list(limit));
+        return ApiResponse.ok(service.list(limit, agentId, endpointKey, traceId, direction, from, to));
     }
 
     @PostMapping("/content")

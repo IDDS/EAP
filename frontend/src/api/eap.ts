@@ -162,10 +162,31 @@ export const EapApi = {
   probeProtocolDiscovery: (payload: { targetUrl: string; discoveryType: ProtocolDiscoveryType }) =>
     postData<ProtocolProbeResponse, { targetUrl: string; discoveryType: ProtocolDiscoveryType }>('/discovery/protocol/probe', payload),
   getPhysicalTelemetrySummary: (hours = 24) => getData<PhysicalTelemetrySummary>(`/telemetry/physical-summary?hours=${hours}`),
-  listModelInvocationEvents: (limit = 100) => getData<ModelInvocationEvent[]>(`/telemetry/model-invocations?limit=${limit}`),
+  listModelInvocationEvents: (params: { limit?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; status?: ModelInvocationStatus; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams()
+    query.set('limit', String(params.limit ?? 100))
+    Object.entries(params).forEach(([key, value]) => {
+      if (key !== 'limit' && value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    })
+    return getData<ModelInvocationEvent[]>(`/telemetry/model-invocations?${query.toString()}`)
+  },
   getContentObservationStatus: () => getData<{ enabled: boolean; captureMode: string; maxContentBytes: number; totalObservations: number; inputObservations: number; outputObservations: number; lastObservedAt?: string }>('/observability/status'),
-  listContentObservations: (limit = 100) => getData<ContentObservation[]>(`/observability/content?limit=${limit}`),
-  listTraceSpanObservations: (limit = 100) => getData<TraceSpanObservation[]>(`/observability/otlp/spans?limit=${limit}`),
+  listContentObservations: (params: { limit?: number; agentId?: number; endpointKey?: string; traceId?: string; direction?: string; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams()
+    query.set('limit', String(params.limit ?? 100))
+    Object.entries(params).forEach(([key, value]) => {
+      if (key !== 'limit' && value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    })
+    return getData<ContentObservation[]>(`/observability/content?${query.toString()}`)
+  },
+  listTraceSpanObservations: (params: { limit?: number; agentId?: number; endpointKey?: string; traceId?: string; spanKind?: string; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams()
+    query.set('limit', String(params.limit ?? 100))
+    Object.entries(params).forEach(([key, value]) => {
+      if (key !== 'limit' && value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    })
+    return getData<TraceSpanObservation[]>(`/observability/otlp/spans?${query.toString()}`)
+  },
   recordModelInvocation: (payload: {
     eventKey: string
     traceId?: string
