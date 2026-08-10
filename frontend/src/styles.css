@@ -1420,6 +1420,138 @@ body {
   }
 }
 
+/* Comfortable reading scale: keep the information-dense console legible on desktop displays. */
+:root {
+  --el-font-size-base: 15px;
+  --el-font-size-small: 14px;
+  --el-font-size-extra-small: 13px;
+  font-size: 15px;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-size: 15px;
+}
+
+.brand strong,
+.sidebar-status strong {
+  font-size: 14px;
+}
+
+.brand span,
+.sidebar-status span:not(.status-dot),
+.nav-section,
+.topbar-title span {
+  font-size: 12px;
+}
+
+.nav-menu .el-menu-item {
+  font-size: 14px;
+}
+
+.toolbar-title strong {
+  font-size: 19px;
+}
+
+.toolbar-title span,
+.muted,
+.topbar p,
+.analysis-hero p {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.interface-eyebrow,
+.analysis-eyebrow,
+[class*="-eyebrow"] {
+  font-size: 11px !important;
+  line-height: 1.35;
+}
+
+.panel .el-card__header,
+.panel :deep(.el-card__header) {
+  font-size: 14px;
+}
+
+.panel-header > span:first-child,
+.panel-header > strong:first-child {
+  font-size: 14px;
+}
+
+.panel-header .muted {
+  font-size: 12px;
+}
+
+.page-grid small,
+.panel small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.el-table {
+  font-size: 13px;
+}
+
+.el-table th.el-table__cell {
+  font-size: 12px;
+}
+
+.el-table td.el-table__cell,
+.el-table th.el-table__cell {
+  padding: 13px 0;
+}
+
+.el-button,
+.el-input,
+.el-select,
+.el-textarea,
+.el-form-item__label,
+.el-checkbox,
+.el-radio,
+.el-pagination,
+.el-descriptions,
+.el-empty__description {
+  font-size: 14px;
+}
+
+.el-input__wrapper,
+.el-select__wrapper {
+  min-height: 38px;
+}
+
+.el-tag {
+  font-size: 12px;
+}
+
+.interface-tabs-top .el-tag {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  :root {
+    font-size: 14px;
+  }
+
+  body,
+  button,
+  input,
+  textarea,
+  select {
+    font-size: 14px;
+  }
+
+  .toolbar-title span,
+  .muted,
+  .topbar p,
+  .analysis-hero p {
+    font-size: 12px;
+  }
+}
+
 .interface-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -3491,5 +3623,133 @@ body {
 
   .physical-chart-grid .chart-panel-wide {
     grid-column: auto;
+  }
+}
+
+/* User-controlled reading scale. The comfortable size is the default; the setting is persisted per browser. */
+.font-scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--eap-border);
+  border-radius: 9px;
+  color: var(--eap-muted);
+  background: var(--eap-surface);
+  white-space: nowrap;
+}
+
+.font-scale-control > span {
+  margin-right: 2px;
+  font-size: 12px;
+}
+
+.font-scale-control .el-button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: var(--eap-muted);
+  font-size: 12px;
+}
+
+.font-scale-control .el-button.is-active {
+  color: var(--eap-blue);
+  background: #edf3ff;
+  font-weight: 800;
+}
+
+html[data-font-scale="standard"] {
+  font-size: 14px;
+}
+
+html[data-font-scale="large"] {
+  font-size: 16px;
+}
+
+html[data-font-scale="standard"] body,
+html[data-font-scale="standard"] button,
+html[data-font-scale="standard"] input,
+html[data-font-scale="standard"] textarea,
+html[data-font-scale="standard"] select {
+  font-size: 14px;
+}
+
+html[data-font-scale="large"] body,
+html[data-font-scale="large"] button,
+html[data-font-scale="large"] input,
+html[data-font-scale="large"] textarea,
+html[data-font-scale="large"] select {
+  font-size: 16px;
+}
+
+html[data-font-scale="standard"] .toolbar-title span,
+html[data-font-scale="standard"] .muted,
+html[data-font-scale="standard"] .topbar p,
+html[data-font-scale="standard"] .analysis-hero p {
+  font-size: 12px;
+}
+
+html[data-font-scale="large"] .toolbar-title span,
+html[data-font-scale="large"] .muted,
+html[data-font-scale="large"] .topbar p,
+html[data-font-scale="large"] .analysis-hero p {
+  font-size: 14px;
+}
+
+html[data-font-scale="standard"] .el-table {
+  font-size: 12px;
+}
+
+html[data-font-scale="large"] .el-table {
+  font-size: 14px;
+}
+
+html[data-font-scale="standard"] .el-table th.el-table__cell {
+  font-size: 11px;
+}
+
+html[data-font-scale="large"] .el-table th.el-table__cell {
+  font-size: 13px;
+}
+
+html[data-font-scale="standard"] .el-button,
+html[data-font-scale="standard"] .el-input,
+html[data-font-scale="standard"] .el-select,
+html[data-font-scale="standard"] .el-textarea,
+html[data-font-scale="standard"] .el-form-item__label,
+html[data-font-scale="standard"] .el-checkbox,
+html[data-font-scale="standard"] .el-radio,
+html[data-font-scale="standard"] .el-pagination,
+html[data-font-scale="standard"] .el-descriptions,
+html[data-font-scale="standard"] .el-empty__description {
+  font-size: 13px;
+}
+
+html[data-font-scale="large"] .el-button,
+html[data-font-scale="large"] .el-input,
+html[data-font-scale="large"] .el-select,
+html[data-font-scale="large"] .el-textarea,
+html[data-font-scale="large"] .el-form-item__label,
+html[data-font-scale="large"] .el-checkbox,
+html[data-font-scale="large"] .el-radio,
+html[data-font-scale="large"] .el-pagination,
+html[data-font-scale="large"] .el-descriptions,
+html[data-font-scale="large"] .el-empty__description {
+  font-size: 15px;
+}
+
+html[data-font-scale="standard"] .el-tag {
+  font-size: 11px;
+}
+
+html[data-font-scale="large"] .el-tag {
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .font-scale-control {
+    display: none;
   }
 }

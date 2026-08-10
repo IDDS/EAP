@@ -102,6 +102,18 @@
             readonly
             @focus="openSearchDialog"
           />
+          <div class="font-scale-control" aria-label="字号设置">
+            <span>字号</span>
+            <el-button
+              v-for="option in fontScaleOptions"
+              :key="option.value"
+              text
+              size="small"
+              :class="{ 'is-active': fontScale === option.value }"
+              :aria-label="option.label"
+              @click="setFontScale(option.value)"
+            >{{ option.shortLabel }}</el-button>
+          </div>
           <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
           <el-tag class="auth-state" :type="hasAccessToken ? 'success' : 'info'" effect="plain">
             {{ hasAccessToken ? 'JWT 已连接' : 'Local / 未认证' }}
@@ -179,6 +191,14 @@ type GlobalSearchResult = {
   query: Record<string, string>
 }
 
+type FontScale = 'standard' | 'comfortable' | 'large'
+
+const fontScaleOptions: Array<{ value: FontScale; label: string; shortLabel: string }> = [
+  { value: 'standard', label: '标准字号', shortLabel: '标' },
+  { value: 'comfortable', label: '舒适字号', shortLabel: '舒' },
+  { value: 'large', label: '大字号', shortLabel: '大' },
+]
+
 const route = useRoute()
 const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
 const sidebarCollapsed = ref(false)
@@ -189,9 +209,21 @@ const searchDialogVisible = ref(false)
 const globalSearchTerm = ref('')
 const globalSearchLoading = ref(false)
 const globalSearchResults = ref<GlobalSearchResult[]>([])
+const persistedFontScale = localStorage.getItem('eap-font-scale')
+const fontScale = ref<FontScale>(
+  persistedFontScale === 'standard' || persistedFontScale === 'large' || persistedFontScale === 'comfortable'
+    ? persistedFontScale
+    : 'comfortable',
+)
 let searchRequestId = 0
 
 const router = useRouter()
+
+function setFontScale(value: FontScale) {
+  fontScale.value = value
+  document.documentElement.dataset.fontScale = value
+  localStorage.setItem('eap-font-scale', value)
+}
 
 function openAuthDialog() {
   authTokenDraft.value = ''
@@ -285,6 +317,9 @@ function selectSearchResult(result: GlobalSearchResult) {
   router.push({ path: result.path, query: result.query })
 }
 
-onMounted(() => window.addEventListener('eap-auth-required', requireAuthentication))
+onMounted(() => {
+  setFontScale(fontScale.value)
+  window.addEventListener('eap-auth-required', requireAuthentication)
+})
 onBeforeUnmount(() => window.removeEventListener('eap-auth-required', requireAuthentication))
 </script>
