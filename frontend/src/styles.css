@@ -1420,6 +1420,59 @@ body {
   }
 }
 
+.registry-section-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.registry-section-stack .registry-toolbar {
+  margin-top: 0;
+  padding: 2px 0 10px;
+  border-top: 0;
+  border-bottom: 1px solid var(--eap-border);
+}
+
+.discovery-overview {
+  gap: 10px;
+}
+
+.summary-metric {
+  min-height: 92px;
+  border-color: rgba(207, 219, 234, .92);
+  border-left-width: 3px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #ffffff, #f8fbff);
+  box-shadow: 0 7px 22px rgba(25, 49, 88, .05);
+}
+
+.summary-metric strong {
+  font-size: 24px;
+  letter-spacing: -.035em;
+}
+
+.analysis-hero {
+  min-height: 142px;
+  padding: 18px 22px;
+}
+
+.analysis-hero h2 {
+  margin: 8px 0 6px;
+  font-size: clamp(22px, 2.3vw, 28px);
+}
+
+.analysis-hero p {
+  max-width: 760px;
+  line-height: 1.55;
+}
+
+.physical-health-panel,
+.knowledge-gauges,
+.management-health-card,
+.governance-health-card {
+  transform: scale(.96);
+  transform-origin: center right;
+}
+
 /* Comfortable reading scale: keep the information-dense console legible on desktop displays. */
 :root {
   --el-font-size-base: 15px;

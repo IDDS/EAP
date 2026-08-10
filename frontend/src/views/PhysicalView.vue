@@ -27,9 +27,9 @@
 
     <div class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
-        <span class="analysis-eyebrow">物理观测 / 最近 {{ windowHours }} 小时</span>
-        <h2>运行面总览</h2>
-        <p>从端点、运行实例到模型调用建立一条物理观测链，实时定位哪里在运行、哪里变慢，以及 Token 和费用流向哪里。</p>
+        <span class="analysis-eyebrow">最近 {{ windowHours }} 小时</span>
+        <h2>运行全景</h2>
+        <p>定位运行位置、调用链路，以及 Token、费用和延迟的流向。</p>
       </div>
       <div class="physical-health-panel">
         <span class="analysis-eyebrow">运行状况</span>

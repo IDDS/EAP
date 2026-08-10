@@ -2,12 +2,21 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <strong>自主智能体发现</strong>
-        <span>持续扫描受控目录和本机进程，发现未登记智能体、MCP 配置与高风险运行方式</span>
+        <span class="interface-eyebrow">发现 · 身份 · 运行时</span>
+        <strong>注册与自主发现</strong>
+        <span>发现企业智能体、技能、插件和运行实例，统一复核身份与风险</span>
       </div>
       <el-button type="primary" :icon="Refresh" :loading="scanLoading" @click="triggerAutonomousScan">立即扫描</el-button>
     </div>
 
+    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="注册发现分区">
+      <el-tag :class="{ 'is-active': activeSection === 'discovery' }" :effect="activeSection === 'discovery' ? 'dark' : 'plain'" @click="activeSection = 'discovery'">发现总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'identity' }" :effect="activeSection === 'identity' ? 'dark' : 'plain'" @click="activeSection = 'identity'">身份关联</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">资产清单</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'runtime' }" :effect="activeSection === 'runtime' ? 'dark' : 'plain'" @click="activeSection = 'runtime'">运行时注册</el-tag>
+    </div>
+
+    <div v-show="activeSection === 'discovery'" class="registry-section-stack">
     <el-alert
       :type="autonomousSummary?.autonomousDiscoveryEnabled ? 'success' : 'warning'"
       :closable="false"
@@ -77,7 +86,7 @@
         <span>最近扫描</span>
         <strong>{{ autonomousSummary?.lastRun ? formatTime(autonomousSummary.lastRun.startedAt) : '尚未执行' }}</strong>
         <small v-if="autonomousSummary?.lastRun">
-          {{ autonomousSummary.lastRun.triggerType }} · {{ autonomousSummary.lastRun.status }} ·
+          {{ scanTriggerLabel(autonomousSummary.lastRun.triggerType) }} · {{ scanStatusLabel(autonomousSummary.lastRun.status) }} ·
           {{ autonomousSummary.lastRun.observationsCount }} 条证据
         </small>
       </div>
@@ -98,7 +107,7 @@
         <el-table-column prop="collectorVersion" label="采集器版本" width="120" />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag type="success" effect="plain">{{ row.status }}</el-tag>
+            <el-tag type="success" effect="plain">{{ runtimeStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="最后上报" width="180">
@@ -117,7 +126,9 @@
         />
       </div>
     </el-card>
+    </div>
 
+    <div v-show="activeSection === 'identity'" class="registry-section-stack">
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -132,7 +143,7 @@
         </el-table-column>
         <el-table-column label="关联方式" width="110">
           <template #default="{ row }">
-            <el-tag :type="row.relationType === 'EXACT' ? 'success' : 'warning'" size="small">{{ row.relationType }}</el-tag>
+            <el-tag :type="row.relationType === 'EXACT' ? 'success' : 'warning'" size="small">{{ identityRelationLabel(row.relationType) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="来源" min-width="190">
@@ -159,7 +170,9 @@
         />
       </div>
     </el-card>
+    </div>
 
+    <div v-show="activeSection === 'assets'" class="registry-section-stack">
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -198,7 +211,7 @@
         </el-table-column>
         <el-table-column label="风险" width="105">
           <template #default="{ row }">
-            <el-tag :type="riskTagType(row.riskLevel)">{{ row.riskLevel }}</el-tag>
+            <el-tag :type="riskTagType(row.riskLevel)">{{ riskLevelLabel(row.riskLevel) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="运行特征" min-width="150">
@@ -237,11 +250,13 @@
         />
       </div>
     </el-card>
+    </div>
 
+    <div v-show="activeSection === 'runtime'" class="registry-section-stack">
     <div class="toolbar registry-toolbar">
       <div class="toolbar-title">
-        <strong>已注册智能体运行时发现</strong>
-        <span>管理已登记智能体的能力、运行实例和心跳，并按任务能力选择运行节点</span>
+        <strong>智能体运行时注册</strong>
+        <span>维护能力、运行实例和心跳，并按任务能力选择可用节点</span>
       </div>
       <el-select v-model="selectedAgentId" class="agent-select" @change="loadAgentRegistry">
         <el-option v-for="agent in agents" :key="agent.id" :label="`${agent.name} · ${agent.code}`" :value="agent.id" />
@@ -269,10 +284,10 @@
         <el-card shadow="never" class="panel">
           <template #header>运行实例</template>
           <el-form label-position="top">
-            <el-form-item label="实例 Key">
+            <el-form-item label="实例标识">
               <el-input v-model="runtimeForm.instanceKey" placeholder="ops-incident-prod-1" />
             </el-form-item>
-            <el-form-item label="Endpoint">
+            <el-form-item label="服务端点">
               <el-input v-model="runtimeForm.endpoint" placeholder="http://agent-service:9000" />
             </el-form-item>
             <div class="form-row">
@@ -305,10 +320,10 @@
               </el-form-item>
               <el-form-item label="最大风险">
                 <el-select v-model="discoveryForm.maxRiskLevel">
-                  <el-option label="LOW" value="LOW" />
-                  <el-option label="MEDIUM" value="MEDIUM" />
-                  <el-option label="HIGH" value="HIGH" />
-                  <el-option label="CRITICAL" value="CRITICAL" />
+                  <el-option label="低风险" value="LOW" />
+                  <el-option label="中风险" value="MEDIUM" />
+                  <el-option label="高风险" value="HIGH" />
+                  <el-option label="严重风险" value="CRITICAL" />
                 </el-select>
               </el-form-item>
             </div>
@@ -340,12 +355,12 @@
             <el-table-column prop="capability" label="能力" min-width="170" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag type="success">{{ row.runtimeStatus }}</el-tag>
+                <el-tag type="success">{{ runtimeStatusLabel(row.runtimeStatus) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="loadScore" label="负载" width="90" />
             <el-table-column prop="score" label="评分" width="90" />
-            <el-table-column prop="endpoint" label="Endpoint" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="endpoint" label="服务端点" min-width="220" show-overflow-tooltip />
           </el-table>
         </el-card>
       </div>
@@ -368,13 +383,14 @@
           <el-table-column prop="protocol" label="协议" width="90" />
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
-              <el-tag :type="row.status === 'ONLINE' ? 'success' : 'warning'">{{ row.status }}</el-tag>
+              <el-tag :type="row.status === 'ONLINE' ? 'success' : 'warning'">{{ runtimeStatusLabel(row.status) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="loadScore" label="负载" width="90" />
-          <el-table-column prop="endpoint" label="Endpoint" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="endpoint" label="服务端点" min-width="220" show-overflow-tooltip />
         </el-table>
       </el-card>
+    </div>
     </div>
   </section>
 </template>
@@ -423,6 +439,7 @@ const identityPage = ref(1)
 const identityPageSize = ref(20)
 const assetPage = ref(1)
 const assetPageSize = ref(20)
+const activeSection = ref<'discovery' | 'identity' | 'assets' | 'runtime'>('discovery')
 
 const capabilityForm = reactive({
   capability: 'ops.incident.triage',
@@ -559,6 +576,26 @@ function riskTagType(riskLevel: RiskLevel) {
   if (riskLevel === 'CRITICAL' || riskLevel === 'HIGH') return 'danger'
   if (riskLevel === 'MEDIUM') return 'warning'
   return 'success'
+}
+
+function riskLevelLabel(value: string) {
+  return ({ LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '严重' } as Record<string, string>)[value] || value
+}
+
+function runtimeStatusLabel(value: string) {
+  return ({ ONLINE: '在线', OFFLINE: '离线', DEGRADED: '降级', UNKNOWN: '未知' } as Record<string, string>)[value] || value
+}
+
+function identityRelationLabel(value: string) {
+  return ({ EXACT: '精确关联', HEURISTIC: '推断关联' } as Record<string, string>)[value] || value
+}
+
+function scanStatusLabel(value: string) {
+  return ({ SUCCEEDED: '成功', FAILED: '失败', RUNNING: '进行中' } as Record<string, string>)[value] || value
+}
+
+function scanTriggerLabel(value: string) {
+  return ({ SCHEDULED: '定时扫描', MANUAL: '手动扫描', ENDPOINT: '端点上报' } as Record<string, string>)[value] || value
 }
 
 function assetTypeLabel(assetType: DiscoveredAgentAsset['assetType']) {
