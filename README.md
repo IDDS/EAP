@@ -77,6 +77,8 @@ docs/      产品与技术设计
 需求/      原始需求材料
 ```
 
+跨会话项目进展、验证基线、已知限制和下一步优先级统一记录在 [`docs/PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。
+
 ## 本地启动
 
 启动数据库：
@@ -169,6 +171,7 @@ npm run dev
 - `POST /api/observability/content`：由受控代理、SDK 插件或外部探针上报内容观测；生产环境使用 `X-EAP-Observability-Token`。
 - `POST /api/observability/otlp/v1/traces`：接收 OTLP/HTTP JSON Trace，自动识别 GenAI Span、登记工作负载端点并归一化模型调用与内容观测。
 - `GET /api/observability/otlp/spans?limit=100`：查看模型、工具、MCP、RAG、A2A 和 Agent 深度 Span 摘要。
+- `GET /api/observability/tool-invocations?limit=100`：按 Agent、端点、Runtime、Trace、工具类型、状态和时间范围查看工具调用明细及输入/输出观测关联。
 
 控制面默认只写入 outbox，不会主动访问运行时。启用 HTTP Runtime 适配器前，运行实例通过 `/api/agents/{agentId}/runtime-instances` 注册在线 endpoint，然后设置：
 
