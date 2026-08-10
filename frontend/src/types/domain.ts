@@ -425,6 +425,33 @@ export interface TraceSpanObservation {
   synthetic?: boolean
 }
 
+export type ToolInvocationStatus = 'REQUESTED' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN'
+export type ToolInvocationKind = 'TOOL' | 'MCP'
+
+export interface ToolInvocationEvent {
+  id: number
+  invocationKey: string
+  traceId?: string
+  spanId?: string
+  parentSpanId?: string
+  agentId?: number
+  endpointKey?: string
+  runtimeInstanceKey?: string
+  taskId?: number
+  observationSource: 'OTLP' | 'GATEWAY'
+  toolKind: ToolInvocationKind
+  toolName: string
+  mcpServerName?: string
+  status: ToolInvocationStatus
+  durationMs: number
+  inputObservationKey?: string
+  outputObservationKey?: string
+  attributesJson?: string
+  observedAt: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface TelemetrySubjectUsage {
   subjectKey: string
   subjectName: string

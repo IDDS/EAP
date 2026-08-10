@@ -41,6 +41,7 @@ public class OtlpTraceIngestionService {
     private final SensitiveContentSanitizer sanitizer;
     private final TraceSpanObservationRepository traceSpanRepository;
     private final KnowledgeService knowledgeService;
+    private final ToolInvocationService toolInvocationService;
 
     public OtlpTraceIngestionService(
             ObjectMapper objectMapper,
@@ -49,7 +50,8 @@ public class OtlpTraceIngestionService {
             ContentObservationService contentObservationService,
             SensitiveContentSanitizer sanitizer,
             TraceSpanObservationRepository traceSpanRepository,
-            KnowledgeService knowledgeService
+            KnowledgeService knowledgeService,
+            ToolInvocationService toolInvocationService
     ) {
         this.objectMapper = objectMapper;
         this.discoveryService = discoveryService;
@@ -58,6 +60,7 @@ public class OtlpTraceIngestionService {
         this.sanitizer = sanitizer;
         this.traceSpanRepository = traceSpanRepository;
         this.knowledgeService = knowledgeService;
+        this.toolInvocationService = toolInvocationService;
     }
 
     public OtlpTraceIngestionDtos.IngestionResponse ingest(JsonNode payload) {
@@ -181,8 +184,20 @@ public class OtlpTraceIngestionService {
             case A2A -> counters.a2aSpansRecorded++;
             default -> { }
         }
-        if (spanKind != TraceSpanKind.MODEL) captureTracePayloads(
-                traceId, spanId, endpointKey, agentId, spanKind, attrs, observation.observedAt, counters);
+        ToolContentRefs contentRefs = spanKind == TraceSpanKind.MODEL
+                ? ToolContentRefs.empty()
+                : captureTracePayloads(traceId, spanId, endpointKey, agentId, spanKind, attrs, observation.observedAt, counters);
+        if (spanKind == TraceSpanKind.TOOL || spanKind == TraceSpanKind.MCP) {
+            toolInvocationService.record(new ToolInvocationService.RecordCommand(
+                    normalize("otlp-tool-" + traceId + "-" + spanId, 128), traceId, spanId, observation.parentSpanId,
+                    agentId, endpointKey, null, null, ToolInvocationSource.OTLP,
+                    spanKind == TraceSpanKind.MCP ? ToolInvocationKind.MCP : ToolInvocationKind.TOOL,
+                    observation.toolName == null ? observation.spanName : observation.toolName,
+                    observation.mcpServerName, toolStatus(observation.status), observation.durationMs,
+                    contentRefs.inputObservationKey(), contentRefs.outputObservationKey(),
+                    observation.attributesJson, observation.observedAt
+            ));
+        }
         if (spanKind == TraceSpanKind.RAG) inferKnowledgeInteraction(
                 traceId, spanId, endpointKey, agentId, attrs, modelInTrace, observation.observedAt, observation.durationMs, counters);
     }
@@ -268,7 +283,7 @@ public class OtlpTraceIngestionService {
         return value == null ? null : value.asBoolean(false);
     }
 
-    private void captureTracePayloads(
+    private ToolContentRefs captureTracePayloads(
             String traceId,
             String spanId,
             String endpointKey,
@@ -285,16 +300,25 @@ public class OtlpTraceIngestionService {
                 "tool.output", "tool.result", "gen_ai.tool.call.result", "mcp.response", "mcp.response.result",
                 "rag.documents", "retrieval.documents", "a2a.message.output", "agent.output");
         String eventKey = normalize("otlp-span-" + traceId + "-" + spanId, 128);
+        String inputObservationKey = input == null ? null : eventKey + "-input";
+        String outputObservationKey = output == null ? null : eventKey + "-output";
         if (input != null) {
-            capture(eventKey + "-input", eventKey, traceId, spanId, agentId, endpointKey,
+            capture(inputObservationKey, eventKey, traceId, spanId, agentId, endpointKey,
                     "trace", kind.name(), ContentDirection.INPUT, input, observedAt);
             counters.contentObservationsRecorded++;
         }
         if (output != null) {
-            capture(eventKey + "-output", eventKey, traceId, spanId, agentId, endpointKey,
+            capture(outputObservationKey, eventKey, traceId, spanId, agentId, endpointKey,
                     "trace", kind.name(), ContentDirection.OUTPUT, output, observedAt);
             counters.contentObservationsRecorded++;
         }
+        return new ToolContentRefs(inputObservationKey, outputObservationKey);
+    }
+
+    private ToolInvocationStatus toolStatus(String status) {
+        if ("SUCCEEDED".equalsIgnoreCase(status)) return ToolInvocationStatus.SUCCEEDED;
+        if ("FAILED".equalsIgnoreCase(status)) return ToolInvocationStatus.FAILED;
+        return ToolInvocationStatus.UNKNOWN;
     }
 
     private TraceSpanKind classify(JsonNode span, Map<String, JsonNode> attrs) {
@@ -623,5 +647,11 @@ public class OtlpTraceIngestionService {
         int ragSpansRecorded;
         int a2aSpansRecorded;
         int knowledgeInteractionsRecorded;
+    }
+
+    private record ToolContentRefs(String inputObservationKey, String outputObservationKey) {
+        static ToolContentRefs empty() {
+            return new ToolContentRefs(null, null);
+        }
     }
 }

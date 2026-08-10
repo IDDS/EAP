@@ -23,12 +23,13 @@ class OtlpTraceIngestionServiceTests {
     private final ContentObservationService contentObservationService = mock(ContentObservationService.class);
     private final TraceSpanObservationRepository traceSpanRepository = mock(TraceSpanObservationRepository.class);
     private final KnowledgeService knowledgeService = mock(KnowledgeService.class);
+    private final ToolInvocationService toolInvocationService = mock(ToolInvocationService.class);
 
     @Test
     void normalizesCurrentGenAiAttributesAndRedactsSensitiveInput() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
-                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService
         );
         when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
         JsonNode payload = objectMapper.readTree("""
@@ -96,7 +97,7 @@ class OtlpTraceIngestionServiceTests {
     void recordsToolMcpRagAndA2aSpansWithContentSeparated() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
-                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService
         );
         when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
         JsonNode payload = objectMapper.readTree("""

@@ -443,6 +443,41 @@
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
       </el-table>
     </el-card>
+    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
+      <template #header>
+        <div class="panel-header">
+          <span>工具调用明细</span>
+          <span class="muted">记录工具/MCP 的实际观测、输入输出观测关联和调用状态</span>
+        </div>
+      </template>
+      <el-table :data="visibleToolInvocations" v-loading="loading" row-key="id">
+        <el-table-column label="工具" min-width="190">
+          <template #default="{ row }">
+            <strong>{{ row.toolName }}</strong>
+            <div class="muted">{{ row.mcpServerName || row.toolKind }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="智能体" width="95">
+          <template #default="{ row }"><el-tag size="small" :type="row.agentId ? 'success' : 'info'">{{ row.agentId ? `#${row.agentId}` : '未归因' }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="来源" width="95">
+          <template #default="{ row }">{{ row.observationSource === 'OTLP' ? 'OTLP' : '模型网关' }}</template>
+        </el-table-column>
+        <el-table-column label="状态 / 耗时" width="145">
+          <template #default="{ row }"><el-tag size="small" :type="toolStatusType(row.status)">{{ toolStatusLabel(row.status) }}</el-tag> · {{ row.durationMs }} ms</template>
+        </el-table-column>
+        <el-table-column label="Trace / Span" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.traceId || '-' }} · {{ row.spanId || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="内容观测" min-width="180">
+          <template #default="{ row }">
+            <span>{{ row.inputObservationKey ? '有输入' : '无输入' }} · {{ row.outputObservationKey ? '有输出' : '无输出' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
+      </el-table>
+      <el-empty v-if="visibleToolInvocations.length === 0" description="当前筛选条件下没有工具调用明细" />
+    </el-card>
   </section>
 </template>
 
@@ -465,6 +500,8 @@ import type {
   PhysicalTelemetrySummary,
   TraceSpanObservation,
   TraceSpanKind,
+  ToolInvocationEvent,
+  ToolInvocationStatus,
 } from '@/types/domain'
 
 const emptySummary: PhysicalTelemetrySummary = {
@@ -499,6 +536,7 @@ const summary = ref<PhysicalTelemetrySummary>({ ...emptySummary })
 const events = ref<ModelInvocationEvent[]>([])
 const contentObservations = ref<ContentObservation[]>([])
 const traceSpans = ref<TraceSpanObservation[]>([])
+const toolInvocations = ref<ToolInvocationEvent[]>([])
 const endpoints = ref<DiscoveryEndpoint[]>([])
 const assets = ref<DiscoveredAgentAsset[]>([])
 const agents = ref<Agent[]>([])
@@ -649,6 +687,12 @@ const visibleTraceSpans = computed<TraceSpanObservation[]>(() => {
   return [...spans, ...fallbackSpans].sort((left, right) =>
     new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime())
 })
+const visibleToolInvocations = computed(() => toolInvocations.value.filter(tool => {
+  if (contextAgentId.value && tool.agentId !== contextAgentId.value) return false
+  if (contextEndpointKey.value && tool.endpointKey !== contextEndpointKey.value) return false
+  if (contextTraceId.value && tool.traceId !== contextTraceId.value) return false
+  return true
+}))
 const traceStats = computed(() => {
   const spans = visibleTraceSpans.value
   return {
@@ -776,7 +820,7 @@ function clearDrilldown() {
 async function load() {
   loading.value = true
   try {
-    const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans] = await Promise.all([
+    const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans, nextToolInvocations] = await Promise.all([
       EapApi.getPhysicalTelemetrySummary(windowHours.value),
       EapApi.listModelInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listDiscoveryEndpoints(),
@@ -784,6 +828,7 @@ async function load() {
       EapApi.listAgents(),
       EapApi.listContentObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listTraceSpanObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
+      EapApi.listToolInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
     ])
     summary.value = nextSummary
     events.value = nextEvents
@@ -792,6 +837,7 @@ async function load() {
     agents.value = nextAgents
     contentObservations.value = nextContent
     traceSpans.value = nextTraceSpans
+    toolInvocations.value = nextToolInvocations
     if (!telemetryForm.agentId) telemetryForm.agentId = nextAgents[0]?.id
   } finally {
     loading.value = false
@@ -942,6 +988,23 @@ function traceKindLabel(value: TraceSpanKind) {
     AGENT: '智能体',
   }
   return labels[value] || value
+}
+
+function toolStatusType(status: ToolInvocationStatus) {
+  if (status === 'SUCCEEDED') return 'success'
+  if (status === 'FAILED') return 'danger'
+  if (status === 'REQUESTED') return 'warning'
+  return 'info'
+}
+
+function toolStatusLabel(status: ToolInvocationStatus) {
+  const labels: Record<ToolInvocationStatus, string> = {
+    REQUESTED: '已请求',
+    SUCCEEDED: '成功',
+    FAILED: '失败',
+    UNKNOWN: '未知',
+  }
+  return labels[status] || status
 }
 
 onMounted(load)

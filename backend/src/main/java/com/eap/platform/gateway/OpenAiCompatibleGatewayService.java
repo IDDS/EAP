@@ -8,12 +8,18 @@ import com.eap.platform.governance.GovernanceDataSensitivity;
 import com.eap.platform.governance.GovernanceGatewayDirective;
 import com.eap.platform.observability.ContentDirection;
 import com.eap.platform.observability.ContentObservationService;
+import com.eap.platform.observability.ToolInvocationKind;
+import com.eap.platform.observability.ToolInvocationService;
+import com.eap.platform.observability.ToolInvocationSource;
+import com.eap.platform.observability.ToolInvocationStatus;
 import com.eap.platform.governance.GovernancePreflightService;
 import com.eap.platform.telemetry.ModelInvocationStatus;
 import com.eap.platform.telemetry.ModelTelemetryDtos;
 import com.eap.platform.telemetry.ModelTelemetryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
@@ -26,7 +32,9 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -35,6 +43,7 @@ public class OpenAiCompatibleGatewayService {
     private final GovernancePreflightService preflightService;
     private final ModelTelemetryService telemetryService;
     private final ContentObservationService contentObservationService;
+    private final ToolInvocationService toolInvocationService;
     private final ObjectMapper objectMapper;
     private final OpenAiUpstreamClient upstreamClient;
 
@@ -43,6 +52,7 @@ public class OpenAiCompatibleGatewayService {
             GovernancePreflightService preflightService,
             ModelTelemetryService telemetryService,
             ContentObservationService contentObservationService,
+            ToolInvocationService toolInvocationService,
             ObjectMapper objectMapper,
             OpenAiUpstreamClient upstreamClient
     ) {
@@ -50,6 +60,7 @@ public class OpenAiCompatibleGatewayService {
         this.preflightService = preflightService;
         this.telemetryService = telemetryService;
         this.contentObservationService = contentObservationService;
+        this.toolInvocationService = toolInvocationService;
         this.objectMapper = objectMapper;
         this.upstreamClient = upstreamClient;
     }
@@ -150,6 +161,8 @@ public class OpenAiCompatibleGatewayService {
                 && decision.gatewayDirective() != GovernanceGatewayDirective.PROCEED_WITH_WARNING) {
             throw new GatewayException(HttpStatus.FORBIDDEN, "governance_" + decision.gatewayDirective().name().toLowerCase(), "治理网关已停止模型请求：" + decision.gatewayDirective());
         }
+        recordGatewayToolResults(forwardedRequest.path("messages"), eventKey, normalizedTrace, agentId, endpointKey,
+                taskId, model, inputObservationDirective);
 
         Instant startedAt = Instant.now();
         try {
@@ -181,11 +194,15 @@ public class OpenAiCompatibleGatewayService {
                     && outputDecision.gatewayDirective() != GovernanceGatewayDirective.PROCEED_WITH_WARNING) {
                 throw new GatewayException(HttpStatus.FORBIDDEN, "governance_output_" + outputDecision.gatewayDirective().name().toLowerCase(), "治理网关已停止模型输出：" + outputDecision.gatewayDirective());
             }
+            List<GatewayToolCall> toolCalls = parseToolCalls(responseBody);
+            List<GatewayToolCall> originalToolCalls = parseToolCalls(originalResponseBody);
+            recordGatewayToolCalls(originalToolCalls, toolCalls, eventKey, normalizedTrace, agentId, endpointKey,
+                    taskId, model, outputObservationDirective);
             telemetryService.recordGateway(new ModelTelemetryDtos.ModelInvocationRequest(
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.SUCCEEDED, promptTokens, completionTokens,
                     cachedTokens(responseBody), reasoningTokens(responseBody), elapsedMillis(startedAt), estimateCost(promptTokens, completionTokens), "USD",
-                    toolCallCount(responseBody), 0, null, Instant.now()
+                    toolCalls.size(), 0, null, Instant.now()
             ));
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.APPLICATION_JSON)
@@ -269,6 +286,8 @@ public class OpenAiCompatibleGatewayService {
         captureContent(eventKey + "-input", eventKey, normalizedTrace, agentId, endpointKey, taskId,
                 model, ContentDirection.INPUT, request, observableRequest, inputObservationClassification, inputObservationDirective);
         ensureProceed(decision, "模型请求");
+        recordGatewayToolResults(forwardedRequest.path("messages"), eventKey, normalizedTrace, agentId, endpointKey,
+                taskId, model, inputObservationDirective);
 
         Instant startedAt = Instant.now();
         try {
@@ -279,6 +298,7 @@ public class OpenAiCompatibleGatewayService {
                 throw new GatewayException(HttpStatus.BAD_GATEWAY, "stream_response_too_large", "上游流式响应超过网关允许的最大大小");
             }
             StreamAggregate aggregate = aggregateStream(rawStream);
+            StreamAggregate originalAggregate = aggregate;
             Classification outputClassification = classify(objectMapper.valueToTree(aggregate.text()), GatewayDtos.ClassificationHints.empty());
             GovernanceDataDtos.PreflightResponse outputDecision = preflight(
                     "gateway-stream-output-decision-" + UUID.randomUUID(), eventKey + "-output", agentId, endpointKey, taskId, normalizedTrace,
@@ -301,13 +321,15 @@ public class OpenAiCompatibleGatewayService {
                     model, ContentDirection.OUTPUT, objectMapper.valueToTree(originalRawStream), observableResponse,
                     outputObservationClassification, outputObservationDirective);
             ensureProceed(outputDecision, "模型输出");
+            recordGatewayToolCalls(originalAggregate.toolCalls(), aggregate.toolCalls(), eventKey, normalizedTrace, agentId,
+                    endpointKey, taskId, model, outputObservationDirective);
             long promptTokens = aggregate.usage().promptTokens() > 0 ? aggregate.usage().promptTokens() : classification.estimatedTokens();
             long completionTokens = aggregate.usage().completionTokens();
             telemetryService.recordGateway(new ModelTelemetryDtos.ModelInvocationRequest(
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.SUCCEEDED, promptTokens, completionTokens,
                     aggregate.cachedTokens(), aggregate.reasoningTokens(), elapsedMillis(startedAt), estimateCost(promptTokens, completionTokens), "USD",
-                    aggregate.toolCallCount(), 0, null, Instant.now()
+                    aggregate.toolCalls().size(), 0, null, Instant.now()
             ));
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -382,12 +404,139 @@ public class OpenAiCompatibleGatewayService {
                 || directive == GovernanceGatewayDirective.REDACT_AND_RECHECK;
     }
 
+    private List<GatewayToolCall> parseToolCalls(JsonNode body) {
+        List<GatewayToolCall> result = new ArrayList<>();
+        if (body == null || !body.path("choices").isArray()) return result;
+        for (JsonNode choice : body.path("choices")) {
+            JsonNode calls = choice.path("message").path("tool_calls");
+            if (!calls.isArray()) continue;
+            for (JsonNode call : calls) {
+                JsonNode function = call.path("function");
+                String name = text(function, "name");
+                JsonNode arguments = function.get("arguments");
+                result.add(new GatewayToolCall(
+                        blankToNull(text(call, "id")),
+                        blankToNull(name),
+                        parseArguments(arguments)
+                ));
+            }
+        }
+        return result;
+    }
+
+    private JsonNode parseArguments(JsonNode value) {
+        if (value == null || value.isNull() || value.isMissingNode()) return objectMapper.createObjectNode();
+        if (!value.isTextual()) return value;
+        try {
+            return objectMapper.readTree(value.asText());
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private void recordGatewayToolCalls(
+            List<GatewayToolCall> originalCalls,
+            List<GatewayToolCall> safeCalls,
+            String eventKey,
+            String traceId,
+            Long agentId,
+            String endpointKey,
+            Long taskId,
+            String model,
+            GovernanceGatewayDirective directive
+    ) {
+        for (int index = 0; index < originalCalls.size(); index++) {
+            GatewayToolCall original = originalCalls.get(index);
+            GatewayToolCall safe = index < safeCalls.size() ? safeCalls.get(index) : original;
+            String callKey = blank(original.callId()) ? eventKey + "-tool-" + index : "gateway-tool-" + original.callId();
+            String spanId = blank(original.callId()) ? null : original.callId();
+            String inputObservationKey = callKey + "-input";
+            JsonNode originalArguments = parseArguments(original.arguments());
+            JsonNode safeArguments = parseArguments(safe.arguments());
+            Classification classification = classify(originalArguments, GatewayDtos.ClassificationHints.empty());
+            String originalText = originalArguments == null ? "{}" : originalArguments.toString();
+            String safeText = canExposeGovernedContent(directive)
+                    ? (safeArguments == null ? redact(originalArguments).toString() : safeArguments.toString()) : null;
+            contentObservationService.capture(new ContentObservationService.CaptureCommand(
+                    inputObservationKey, callKey, traceId, spanId, agentId, blankToNull(endpointKey), taskId,
+                    properties.getProvider(), model, ContentDirection.TOOL_INPUT, originalText, safeText,
+                    classification.dataCategory(), classification.sensitivity().name(), directive.name(), Instant.now()
+            ));
+            toolInvocationService.record(new ToolInvocationService.RecordCommand(
+                    callKey, traceId, spanId, null, agentId, blankToNull(endpointKey), null, taskId,
+                    ToolInvocationSource.GATEWAY, toolKind(original.toolName()), original.toolName(), mcpServer(original.toolName()),
+                    ToolInvocationStatus.REQUESTED, 0L, inputObservationKey, null,
+                    toolAttributes(callKey, model), Instant.now()
+            ));
+        }
+    }
+
+    private void recordGatewayToolResults(
+            JsonNode messages,
+            String eventKey,
+            String traceId,
+            Long agentId,
+            String endpointKey,
+            Long taskId,
+            String model,
+            GovernanceGatewayDirective directive
+    ) {
+        if (messages == null || !messages.isArray()) return;
+        for (JsonNode message : messages) {
+            if (!"tool".equalsIgnoreCase(text(message, "role"))) continue;
+            String callId = blankToNull(text(message, "tool_call_id"));
+            if (callId == null) continue;
+            String callKey = "gateway-tool-" + callId;
+            String outputObservationKey = callKey + "-output";
+            JsonNode content = message.get("content");
+            if (content == null) content = objectMapper.nullNode();
+            Classification classification = classify(content, GatewayDtos.ClassificationHints.empty());
+            String originalText = content.toString();
+            String safeText = canExposeGovernedContent(directive) ? redact(content).toString() : null;
+            contentObservationService.capture(new ContentObservationService.CaptureCommand(
+                    outputObservationKey, callKey, traceId, callId, agentId, blankToNull(endpointKey), taskId,
+                    properties.getProvider(), model, ContentDirection.TOOL_OUTPUT, originalText, safeText,
+                    classification.dataCategory(), classification.sensitivity().name(), directive.name(), Instant.now()
+            ));
+            toolInvocationService.record(new ToolInvocationService.RecordCommand(
+                    callKey, traceId, callId, null, agentId, blankToNull(endpointKey), null, taskId,
+                    ToolInvocationSource.GATEWAY, toolKind(text(message, "name")),
+                    blankToNull(text(message, "name")), mcpServer(text(message, "name")),
+                    ToolInvocationStatus.SUCCEEDED, null, null, outputObservationKey,
+                    toolAttributes(callKey, model), Instant.now()
+            ));
+        }
+    }
+
+    private ToolInvocationKind toolKind(String toolName) {
+        String normalized = toolName == null ? "" : toolName.toLowerCase();
+        return normalized.startsWith("mcp__") || normalized.startsWith("mcp.")
+                ? ToolInvocationKind.MCP : ToolInvocationKind.TOOL;
+    }
+
+    private String mcpServer(String toolName) {
+        if (toolName == null) return null;
+        if (toolName.startsWith("mcp__")) {
+            int separator = toolName.indexOf("__", 5);
+            return separator > 5 ? toolName.substring(5, separator) : null;
+        }
+        return null;
+    }
+
+    private String toolAttributes(String callKey, String model) {
+        ObjectNode attributes = objectMapper.createObjectNode();
+        attributes.put("source", "EAP_GATEWAY");
+        attributes.put("model", model == null ? "unknown-model" : model);
+        attributes.put("invocationKey", callKey);
+        return attributes.toString();
+    }
+
     private StreamAggregate aggregateStream(String raw) {
         StringBuilder text = new StringBuilder();
         GatewayDtos.CompletionUsage usage = new GatewayDtos.CompletionUsage(0, 0, 0);
         long cached = 0;
         long reasoning = 0;
-        int tools = 0;
+        Map<Integer, StreamToolCallAccumulator> tools = new LinkedHashMap<>();
         for (String line : raw.split("\\R")) {
             String payload = line.startsWith("data:") ? line.substring(5).trim() : "";
             if (payload.isBlank() || "[DONE]".equals(payload)) continue;
@@ -399,7 +548,19 @@ public class OpenAiCompatibleGatewayService {
                         JsonNode delta = choice.path("delta");
                         if (delta.has("content")) text.append(extractText(delta.get("content")));
                         JsonNode calls = delta.path("tool_calls");
-                        if (calls.isArray()) tools += calls.size();
+                        if (calls.isArray()) {
+                            for (JsonNode call : calls) {
+                                int index = call.path("index").asInt(tools.size());
+                                StreamToolCallAccumulator accumulator = tools.computeIfAbsent(index, ignored -> new StreamToolCallAccumulator());
+                                String id = text(call, "id");
+                                if (!blank(id)) accumulator.callId = id;
+                                JsonNode function = call.path("function");
+                                String name = text(function, "name");
+                                if (!blank(name)) accumulator.toolName = name;
+                                String arguments = text(function, "arguments");
+                                if (!blank(arguments)) accumulator.arguments.append(arguments);
+                            }
+                        }
                     }
                 }
                 GatewayDtos.CompletionUsage next = GatewayDtos.CompletionUsage.from(node);
@@ -410,7 +571,8 @@ public class OpenAiCompatibleGatewayService {
                 // Keep non-JSON SSE comments and provider-specific keepalive frames intact.
             }
         }
-        return new StreamAggregate(text.toString(), usage, cached, reasoning, tools);
+        List<GatewayToolCall> toolCalls = tools.values().stream().map(StreamToolCallAccumulator::toToolCall).toList();
+        return new StreamAggregate(text.toString(), usage, cached, reasoning, toolCalls);
     }
 
     private String redactSse(String raw) {
@@ -596,5 +758,18 @@ public class OpenAiCompatibleGatewayService {
 
     private record Classification(String dataCategory, GovernanceDataSensitivity sensitivity, boolean internalData, boolean companySecret, long estimatedTokens, long payloadBytes, List<String> detectedTypes) {}
 
-    private record StreamAggregate(String text, GatewayDtos.CompletionUsage usage, long cachedTokens, long reasoningTokens, int toolCallCount) {}
+    private record GatewayToolCall(String callId, String toolName, JsonNode arguments) {}
+
+    private static final class StreamToolCallAccumulator {
+        private String callId;
+        private String toolName;
+        private final StringBuilder arguments = new StringBuilder();
+
+        private GatewayToolCall toToolCall() {
+            String rawArguments = arguments.toString();
+            return new GatewayToolCall(callId, toolName, rawArguments.isBlank() ? null : JsonNodeFactory.instance.textNode(rawArguments));
+        }
+    }
+
+    private record StreamAggregate(String text, GatewayDtos.CompletionUsage usage, long cachedTokens, long reasoningTokens, List<GatewayToolCall> toolCalls) {}
 }

@@ -9,6 +9,7 @@ import com.eap.platform.telemetry.ModelInvocationStatus;
 import com.eap.platform.telemetry.ModelTelemetryDtos;
 import com.eap.platform.telemetry.ModelTelemetryService;
 import com.eap.platform.observability.ContentObservationService;
+import com.eap.platform.observability.ToolInvocationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,7 @@ class OpenAiCompatibleGatewayServiceTests {
     private final GovernancePreflightService preflightService = mock(GovernancePreflightService.class);
     private final ModelTelemetryService telemetryService = mock(ModelTelemetryService.class);
     private final ContentObservationService contentObservationService = mock(ContentObservationService.class);
+    private final ToolInvocationService toolInvocationService = mock(ToolInvocationService.class);
     private final OpenAiUpstreamClient upstreamClient = mock(OpenAiUpstreamClient.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private OpenAiCompatibleGatewayService service;
@@ -43,7 +45,7 @@ class OpenAiCompatibleGatewayServiceTests {
         properties.setEnabled(true);
         properties.setUpstreamBaseUrl("http://upstream.example");
         properties.setProvider("openai");
-        service = new OpenAiCompatibleGatewayService(properties, preflightService, telemetryService, contentObservationService, objectMapper, upstreamClient);
+        service = new OpenAiCompatibleGatewayService(properties, preflightService, telemetryService, contentObservationService, toolInvocationService, objectMapper, upstreamClient);
     }
 
     @Test

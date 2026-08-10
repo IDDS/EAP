@@ -45,6 +45,7 @@ import type {
   ModelInvocationEvent,
   ContentObservation,
   TraceSpanObservation,
+  ToolInvocationEvent,
   ModelInvocationStatus,
   ModelGatewayStatus,
   PhysicalTelemetrySummary,
@@ -186,6 +187,14 @@ export const EapApi = {
       if (key !== 'limit' && value !== undefined && value !== null && value !== '') query.set(key, String(value))
     })
     return getData<TraceSpanObservation[]>(`/observability/otlp/spans?${query.toString()}`)
+  },
+  listToolInvocationEvents: (params: { limit?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; toolKind?: string; status?: string; toolName?: string; from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams()
+    query.set('limit', String(params.limit ?? 100))
+    Object.entries(params).forEach(([key, value]) => {
+      if (key !== 'limit' && value !== undefined && value !== null && value !== '') query.set(key, String(value))
+    })
+    return getData<ToolInvocationEvent[]>(`/observability/tool-invocations?${query.toString()}`)
   },
   recordModelInvocation: (payload: {
     eventKey: string
