@@ -70,6 +70,7 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 前端主要路由 `/`、`/agents`、`/agents/:id`、`/physical`、`/registry`、`/knowledge`、`/management`、`/governance` 返回 HTTP 200。
 - 自动发现最近一次复核能够成功完成，观察到约 300 条信号并形成约 255 个候选资产；数量会随扫描环境变化。
 - 隔离 OTLP 验证已确认 Tool Span 能归因到 Agent，并生成工具调用、输入/输出观测和 Trace 关联记录。
+- Agent-centric 详情工作台已完成一次实例链路验收：对 `fin-analyst-local-1` 发送在线心跳并更新负载为 42%，通过 OTLP JSON 上报一条包含模型、工具、MCP、RAG 的 Trace；平台实际生成 1 条模型调用（900 Token）、4 个 Span、2 条工具/MCP 调用、8 条输入输出观测、1 条知识交互和 1 条治理事件，前端代理按 `agentId=1` 均可读取。该验证覆盖“实例心跳 → OTLP 归因 → 详情页数据读取”，但 `http://fin-agent.local:9001` 仍是注册测试地址，不代表真实外部 Agent 进程已执行任务。
 
 ## 4. 已知边界和风险
 
@@ -79,6 +80,7 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 本地 `local` profile 默认使用内存 H2，后端重启后遥测、Trace 和工具调用历史会清空；正式部署应使用 MySQL。
 - 发现资产、Runtime、OTLP Span 和网关调用必须尽量携带稳定 Agent 身份，否则只能通过 endpoint、进程、工作负载或启发式身份图谱关联。
 - 前端 HTTP 200 和构建通过不等于所有业务按钮完成端到端外部系统验证；涉及真实模型、Kubernetes、eBPF 和 Runtime 控制时仍需在目标环境验收。
+- 当前实例验收使用本地开发模式写入的合成 OTLP 测试数据；需要部署可访问的真实 Agent Runtime，并让其实际调用模型和工具，才能完成生产级执行验收。
 
 ## 5. 下一步优先级
 
