@@ -13,12 +13,14 @@ import WorkflowBuilderView from '@/views/WorkflowBuilderView.vue'
 import PhysicalView from '@/views/PhysicalView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
 import ManagementView from '@/views/ManagementView.vue'
+import AgentDetailView from '@/views/AgentDetailView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: DashboardView, meta: { title: '工作台' } },
     { path: '/agents', component: AgentsView, meta: { title: '智能体管理' } },
+    { path: '/agents/:id', component: AgentDetailView, meta: { title: '智能体详情' } },
     { path: '/registry', component: AgentRegistryView, meta: { title: '注册发现' } },
     { path: '/physical', component: PhysicalView, meta: { title: '物理界面' } },
     { path: '/knowledge', component: KnowledgeView, meta: { title: '知识界面' } },

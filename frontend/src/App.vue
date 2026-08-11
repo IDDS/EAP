@@ -11,14 +11,14 @@
       </div>
       <div class="sidebar-nav">
         <div class="nav-section">总览</div>
-        <el-menu router :default-active="$route.path" class="nav-menu">
+        <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
           <span>工作台</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section">智能体运营</div>
-        <el-menu router :default-active="$route.path" class="nav-menu">
+        <div class="nav-section">智能体中心</div>
+        <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/agents">
           <el-icon><Cpu /></el-icon>
           <span>智能体管理</span>
@@ -27,6 +27,9 @@
           <el-icon><Search /></el-icon>
           <span>注册发现</span>
         </el-menu-item>
+        </el-menu>
+        <div class="nav-section">运行与观测</div>
+        <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/physical">
           <el-icon><DataAnalysis /></el-icon>
           <span>物理界面</span>
@@ -45,7 +48,7 @@
         </el-menu-item>
         </el-menu>
         <div class="nav-section">编排与学习</div>
-        <el-menu router :default-active="$route.path" class="nav-menu">
+        <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/orchestration">
           <el-icon><Connection /></el-icon>
           <span>团队编排</span>
@@ -60,7 +63,7 @@
         </el-menu-item>
         </el-menu>
         <div class="nav-section">治理与安全</div>
-        <el-menu router :default-active="$route.path" class="nav-menu">
+        <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/governance">
           <el-icon><ScaleToOriginal /></el-icon>
           <span>治理中心</span>
@@ -231,6 +234,7 @@ let searchRequestId = 0
 let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined
 
 const router = useRouter()
+const navActivePath = computed(() => route.path.startsWith('/agents/') ? '/agents' : route.path)
 const currentFontScaleLabel = computed(() => fontScaleOptions.find(option => option.value === fontScale.value)?.label || '舒适')
 
 function setFontScale(value: FontScale) {
@@ -315,8 +319,8 @@ function agentResult(agent: Agent): GlobalSearchResult {
     type: '智能体',
     title: agent.name,
     subtitle: `${agent.code} · ${agent.ownerDepartment} · ${agent.lifecycleStatus}`,
-    path: '/physical',
-    query: { agentId: String(agent.id) },
+    path: `/agents/${agent.id}`,
+    query: {},
   }
 }
 
@@ -325,8 +329,8 @@ function assetResult(asset: DiscoveredAgentAsset): GlobalSearchResult {
     type: '发现资产',
     title: asset.name,
     subtitle: `${asset.vendor} · ${asset.product} · ${asset.hostName || '未知设备'}`,
-    path: asset.managedAgentId ? '/physical' : '/registry',
-    query: asset.managedAgentId ? { agentId: String(asset.managedAgentId) } : {},
+    path: asset.managedAgentId ? `/agents/${asset.managedAgentId}` : '/registry',
+    query: {},
   }
 }
 
