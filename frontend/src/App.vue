@@ -1,6 +1,6 @@
 <template>
   <el-container class="app-shell">
-    <el-aside :width="sidebarCollapsed ? '78px' : '264px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
+    <el-aside :width="sidebarCollapsed ? '72px' : '248px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
         <div class="brand-copy">
@@ -10,12 +10,15 @@
         <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <div class="nav-section">控制台</div>
+        <div class="nav-section">总览</div>
         <el-menu router :default-active="$route.path" class="nav-menu">
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
           <span>工作台</span>
         </el-menu-item>
+        </el-menu>
+        <div class="nav-section">智能体运营</div>
+        <el-menu router :default-active="$route.path" class="nav-menu">
         <el-menu-item index="/agents">
           <el-icon><Cpu /></el-icon>
           <span>智能体管理</span>
@@ -40,6 +43,9 @@
           <el-icon><Monitor /></el-icon>
           <span>运行中心</span>
         </el-menu-item>
+        </el-menu>
+        <div class="nav-section">编排与学习</div>
+        <el-menu router :default-active="$route.path" class="nav-menu">
         <el-menu-item index="/orchestration">
           <el-icon><Connection /></el-icon>
           <span>团队编排</span>
@@ -101,23 +107,26 @@
             readonly
             @focus="openSearchDialog"
           />
-          <div class="font-scale-control" aria-label="字号设置">
-            <span>字号</span>
-            <el-button
-              v-for="option in fontScaleOptions"
-              :key="option.value"
-              text
-              size="small"
-              :class="{ 'is-active': fontScale === option.value }"
-              :aria-label="option.label"
-              @click="setFontScale(option.value)"
-            >{{ option.shortLabel }}</el-button>
-          </div>
+          <el-dropdown class="font-scale-menu" trigger="click" @command="handleFontScaleCommand">
+            <el-button class="topbar-compact-control" text>
+              字号 · {{ currentFontScaleLabel }}<el-icon><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="option in fontScaleOptions"
+                  :key="option.value"
+                  :command="option.value"
+                  :class="{ 'is-active': fontScale === option.value }"
+                >{{ option.menuLabel }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
-          <el-tag class="auth-state" :type="hasAccessToken ? 'success' : 'info'" effect="plain">
-            {{ hasAccessToken ? '已认证' : '本地模式' }}
-          </el-tag>
-          <el-button class="auth-button" :icon="Lock" @click="openAuthDialog">{{ hasAccessToken ? '更新凭证' : '认证' }}</el-button>
+          <el-button class="session-button" :title="hasAccessToken ? '更新企业认证凭证' : '连接企业认证'" @click="openAuthDialog">
+            <span :class="['session-indicator', { connected: hasAccessToken }]" />
+            {{ hasAccessToken ? '企业认证' : '本地模式' }}
+          </el-button>
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
         </div>
       </el-header>
@@ -131,22 +140,22 @@
     </el-container>
   </el-container>
 
-  <el-dialog v-model="authDialogVisible" title="企业 JWT 认证" width="520px">
+  <el-dialog v-model="authDialogVisible" title="企业身份认证" width="520px">
     <el-alert
       type="info"
       :closable="false"
       show-icon
-      title="Token 只保存在当前标签页的 sessionStorage，刷新后保留，关闭标签页即清除。"
+      title="访问令牌仅保存在当前标签页，刷新后保留，关闭标签页即清除。"
     />
     <el-form label-position="top" style="margin-top: 18px">
-      <el-form-item label="Access Token">
+      <el-form-item label="访问令牌">
         <el-input
           v-model="authTokenDraft"
           type="password"
           show-password
           clearable
           autocomplete="off"
-          placeholder="粘贴企业 IdP 签发的 JWT，可包含 Bearer 前缀"
+          placeholder="粘贴企业身份提供商签发的 JWT，可包含 Bearer 前缀"
         />
       </el-form-item>
     </el-form>
@@ -162,9 +171,9 @@
       autofocus
       clearable
       :prefix-icon="Search"
-      placeholder="输入 Agent 名称、代码、发现资产或治理策略"
-      @input="runGlobalSearch"
-      @keyup.enter="runGlobalSearch"
+      placeholder="输入智能体名称、代码、发现资产或治理策略"
+      @input="scheduleGlobalSearch"
+      @keyup.enter="runGlobalSearchNow"
     />
     <div v-loading="globalSearchLoading" class="global-search-results">
       <button v-for="result in globalSearchResults" :key="`${result.type}-${result.title}-${result.subtitle}`" class="global-search-result" @click="selectSearchResult(result)">
@@ -180,7 +189,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowRight, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
@@ -196,10 +205,10 @@ type GlobalSearchResult = {
 
 type FontScale = 'standard' | 'comfortable' | 'large'
 
-const fontScaleOptions: Array<{ value: FontScale; label: string; shortLabel: string }> = [
-  { value: 'standard', label: '标准字号', shortLabel: '标' },
-  { value: 'comfortable', label: '舒适字号', shortLabel: '舒' },
-  { value: 'large', label: '大字号', shortLabel: '大' },
+const fontScaleOptions: Array<{ value: FontScale; label: string; menuLabel: string }> = [
+  { value: 'standard', label: '标准', menuLabel: '标准字号' },
+  { value: 'comfortable', label: '舒适', menuLabel: '舒适字号' },
+  { value: 'large', label: '大号', menuLabel: '大字号' },
 ]
 
 const route = useRoute()
@@ -219,13 +228,19 @@ const fontScale = ref<FontScale>(
     : 'comfortable',
 )
 let searchRequestId = 0
+let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined
 
 const router = useRouter()
+const currentFontScaleLabel = computed(() => fontScaleOptions.find(option => option.value === fontScale.value)?.label || '舒适')
 
 function setFontScale(value: FontScale) {
   fontScale.value = value
   document.documentElement.dataset.fontScale = value
   localStorage.setItem('eap-font-scale', value)
+}
+
+function handleFontScaleCommand(value: FontScale) {
+  setFontScale(value)
 }
 
 function openAuthDialog() {
@@ -238,13 +253,13 @@ function saveAuthToken() {
   hasAccessToken.value = Boolean(getAccessToken())
   authDialogVisible.value = false
   authTokenDraft.value = ''
-  ElMessage.success('JWT 已保存，后续 API 请求将自动携带 Bearer Token')
+  ElMessage.success('企业认证令牌已保存，后续请求将自动携带认证信息')
 }
 
 function logout() {
   clearAccessToken()
   hasAccessToken.value = false
-  ElMessage.success('当前标签页的 JWT 已清除')
+  ElMessage.success('当前标签页的企业认证已清除')
 }
 
 function requireAuthentication() {
@@ -279,6 +294,16 @@ async function runGlobalSearch() {
   } finally {
     if (requestId === searchRequestId) globalSearchLoading.value = false
   }
+}
+
+function scheduleGlobalSearch() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => void runGlobalSearch(), 240)
+}
+
+function runGlobalSearchNow() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  void runGlobalSearch()
 }
 
 function matchesSearch(value: Agent | DiscoveredAgentAsset | GovernancePolicy, term: string) {
@@ -324,5 +349,8 @@ onMounted(() => {
   setFontScale(fontScale.value)
   window.addEventListener('eap-auth-required', requireAuthentication)
 })
-onBeforeUnmount(() => window.removeEventListener('eap-auth-required', requireAuthentication))
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  window.removeEventListener('eap-auth-required', requireAuthentication)
+})
 </script>

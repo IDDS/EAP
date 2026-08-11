@@ -4216,3 +4216,135 @@ body {
     font-size: 10px;
   }
 }
+
+/* Enterprise console refinement: denser navigation, compact utilities and calmer dashboard proportions. */
+.sidebar-nav {
+  padding-top: 8px;
+}
+
+.nav-section {
+  padding: 13px 12px 5px;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+
+.nav-section:first-child {
+  padding-top: 7px;
+}
+
+.topbar {
+  height: 72px;
+  padding-right: 26px;
+  padding-left: 26px;
+}
+
+.topbar h1 {
+  margin-top: 3px;
+  font-size: 20px;
+}
+
+.global-search {
+  width: 238px;
+}
+
+.font-scale-menu {
+  display: inline-flex;
+}
+
+.topbar-compact-control,
+.session-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--eap-border);
+  border-radius: 9px;
+  color: #52657d;
+  background: rgba(255, 255, 255, .84);
+  box-shadow: 0 3px 10px rgba(31, 59, 100, .035);
+  font-size: 12px;
+}
+
+.topbar-compact-control:hover,
+.session-button:hover {
+  border-color: #b9cae3;
+  color: var(--eap-blue);
+  background: #fff;
+}
+
+.topbar-compact-control .el-icon {
+  margin-left: 5px;
+  font-size: 11px;
+}
+
+.session-indicator {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: #93a4ba;
+  box-shadow: 0 0 0 3px rgba(147, 164, 186, .12);
+}
+
+.session-indicator.connected {
+  background: #22b98a;
+  box-shadow: 0 0 0 3px rgba(34, 185, 138, .12);
+}
+
+.el-dropdown-menu__item.is-active {
+  color: var(--eap-blue);
+  background: #f0f5ff;
+  font-weight: 700;
+}
+
+.main {
+  min-height: calc(100vh - 72px);
+  padding: 22px 28px 40px;
+}
+
+.interface-tabs-top {
+  top: 82px;
+}
+
+.dashboard-hero {
+  min-height: 168px;
+  padding: 24px 28px;
+}
+
+.dashboard-hero h2 {
+  margin: 11px 0 7px;
+  font-size: clamp(25px, 2.7vw, 34px);
+}
+
+.dashboard-hero-meta {
+  margin-top: 16px;
+}
+
+.dashboard-hero-rail > div {
+  min-height: 108px;
+  padding: 14px 15px;
+}
+
+.dashboard-hero-rail strong {
+  font-size: 29px;
+}
+
+@media (max-width: 1180px) {
+  .font-scale-menu {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    min-height: 68px;
+    padding: 11px 15px;
+  }
+
+  .workspace-pill {
+    display: none;
+  }
+
+  .session-button {
+    padding: 0 9px;
+  }
+}

@@ -163,7 +163,7 @@
               <strong>{{ network.stats.controlNodeCount }}</strong>
             </div>
             <div>
-              <span>Agent 节点</span>
+              <span>智能体节点</span>
               <strong>{{ network.stats.agentNodeCount }}</strong>
             </div>
             <div>
@@ -178,8 +178,8 @@
 
           <div class="control-console">
             <strong>控制命令</strong>
-            <span class="muted">控制面向选中的 Agent 下发命令，当前以 outbox 模拟派发。</span>
-            <el-select v-model="commandForm.agentId" placeholder="选择 Agent">
+            <span class="muted">控制面向选中的智能体下发命令，当前通过命令队列派发。</span>
+            <el-select v-model="commandForm.agentId" placeholder="选择智能体">
               <el-option
                 v-for="node in agentNodes"
                 :key="node.id"
@@ -188,7 +188,7 @@
               />
             </el-select>
             <el-select v-model="commandForm.commandType">
-              <el-option v-for="command in commandTypes" :key="command" :label="command" :value="command" />
+              <el-option v-for="command in commandTypes" :key="command" :label="controlCommandLabel(command)" :value="command" />
             </el-select>
             <el-input v-model="commandForm.payloadJson" type="textarea" :rows="4" />
             <el-button type="primary" :icon="Connection" :disabled="!commandForm.agentId" @click="issueCommand">下发控制命令</el-button>
@@ -200,8 +200,8 @@
               <el-button text :icon="Refresh" @click="load">刷新</el-button>
             </div>
             <div v-for="command in commands" :key="command.id" class="command-log-item">
-              <strong>{{ command.commandType }}</strong>
-              <span>{{ command.commandKey }} · Agent {{ command.agentId }} · {{ command.status }}</span>
+              <strong>{{ controlCommandLabel(command.commandType) }}</strong>
+              <span>{{ command.commandKey }} · 智能体 {{ command.agentId }} · {{ controlCommandStatusLabel(command.status) }}</span>
             </div>
           </div>
         </aside>
@@ -250,6 +250,30 @@ const commandForm = ref({
   payloadJson: '{"reason":"operator_request"}',
 })
 const commandTypes = ['RUN_HEALTH_CHECK', 'RELOAD_POLICY', 'PAUSE', 'RESUME', 'UPDATE_CONFIG', 'SET_RATE_LIMIT']
+
+const controlCommandLabels: Record<string, string> = {
+  RUN_HEALTH_CHECK: '运行健康检查',
+  RELOAD_POLICY: '重新加载策略',
+  PAUSE: '暂停运行',
+  RESUME: '恢复运行',
+  UPDATE_CONFIG: '更新配置',
+  SET_RATE_LIMIT: '设置速率限制',
+}
+
+const controlCommandStatusLabels: Record<string, string> = {
+  QUEUED: '排队中',
+  DISPATCHED: '已投递',
+  ACKED: '已确认',
+  FAILED: '失败',
+}
+
+function controlCommandLabel(value: string) {
+  return controlCommandLabels[value] || value
+}
+
+function controlCommandStatusLabel(value: string) {
+  return controlCommandStatusLabels[value] || value
+}
 
 const refreshedLabel = computed(() => {
   if (!lastRefreshedAt.value) return '等待首次采集'
