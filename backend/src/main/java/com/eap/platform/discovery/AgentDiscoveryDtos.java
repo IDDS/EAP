@@ -58,6 +58,17 @@ public final class AgentDiscoveryDtos {
     ) {
     }
 
+    public record HostObservationResponse(
+            String endpointKey,
+            HostObservationSensorType sensorType,
+            int observationsInspected,
+            int agentsDiscovered,
+            int mcpServersDiscovered,
+            int observationsRecorded,
+            List<String> warnings
+    ) {
+    }
+
     public record EndpointRegistrationRequest(
             @NotBlank @Size(max = 128) String endpointKey,
             @NotBlank @Size(max = 256) String hostName,
@@ -151,6 +162,9 @@ public final class AgentDiscoveryDtos {
             Integer mcpServerCount,
             Integer evidenceCount,
             Long managedAgentId,
+            String availabilityStatus,
+            String lastEndpointKey,
+            Integer missingSnapshotCount,
             Instant firstSeenAt,
             Instant lastSeenAt,
             Instant createdAt,
@@ -207,6 +221,7 @@ public final class AgentDiscoveryDtos {
                 agent.status, agent.riskLevel, agent.confidence, sourceTypes, agent.hostName, agent.accountName,
                 agent.processName, agent.executablePath, agent.autoApprove, agent.trustedProcess,
                 agent.mcpServerCount, agent.evidenceCount, agent.managedAgentId,
+                agent.availabilityStatus, agent.lastEndpointKey, agent.missingSnapshotCount,
                 agent.firstSeenAt, agent.lastSeenAt, agent.createdAt, agent.updatedAt
         );
     }

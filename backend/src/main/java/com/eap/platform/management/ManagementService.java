@@ -25,6 +25,7 @@ import java.util.Map;
 @Service
 public class ManagementService {
     private final ManagementValueEventRepository valueRepository;
+    private final ManagementValueAttributionRepository attributionRepository;
     private final AgentRepository agentRepository;
     private final DiscoveryEndpointRepository endpointRepository;
     private final AgentTaskService taskService;
@@ -34,6 +35,7 @@ public class ManagementService {
 
     public ManagementService(
             ManagementValueEventRepository valueRepository,
+            ManagementValueAttributionRepository attributionRepository,
             AgentRepository agentRepository,
             DiscoveryEndpointRepository endpointRepository,
             AgentTaskService taskService,
@@ -42,6 +44,7 @@ public class ManagementService {
             ManagementProperties properties
     ) {
         this.valueRepository = valueRepository;
+        this.attributionRepository = attributionRepository;
         this.agentRepository = agentRepository;
         this.endpointRepository = endpointRepository;
         this.taskService = taskService;
@@ -57,10 +60,14 @@ public class ManagementService {
     @Transactional
     public ManagementDtos.ValueEventResponse recordValue(ManagementDtos.ValueEventRequest request) {
         ManagementValueEvent existing = valueRepository.findByEventKey(request.eventKey()).orElse(null);
-        if (existing != null) {
-            return ManagementDtos.from(existing);
+        if (existing == null && !blank(request.sourceSystem()) && !blank(request.sourceRecordKey())) {
+            existing = valueRepository.findBySourceSystemAndSourceRecordKey(request.sourceSystem().trim(), request.sourceRecordKey().trim()).orElse(null);
         }
-        validateAttribution(request.agentId(), request.endpointKey());
+        if (existing != null) {
+            return ManagementDtos.from(existing, attributionRepository.findByValueEventId(existing.id));
+        }
+        List<ManagementDtos.AgentContributionRequest> contributions = request.agentContributions() == null ? List.of() : request.agentContributions();
+        validateAttribution(request.agentId(), request.endpointKey(), contributions);
         ManagementValueEvent event = new ManagementValueEvent();
         event.eventKey = request.eventKey();
         event.agentId = request.agentId();
@@ -72,13 +79,52 @@ public class ManagementService {
         event.validatedBy = request.validatedBy();
         event.benefitMoney = request.benefitMoney() == null ? BigDecimal.ZERO : request.benefitMoney();
         event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().toUpperCase();
+        event.metricName = normalize(request.metricName(), 128);
+        event.metricUnit = normalize(request.metricUnit(), 32);
+        event.baselineValue = request.baselineValue();
+        event.currentValue = request.currentValue();
+        event.improvementDirection = normalize(request.improvementDirection(), 32);
+        event.sourceType = firstNonBlank(normalize(request.sourceType(), 32), "MANUAL").toUpperCase();
+        event.sourceSystem = normalize(request.sourceSystem(), 128);
+        event.sourceRecordKey = normalize(request.sourceRecordKey(), 128);
+        event.confidence = request.confidence() == null ? BigDecimal.ONE : request.confidence();
+        event.measurementWindowStart = request.measurementWindowStart();
+        event.measurementWindowEnd = request.measurementWindowEnd();
+        if ((event.baselineValue == null) != (event.currentValue == null)) {
+            throw new BusinessException("业务指标必须同时提供基线值和当前值");
+        }
+        if (event.baselineValue != null && event.baselineValue.signum() == 0) {
+            throw new BusinessException("业务指标基线值不能为 0");
+        }
+        if (!java.util.Set.of("MANUAL", "BUSINESS_SYSTEM", "DERIVED").contains(event.sourceType)) {
+            throw new BusinessException("不支持的业务价值数据来源");
+        }
+        if ((event.sourceSystem == null) != (event.sourceRecordKey == null)) {
+            throw new BusinessException("来源系统和来源记录标识必须同时提供");
+        }
+        if ("BUSINESS_SYSTEM".equals(event.sourceType) && event.sourceSystem == null) {
+            throw new BusinessException("业务系统导入必须提供来源系统和记录标识");
+        }
+        if (event.confidence.signum() < 0 || event.confidence.compareTo(BigDecimal.ONE) > 0) {
+            throw new BusinessException("可信度必须在 0 到 1 之间");
+        }
+        if ((event.measurementWindowStart == null) != (event.measurementWindowEnd == null)) {
+            throw new BusinessException("统计窗口必须同时提供开始和结束时间");
+        }
+        if (event.measurementWindowStart != null && !event.measurementWindowEnd.isAfter(event.measurementWindowStart)) {
+            throw new BusinessException("统计窗口结束时间必须晚于开始时间");
+        }
         event.observedAt = request.observedAt() == null ? Instant.now() : request.observedAt();
-        return ManagementDtos.from(valueRepository.save(event));
+        ManagementValueEvent saved = valueRepository.save(event);
+        List<ManagementValueAttribution> savedAttributions = saveAttributions(saved.id, contributions);
+        return ManagementDtos.from(saved, savedAttributions);
     }
 
     @Transactional(readOnly = true)
     public List<ManagementDtos.ValueEventResponse> listValues(int limit) {
-        return valueRepository.findTop500ByOrderByObservedAtDesc().stream().limit(limit).map(ManagementDtos::from).toList();
+        List<ManagementValueEvent> values = valueRepository.findTop500ByOrderByObservedAtDesc().stream().limit(limit).toList();
+        Map<Long, List<ManagementValueAttribution>> attributions = attributionsByEvent(values);
+        return values.stream().map(value -> ManagementDtos.from(value, attributions.getOrDefault(value.id, List.of()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -90,6 +136,7 @@ public class ManagementService {
                 .filter(task -> task.createdAt() != null && !task.createdAt().isBefore(since))
                 .toList();
         List<ManagementValueEvent> values = valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since);
+        Map<Long, List<ManagementValueAttribution>> attributions = attributionsByEvent(values);
 
         Map<Long, String> agentNames = new LinkedHashMap<>();
         agentRepository.findAll().forEach(agent -> agentNames.put(agent.getId(), agent.getName()));
@@ -107,18 +154,37 @@ public class ManagementService {
             )).addTask(task);
         });
         values.forEach(value -> {
-            String key = value.agentId != null ? "agent:" + value.agentId : "endpoint:" + value.endpointKey;
-            usage.computeIfAbsent(key, ignored -> new ManagementUsageAccumulator(
-                    key,
-                    value.agentId != null ? agentNames.getOrDefault(value.agentId, "Agent " + value.agentId) : value.endpointKey,
-                    value.agentId,
-                    value.endpointKey
-            )).addValue(value);
+            List<ManagementValueAttribution> contributions = attributions.getOrDefault(value.id, List.of());
+            if (!contributions.isEmpty()) {
+                contributions.forEach(item -> {
+                    String key = "agent:" + item.agentId;
+                    usage.computeIfAbsent(key, ignored -> new ManagementUsageAccumulator(
+                            key, agentNames.getOrDefault(item.agentId, "Agent " + item.agentId), item.agentId, null
+                    )).addValue(value, item.contributionWeight);
+                });
+            } else {
+                String key = value.agentId != null ? "agent:" + value.agentId : "endpoint:" + value.endpointKey;
+                usage.computeIfAbsent(key, ignored -> new ManagementUsageAccumulator(
+                        key,
+                        value.agentId != null ? agentNames.getOrDefault(value.agentId, "Agent " + value.agentId) : value.endpointKey,
+                        value.agentId,
+                        value.endpointKey
+                )).addValue(value, BigDecimal.ONE);
+            }
         });
 
         BigDecimal totalCost = telemetry.moneyCost();
         BigDecimal valueAmount = values.stream().map(value -> value.benefitMoney).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal netBenefit = valueAmount.subtract(totalCost);
+        List<BigDecimal> measuredRates = values.stream().map(ManagementDtos::improvementRate).filter(java.util.Objects::nonNull).toList();
+        double averageImprovementRate = measuredRates.isEmpty() ? 0.0 : measuredRates.stream().mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
+        long efficiencyImpactEvents = values.stream().filter(value -> isEfficiencyType(value.valueType)).count();
+        long businessImpactEvents = values.stream().filter(value -> isBusinessImpactType(value.valueType)).count();
+        long businessSystemValueEvents = values.stream().filter(value -> "BUSINESS_SYSTEM".equalsIgnoreCase(value.sourceType)).count();
+        long multiAgentValueEvents = values.stream().filter(value -> !attributions.getOrDefault(value.id, List.of()).isEmpty()).count();
+        double averageConfidence = values.isEmpty() ? 0.0 : values.stream()
+                .map(value -> value.confidence == null ? BigDecimal.ONE : value.confidence)
+                .mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
         return new ManagementDtos.ManagementSummary(
                 windowHours,
                 tasks.size(),
@@ -134,14 +200,21 @@ public class ManagementService {
                 knowledge.reusedInteractions(),
                 knowledge.adoptionRate(),
                 knowledge.reuseRate(),
+                measuredRates.size(),
+                averageImprovementRate,
+                efficiencyImpactEvents,
+                businessImpactEvents,
+                businessSystemValueEvents,
+                multiAgentValueEvents,
+                averageConfidence,
                 !values.isEmpty(),
                 values.isEmpty() ? null : values.get(0).observedAt,
                 usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(ManagementUsageAccumulator::toResponse).toList()
         );
     }
 
-    private void validateAttribution(Long agentId, String endpointKey) {
-        if (agentId == null && (endpointKey == null || endpointKey.isBlank())) {
+    private void validateAttribution(Long agentId, String endpointKey, List<ManagementDtos.AgentContributionRequest> contributions) {
+        if (agentId == null && (endpointKey == null || endpointKey.isBlank()) && contributions.isEmpty()) {
             throw new BusinessException("业务价值事件必须关联 Agent 或发现端点");
         }
         if (agentId != null && !agentRepository.existsById(agentId)) {
@@ -150,6 +223,41 @@ public class ManagementService {
         if (endpointKey != null && !endpointKey.isBlank() && endpointRepository.findByEndpointKey(endpointKey).isEmpty()) {
             throw new BusinessException("发现端点不存在");
         }
+        java.util.Set<Long> agentIds = new java.util.LinkedHashSet<>();
+        BigDecimal totalWeight = BigDecimal.ZERO;
+        for (ManagementDtos.AgentContributionRequest contribution : contributions) {
+            if (contribution.agentId() == null || contribution.contributionWeight() == null) {
+                throw new BusinessException("贡献归因必须提供智能体和权重");
+            }
+            if (!agentIds.add(contribution.agentId())) throw new BusinessException("同一智能体不能重复归因");
+            if (!agentRepository.existsById(contribution.agentId())) throw new BusinessException("贡献归因中的智能体不存在");
+            totalWeight = totalWeight.add(contribution.contributionWeight());
+        }
+        if (!contributions.isEmpty() && totalWeight.subtract(BigDecimal.ONE).abs().compareTo(new BigDecimal("0.000001")) > 0) {
+            throw new BusinessException("多智能体贡献权重之和必须为 1");
+        }
+    }
+
+    private List<ManagementValueAttribution> saveAttributions(
+            Long valueEventId,
+            List<ManagementDtos.AgentContributionRequest> contributions
+    ) {
+        if (contributions.isEmpty()) return List.of();
+        return attributionRepository.saveAll(contributions.stream().map(item -> {
+            ManagementValueAttribution attribution = new ManagementValueAttribution();
+            attribution.valueEventId = valueEventId;
+            attribution.agentId = item.agentId();
+            attribution.contributionWeight = item.contributionWeight();
+            attribution.attributionMethod = firstNonBlank(normalize(item.attributionMethod(), 32), "BUSINESS_CONFIRMED").toUpperCase();
+            attribution.evidenceReference = normalize(item.evidenceReference(), 256);
+            return attribution;
+        }).toList());
+    }
+
+    private Map<Long, List<ManagementValueAttribution>> attributionsByEvent(List<ManagementValueEvent> values) {
+        if (values.isEmpty()) return Map.of();
+        return attributionRepository.findByValueEventIdIn(values.stream().map(value -> value.id).toList()).stream()
+                .collect(java.util.stream.Collectors.groupingBy(item -> item.valueEventId, LinkedHashMap::new, java.util.stream.Collectors.toList()));
     }
 
     private double taskSuccessRate(List<AgentTaskDtos.TaskResponse> tasks) {
@@ -167,6 +275,35 @@ public class ManagementService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (!blank(value)) return value.trim();
+        }
+        return null;
+    }
+
+    private String normalize(String value, int max) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.replaceAll("[\\r\\n\\t]", " ").trim();
+        return normalized.length() > max ? normalized.substring(0, max) : normalized;
+    }
+
+    private boolean isEfficiencyType(String value) {
+        return "EFFICIENCY_GAIN".equalsIgnoreCase(value)
+                || "LABOR_SAVING".equalsIgnoreCase(value)
+                || "COST_REDUCTION".equalsIgnoreCase(value);
+    }
+
+    private boolean isBusinessImpactType(String value) {
+        return "REVENUE".equalsIgnoreCase(value)
+                || "LOSS_AVOIDANCE".equalsIgnoreCase(value)
+                || "QUALITY_IMPROVEMENT".equalsIgnoreCase(value);
     }
 
     private String sanitizeDescription(String value) {
@@ -191,6 +328,8 @@ public class ManagementService {
         private long totalTokens;
         private BigDecimal totalCost = BigDecimal.ZERO;
         private BigDecimal validatedValue = BigDecimal.ZERO;
+        private long measuredImpactEvents;
+        private BigDecimal improvementRateTotal = BigDecimal.ZERO;
         private long adopted;
         private long reused;
 
@@ -218,8 +357,13 @@ public class ManagementService {
             succeededTasks += task.status() == AgentTaskStatus.SUCCEEDED ? 1 : 0;
         }
 
-        void addValue(ManagementValueEvent value) {
-            validatedValue = validatedValue.add(value.benefitMoney);
+        void addValue(ManagementValueEvent value, BigDecimal weight) {
+            validatedValue = validatedValue.add(value.benefitMoney.multiply(weight));
+            BigDecimal rate = ManagementDtos.improvementRate(value);
+            if (rate != null) {
+                measuredImpactEvents++;
+                improvementRateTotal = improvementRateTotal.add(rate);
+            }
         }
 
         long totalTokens() {
@@ -233,7 +377,9 @@ public class ManagementService {
                     key, name, agentId, endpointKey, tasks, succeededTasks, modelCalls, knowledgeInteractions,
                     totalTokens, totalCost, validatedValue, netBenefit, roi,
                     knowledgeInteractions == 0 ? 0.0 : (double) adopted / knowledgeInteractions,
-                    knowledgeInteractions == 0 ? 0.0 : (double) reused / knowledgeInteractions
+                    knowledgeInteractions == 0 ? 0.0 : (double) reused / knowledgeInteractions,
+                    measuredImpactEvents,
+                    measuredImpactEvents == 0 ? 0.0 : improvementRateTotal.divide(BigDecimal.valueOf(measuredImpactEvents), 4, RoundingMode.HALF_UP).doubleValue()
             );
         }
     }

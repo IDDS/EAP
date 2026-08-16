@@ -18,7 +18,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(23);
+        assertThat(result.migrationsExecuted).isEqualTo(28);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("select count(*) from agents")) {
@@ -48,6 +48,38 @@ class FlywayMigrationTests {
             }
             try (var tables = statement.executeQuery(
                     "select count(*) from information_schema.tables where table_name = 'tool_invocation_events'"
+            )) {
+                tables.next();
+                assertThat(tables.getLong(1)).isEqualTo(1);
+            }
+            try (var tables = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'provider_usage_snapshots'"
+            )) {
+                tables.next();
+                assertThat(tables.getLong(1)).isEqualTo(1);
+            }
+            try (var columns = statement.executeQuery(
+                    "select count(*) from information_schema.columns " +
+                            "where table_name = 'model_invocation_events' and column_name = 'usage_pool_key'"
+            )) {
+                columns.next();
+                assertThat(columns.getLong(1)).isEqualTo(1);
+            }
+            try (var columns = statement.executeQuery(
+                    "select count(*) from information_schema.columns " +
+                            "where table_name = 'management_value_events' and column_name = 'baseline_value'"
+            )) {
+                columns.next();
+                assertThat(columns.getLong(1)).isEqualTo(1);
+            }
+            try (var tables = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'management_value_attributions'"
+            )) {
+                tables.next();
+                assertThat(tables.getLong(1)).isEqualTo(1);
+            }
+            try (var tables = statement.executeQuery(
+                    "select count(*) from information_schema.tables where table_name = 'management_value_connectors'"
             )) {
                 tables.next();
                 assertThat(tables.getLong(1)).isEqualTo(1);

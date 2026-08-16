@@ -7,9 +7,11 @@ public enum DiscoverySourceType {
     SKILL,
     PLUGIN,
     EXTERNAL,
+    DOCKER,
     A2A,
     MCP_REGISTRY,
     KUBERNETES_WATCH,
     KUBERNETES_ADMISSION,
-    EBPF
+    EBPF,
+    HOST_OBSERVER
 }

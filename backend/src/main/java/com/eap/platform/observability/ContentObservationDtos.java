@@ -55,6 +55,13 @@ public final class ContentObservationDtos {
             Instant observedAt,
             Instant createdAt
     ) {
+        public ContentObservationResponse withoutContent() {
+            return new ContentObservationResponse(
+                    id, observationKey, eventKey, traceId, spanId, agentId, endpointKey, taskId,
+                    provider, modelName, direction, captureMode, contentHash, contentBytes, estimatedTokens,
+                    null, dataCategory, sensitivity, governanceAction, redactionApplied, observedAt, createdAt
+            );
+        }
     }
 
     public record ObservationStatus(

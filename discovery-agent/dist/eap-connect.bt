@@ -1,0 +1,22 @@
+#include <linux/in.h>
+#include <linux/in6.h>
+
+tracepoint:syscalls:sys_enter_connect
+/args->addrlen == 16/
+{
+  $address = (struct sockaddr_in *)args->uservaddr;
+  if ($address->sin_family == 2) {
+    printf("EAPBPF\t%llu\t%d\t%s\t4\t%s\t%d\n",
+      nsecs, pid, comm, ntop(2, $address->sin_addr.s_addr), bswap($address->sin_port));
+  }
+}
+
+tracepoint:syscalls:sys_enter_connect
+/args->addrlen == 28/
+{
+  $address = (struct sockaddr_in6 *)args->uservaddr;
+  if ($address->sin6_family == 10) {
+    printf("EAPBPF\t%llu\t%d\t%s\t6\t%s\t%d\n",
+      nsecs, pid, comm, ntop(10, $address->sin6_addr.in6_u.u6_addr8), bswap($address->sin6_port));
+  }
+}

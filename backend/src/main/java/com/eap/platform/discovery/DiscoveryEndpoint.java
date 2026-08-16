@@ -33,6 +33,87 @@ public class DiscoveryEndpoint {
     @Column(name = "collector_version", length = 64)
     String collectorVersion;
 
+    @Column(name = "installation_id", unique = true, length = 64)
+    String installationId;
+
+    @Column(name = "machine_fingerprint", length = 128)
+    String machineFingerprint;
+
+    @Column(name = "credential_hash", unique = true, length = 64)
+    String credentialHash;
+
+    @Column(name = "credential_hint", length = 32)
+    String credentialHint;
+
+    @Column(name = "content_credential_hash", unique = true, length = 64)
+    String contentCredentialHash;
+
+    @Column(name = "content_credential_hint", length = 32)
+    String contentCredentialHint;
+
+    @Column(name = "tenant_id", nullable = false, length = 64)
+    String tenantId = "default";
+
+    @Column(name = "site_name", length = 128)
+    String siteName;
+
+    @Column(name = "environment_name", length = 64)
+    String environmentName;
+
+    @Column(length = 128)
+    String department;
+
+    @Column(name = "labels_json", columnDefinition = "text")
+    String labelsJson;
+
+    @Column(length = 32)
+    String architecture;
+
+    @Column(name = "capabilities_json", columnDefinition = "text")
+    String capabilitiesJson;
+
+    @Column(name = "policy_version", length = 64)
+    String policyVersion;
+
+    @Column(name = "rules_version", length = 64)
+    String rulesVersion;
+
+    @Column(name = "last_heartbeat_at")
+    Instant lastHeartbeatAt;
+
+    @Column(name = "last_scan_at")
+    Instant lastScanAt;
+
+    @Column(name = "queue_depth", nullable = false)
+    Long queueDepth = 0L;
+
+    @Column(name = "queue_bytes", nullable = false)
+    Long queueBytes = 0L;
+
+    @Column(name = "last_error", length = 1024)
+    String lastError;
+
+    @Column(name = "fingerprint_review_required", nullable = false)
+    Boolean fingerprintReviewRequired = false;
+
+    @Column(name = "content_capture_status", nullable = false, length = 32)
+    String contentCaptureStatus = "DISABLED";
+
+    @Column(name = "content_platform_approved_by", length = 128)
+    String contentPlatformApprovedBy;
+
+    @Column(name = "content_platform_approved_at")
+    Instant contentPlatformApprovedAt;
+
+    @Column(name = "content_data_approved_by", length = 128)
+    String contentDataApprovedBy;
+
+    @Column(name = "content_data_approved_at")
+    Instant contentDataApprovedAt;
+
+    @Column(name = "uninstalled_at")
+    Instant uninstalledAt;
+
     @Column(nullable = false, length = 32)
     String status = "ACTIVE";
 

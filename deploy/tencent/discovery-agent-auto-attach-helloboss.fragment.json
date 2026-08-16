@@ -1,0 +1,15 @@
+{
+  "auto_attach": [
+    {
+      "enabled": true,
+      "target": "boss-agent-backend",
+      "profile": "litellm",
+      "agent_id": 4,
+      "usage_pool_key": "shared-deepseek-production",
+      "provider": "deepseek",
+      "collector_url": "http://host.docker.internal:8687",
+      "instrumentation_token_file": "/var/lib/eap-content-proxy/helloboss/instrumentation-token",
+      "proxy_instance": "helloboss"
+    }
+  ]
+}

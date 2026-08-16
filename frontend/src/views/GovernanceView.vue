@@ -283,7 +283,7 @@
           <template #default="{ row }">{{ row.reasonCodes.join(', ') }}</template>
         </el-table-column>
         <el-table-column label="模型" min-width="150">
-          <template #default="{ row }">{{ row.provider || '—' }} / {{ row.modelName || '—' }}</template>
+          <template #default="{ row }"><div class="model-table-name"><ModelGlyph :provider="row.provider" size="xs" /><span><strong>{{ row.modelName || '—' }}</strong><small>{{ row.provider || '企业模型' }}</small></span></div></template>
         </el-table-column>
         <el-table-column label="审批状态" width="145">
           <template #default="{ row }"><el-tag :type="approvalType(row.approvalStatus)">{{ approvalStatusLabel(row.approvalStatus) }}</el-tag></template>
@@ -428,6 +428,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, DataAnalysis, Lock, OfficeBuilding, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
+import ModelGlyph from '@/components/ModelGlyph.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
   GovernanceDataAction,

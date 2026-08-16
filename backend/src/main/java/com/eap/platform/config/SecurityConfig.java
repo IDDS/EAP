@@ -62,9 +62,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/api/discovery/v1/agent/**").permitAll()
                         // Machine-facing endpoints perform their own constant-time token validation.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/telemetry/model-invocations",
+                                "/api/telemetry/provider-usage-snapshots",
                                 "/api/knowledge/interactions",
                                 "/api/knowledge/interactions/*/outcome",
                                 "/api/management/value-events",
@@ -77,8 +79,11 @@ public class SecurityConfig {
                                 "/api/discovery/connectors/microsoft-defender/ingest",
                                 "/api/discovery/connectors/kubernetes/watch",
                                 "/api/discovery/connectors/kubernetes/admission",
+                                "/api/discovery/connectors/host/observations",
                                 "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/observability/content")
+                            .hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole("VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/control/**", "/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")

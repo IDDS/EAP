@@ -23,11 +23,12 @@ from pathlib import Path
 from typing import Any
 
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 EXCLUDED_DIRECTORIES = {
     ".git", "node_modules", "target", "dist", "build", ".idea", ".venv", "venv", "__pycache__"
 }
 SIGNATURES = [
+    ("HelloBoss", "深圳矩维智能", ("boss-agent", "helloboss"), ()),
     ("Codex", "OpenAI", ("codex", "@openai/codex"), ("@openai/codex",)),
     ("Claude Code", "Anthropic", ("claude", "@anthropic-ai/claude-code"), ("@anthropic-ai/claude-code",)),
     ("Cursor", "Cursor", ("cursor",), ()),
@@ -50,6 +51,25 @@ SIGNATURES = [
     ("Semantic Kernel", "Microsoft", ("semantic-kernel",), ("semantic-kernel", "microsoft.semantickernel")),
     ("OpenAI Agents SDK", "OpenAI", ("openai-agents",), ("openai-agents",)),
 ]
+DOCKER_AGENT_LABELS = (
+    "eap.agent", "eap.discovery.agent", "com.eap.agent", "ai.agent",
+)
+DOCKER_PRODUCT_LABELS = ("eap.agent.product", "com.eap.agent.product", "ai.agent.product")
+DOCKER_VENDOR_LABELS = ("eap.agent.vendor", "com.eap.agent.vendor", "ai.agent.vendor")
+DOCKER_INFRA_SERVICES = {
+    "frontend", "nginx", "proxy", "gateway", "mysql", "mariadb", "postgres", "postgresql",
+    "database", "db", "redis", "kafka", "rabbitmq", "chroma", "qdrant", "milvus",
+    "elasticsearch", "opensearch", "prometheus", "grafana",
+}
+DOCKER_AGENT_MARKERS = (
+    "agent", "mcp", "langgraph", "crewai", "autogen", "semantic-kernel",
+    "openai-agents", "dify", "flowise", "langflow", "coze", "fastgpt", "maxkb",
+)
+DOCKER_AI_ENV_KEYS = {
+    "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AZURE_OPENAI_API_KEY", "GOOGLE_API_KEY",
+    "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "MOONSHOT_API_KEY",
+    "VOLCENGINE_API_KEY", "ARK_API_KEY", "OLLAMA_HOST", "LITELLM_MASTER_KEY",
+}
 AUTO_APPROVE_MARKERS = (
     "--dangerously-skip-permissions", "--yolo", "--full-auto",
     "approval_policy=never", "approval-mode=full-auto",
@@ -172,6 +192,186 @@ def process_rows() -> list[tuple[str, str, str]]:
         if match:
             rows.append((match.group(1), match.group(2), match.group(3)))
     return rows
+
+
+def docker_documents() -> list[dict[str, Any]]:
+    if os.environ.get("EAP_DISCOVERY_DOCKER_ENABLED", "true").lower() == "false":
+        return []
+    try:
+        listed = subprocess.run(
+            ["docker", "ps", "--format", "{{json .}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    container_ids: list[str] = []
+    for line in listed.stdout.splitlines():
+        try:
+            row = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        container_id = str(row.get("ID") or "").strip()
+        if container_id:
+            container_ids.append(container_id)
+    if not container_ids:
+        return []
+    try:
+        inspected = subprocess.run(
+            ["docker", "inspect", *container_ids[:500]],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        payload = json.loads(inspected.stdout or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return []
+    return [item for item in payload if isinstance(item, dict)] if isinstance(payload, list) else []
+
+
+def value_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def first_label(labels: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = labels.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def truthy_label(labels: dict[str, Any]) -> bool:
+    value = first_label(labels, DOCKER_AGENT_LABELS)
+    return value is not None and value.lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def display_product(value: str) -> str:
+    words = re.sub(r"[^a-zA-Z0-9]+", " ", value).strip().split()
+    return " ".join(word.upper() if len(word) <= 3 else word.capitalize() for word in words)[:128] or "Docker Agent"
+
+
+def image_version(image: str, labels: dict[str, Any]) -> str | None:
+    declared = labels.get("org.opencontainers.image.version")
+    if declared is not None and str(declared).strip():
+        return str(declared).strip()[:64]
+    last_segment = image.rsplit("/", 1)[-1]
+    if ":" in last_segment:
+        return last_segment.rsplit(":", 1)[-1][:64]
+    return None
+
+
+def docker_ports(document: dict[str, Any]) -> list[str]:
+    ports = document.get("NetworkSettings", {}).get("Ports", {}) or {}
+    result: list[str] = []
+    for container_port, bindings in ports.items():
+        if isinstance(bindings, list) and bindings:
+            for binding in bindings[:4]:
+                if isinstance(binding, dict):
+                    result.append(f"{container_port}->{binding.get('HostIp', '')}:{binding.get('HostPort', '')}")
+        else:
+            result.append(str(container_port))
+        if len(result) >= 16:
+            break
+    return result
+
+
+def docker_observations() -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    current_host = host_name()
+    current_account = account_name()
+    for document in docker_documents():
+        config = document.get("Config", {}) or {}
+        labels = config.get("Labels", {}) or {}
+        if not isinstance(labels, dict):
+            labels = {}
+        host_config = document.get("HostConfig", {}) or {}
+        name = str(document.get("Name") or "").lstrip("/")
+        image = str(config.get("Image") or "")
+        compose_project = str(labels.get("com.docker.compose.project") or "")
+        compose_service = str(labels.get("com.docker.compose.service") or "")
+        if compose_project.lower() == "eap" or name.lower().startswith("eap-"):
+            continue
+        explicit_agent = truthy_label(labels)
+        if compose_service.lower() in DOCKER_INFRA_SERVICES and not explicit_agent:
+            continue
+        command_parts = value_list(config.get("Entrypoint")) + value_list(config.get("Cmd"))
+        command = " ".join(command_parts)[:1024]
+        searchable = " ".join((name, image, compose_project, compose_service, command, " ".join(labels.keys()))).lower()
+        signature = signature_for(searchable)
+        env_keys = {
+            str(item).split("=", 1)[0]
+            for item in value_list(config.get("Env"))
+            if "=" in str(item)
+        }
+        ai_env_keys = sorted(env_keys.intersection(DOCKER_AI_ENV_KEYS))
+        marker_detected = any(marker in searchable for marker in DOCKER_AGENT_MARKERS)
+        backend_role = compose_service.lower() in {"backend", "api", "agent", "runtime", "worker", "server", "app"}
+        if not explicit_agent and signature is None and not marker_detected and not (ai_env_keys and backend_role):
+            continue
+        if signature is not None:
+            product, vendor, _, _ = signature
+        else:
+            product = first_label(labels, DOCKER_PRODUCT_LABELS) or display_product(compose_project or name or image)
+            vendor = first_label(labels, DOCKER_VENDOR_LABELS) or "Unknown"
+        privileged = bool(host_config.get("Privileged"))
+        pid_mode = str(host_config.get("PidMode") or "")
+        network_mode = str(host_config.get("NetworkMode") or "")
+        mounts = document.get("Mounts", []) or []
+        docker_socket_mounted = any(
+            isinstance(mount, dict) and str(mount.get("Destination") or "") == "/var/run/docker.sock"
+            for mount in mounts
+        )
+        auto_approve = any(marker in command.lower() for marker in AUTO_APPROVE_MARKERS)
+        elevated = privileged or pid_mode == "host" or network_mode == "host" or docker_socket_mounted
+        risk = "HIGH" if elevated or auto_approve else "MEDIUM"
+        confidence = 98 if explicit_agent else 94 if signature is not None else 88 if ai_env_keys else 82
+        networks = sorted((document.get("NetworkSettings", {}).get("Networks", {}) or {}).keys())[:16]
+        stable_identity = compose_service or name or image
+        observations.append({
+            "fingerprint": digest("docker", product, current_host, compose_project, stable_identity),
+            "name": f"{product} @ {current_host}",
+            "vendor": vendor,
+            "product": product,
+            "version": image_version(image, labels),
+            "assetType": "AGENT",
+            "sourceType": "DOCKER",
+            "sourceLocation": f"docker://{current_host}/{name}",
+            "accountName": current_account,
+            "processName": name[:256],
+            "executablePath": image[:1024] or None,
+            "autoApprove": auto_approve,
+            "trustedProcess": None,
+            "mcpServerCount": 0,
+            "confidence": confidence,
+            "riskLevel": risk,
+            "evidenceType": "DOCKER_AGENT_WORKLOAD",
+            "evidence": {
+                "containerId": str(document.get("Id") or "")[:12],
+                "image": image[:256],
+                "composeProject": compose_project[:128],
+                "composeService": compose_service[:128],
+                "command": command[:512],
+                "state": str(document.get("State", {}).get("Status") or "")[:64],
+                "networks": networks,
+                "ports": docker_ports(document),
+                "explicitAgentLabel": explicit_agent,
+                "matchedSignature": product if signature is not None else None,
+                "llmCredentialEnvKeys": ai_env_keys,
+                "privileged": privileged,
+                "hostPidMode": pid_mode == "host",
+                "hostNetworkMode": network_mode == "host",
+                "dockerSocketMounted": docker_socket_mounted,
+            },
+        })
+    return observations
 
 
 def signature_for(value: str) -> tuple[str, str, tuple[str, ...], tuple[str, ...]] | None:
@@ -488,8 +688,29 @@ def post_json(url: str, payload: dict[str, Any], token: str) -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def ingestion_token() -> str:
+    configured = os.environ.get("EAP_DISCOVERY_INGESTION_TOKEN", "").strip()
+    if configured:
+        return configured
+    env_file = os.environ.get("EAP_DISCOVERY_ENV_FILE", "").strip()
+    if not env_file:
+        return ""
+    try:
+        lines = Path(env_file).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    values: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    return values.get("EAP_DISCOVERY_INGESTION_TOKEN", "") or values.get("EAP_OBSERVABILITY_INGESTION_TOKEN", "")
+
+
 def collect() -> list[dict[str, Any]]:
-    return process_observations() + file_observations()
+    return process_observations() + docker_observations() + file_observations()
 
 
 def main() -> int:
@@ -499,7 +720,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="print sanitized observations without uploading")
     parser.add_argument("--interval-seconds", type=int, default=0, help="repeat collection at this interval; 0 means once")
     args = parser.parse_args()
-    token = os.environ.get("EAP_DISCOVERY_INGESTION_TOKEN", "")
+    token = ingestion_token()
     while True:
         observations = collect()
         payload = {"endpointKey": args.endpoint_key, "observations": observations}

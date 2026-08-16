@@ -1,0 +1,46 @@
+{
+  "server_url": "http://127.0.0.1:8091",
+  "allow_insecure_http": true,
+  "state_dir": "/var/lib/eap-discovery-agent",
+  "content_state_dir": "/var/lib/eap-content-proxy",
+  "scan": {
+    "processes": true,
+    "docker": true,
+    "ports": true,
+    "files": true,
+    "roots": [
+      "/opt",
+      "/srv"
+    ],
+    "max_files": 3000,
+    "max_depth": 6
+  },
+  "content_proxy": {
+    "listen": "127.0.0.1:8686",
+    "upstream_url": "https://api.openai.com/v1",
+    "provider": "openai-compatible",
+    "max_capture_bytes": 4194304
+  },
+  "auto_attach": [
+    {
+      "enabled": true,
+      "target": "boss-agent-backend",
+      "profile": "litellm",
+      "agent_id": 4,
+      "usage_pool_key": "shared-deepseek-production",
+      "provider": "deepseek",
+      "collector_url": "http://172.18.0.1:8687",
+      "instrumentation_token_file": "/var/lib/eap-content-proxy/helloboss/instrumentation-token",
+      "proxy_instance": "helloboss"
+    }
+  ],
+  "host_observer": {
+    "mode": "auto",
+    "max_observations": 1000
+  },
+  "ebpf_observer": {
+    "mode": "auto",
+    "batch_interval_seconds": 30,
+    "max_events": 1000
+  }
+}

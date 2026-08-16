@@ -14,7 +14,7 @@ create table content_observations (
     content_hash varchar(64) not null,
     content_bytes bigint not null,
     estimated_tokens bigint not null,
-    content_json clob,
+    content_json text,
     data_category varchar(128),
     sensitivity varchar(32),
     governance_action varchar(32),

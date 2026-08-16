@@ -10,11 +10,12 @@ export type SafetySeverity = 'INFO' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 export type RuntimeStatus = 'ONLINE' | 'DEGRADED' | 'OFFLINE'
 export type DiscoveryAssetStatus = 'DISCOVERED' | 'REVIEWING' | 'CONFIRMED' | 'MANAGED' | 'IGNORED'
 export type DiscoveryAssetType = 'AGENT' | 'AGENT_PROJECT' | 'MCP_CONFIGURATION' | 'AGENT_SKILL' | 'AGENT_PLUGIN'
-export type DiscoverySourceType = 'PROCESS' | 'MANIFEST' | 'CONFIGURATION' | 'SKILL' | 'PLUGIN' | 'EXTERNAL' | 'A2A' | 'MCP_REGISTRY' | 'KUBERNETES_WATCH' | 'KUBERNETES_ADMISSION' | 'EBPF'
+export type DiscoverySourceType = 'PROCESS' | 'MANIFEST' | 'CONFIGURATION' | 'SKILL' | 'PLUGIN' | 'EXTERNAL' | 'DOCKER' | 'A2A' | 'MCP_REGISTRY' | 'KUBERNETES_WATCH' | 'KUBERNETES_ADMISSION' | 'EBPF' | 'HOST_OBSERVER'
 export type DiscoveryRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED'
 export type DiscoveryTriggerType = 'SCHEDULED' | 'MANUAL' | 'ENDPOINT'
 export type ModelInvocationStatus = 'STARTED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
-export type ModelObservationSource = 'GATEWAY' | 'TELEMETRY_API' | 'OTLP'
+export type ModelObservationSource = 'GATEWAY' | 'TELEMETRY_API' | 'OTLP' | 'CONTENT_PROXY'
+export type ProviderUsageSource = 'PROVIDER_API' | 'BILLING_EXPORT' | 'MANUAL'
 export type KnowledgeInteractionStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 export type KnowledgeStepType = 'INPUT_ANALYSIS' | 'RETRIEVAL' | 'TOOL' | 'REASONING' | 'TRANSFORM' | 'OUTPUT_ANALYSIS'
 export type KnowledgeStepStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED'
@@ -320,6 +321,59 @@ export interface DiscoveryEndpoint {
   updatedAt: string
 }
 
+export interface DiscoveryProbeAgent {
+  id: number
+  endpointKey: string
+  hostName: string
+  accountName?: string
+  operatingSystem?: string
+  architecture?: string
+  agentVersion?: string
+  status: string
+  tenantId: string
+  siteName?: string
+  environmentName?: string
+  department?: string
+  labels: Record<string, string>
+  capabilities: string[]
+  policyVersion?: string
+  rulesVersion?: string
+  lastHeartbeatAt?: string
+  lastScanAt?: string
+  queueDepth: number
+  queueBytes: number
+  lastError?: string
+  fingerprintReviewRequired: boolean
+  contentCaptureStatus: string
+  contentPlatformApprovedBy?: string
+  contentDataApprovedBy?: string
+  contentApprovalMode: 'DUAL' | 'NONE'
+  contentCaptureEnabled: boolean
+  collectionScopes: string[]
+  tokenUsageStatus: string
+  tokenUsageNote?: string
+  firstSeenAt: string
+  lastSeenAt: string
+  uninstalledAt?: string
+}
+
+export interface DiscoveryEnrollmentToken {
+  id: number
+  token?: string
+  tokenHint: string
+  tenantId: string
+  siteName?: string
+  environmentName?: string
+  department?: string
+  labels: Record<string, string>
+  maxUses: number
+  usedCount: number
+  status: string
+  expiresAt: string
+  createdBy: string
+  createdAt: string
+}
+
 export interface DiscoveryIdentityLink {
   id: number
   identityKey: string
@@ -356,6 +410,7 @@ export interface ModelInvocationEvent {
   governanceDecisionKey?: string
   observationSource: ModelObservationSource
   governanceCovered: boolean
+  usagePoolKey?: string
   provider: string
   modelName: string
   status: ModelInvocationStatus
@@ -502,6 +557,65 @@ export interface PhysicalTelemetrySummary {
   modelUsage: TelemetryModelUsage[]
 }
 
+export interface ProviderUsageSnapshot {
+  id: number
+  snapshotKey: string
+  usagePoolKey: string
+  provider: string
+  accountLabel?: string
+  windowStart: string
+  windowEnd: string
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  reasoningTokens: number
+  totalTokens: number
+  moneyCost: number
+  currency: string
+  source: ProviderUsageSource
+  observedAt: string
+  createdAt: string
+}
+
+export interface UsagePoolReconciliation {
+  usagePoolKey: string
+  provider: string
+  accountLabel?: string
+  currency: string
+  snapshotCount: number
+  attributedCalls: number
+  attributedAgents: number
+  providerInputTokens: number
+  providerOutputTokens: number
+  providerTotalTokens: number
+  providerMoneyCost: number
+  attributedInputTokens: number
+  attributedOutputTokens: number
+  attributedTotalTokens: number
+  attributedMoneyCost: number
+  unallocatedTokens: number
+  unallocatedMoneyCost: number
+  overAttributedTokens: number
+  overAttributedMoneyCost: number
+  tokenCoverageRate: number
+  costCoverageRate: number
+  providerWindowStart?: string
+  providerWindowEnd?: string
+  lastSnapshotAt?: string
+}
+
+export interface UsageReconciliationSummary {
+  windowHours: number
+  windowStart: string
+  windowEnd: string
+  snapshotCount: number
+  usagePoolCount: number
+  unmappedTelemetryCalls: number
+  unmappedTelemetryTokens: number
+  unmappedTelemetryMoneyCost: number
+  pools: UsagePoolReconciliation[]
+}
+
 export interface KnowledgeTraceStep {
   id: number
   stepOrder: number
@@ -594,8 +708,27 @@ export interface ManagementValueEvent {
   validatedBy: string
   benefitMoney: number
   currency: string
+  metricName?: string
+  metricUnit?: string
+  baselineValue?: number
+  currentValue?: number
+  improvementRate?: number
+  sourceType: string
+  sourceSystem?: string
+  sourceRecordKey?: string
+  confidence: number
+  measurementWindowStart?: string
+  measurementWindowEnd?: string
+  agentContributions: ManagementAgentContribution[]
   observedAt: string
   createdAt: string
+}
+
+export interface ManagementAgentContribution {
+  agentId: number
+  contributionWeight: number
+  attributionMethod: string
+  evidenceReference?: string
 }
 
 export interface AgentManagementUsage {
@@ -614,6 +747,8 @@ export interface AgentManagementUsage {
   roi: number
   knowledgeAdoptionRate: number
   knowledgeReuseRate: number
+  measuredImpactEvents: number
+  averageImprovementRate: number
 }
 
 export interface ManagementSummary {
@@ -631,9 +766,86 @@ export interface ManagementSummary {
   reusedKnowledgeInteractions: number
   knowledgeAdoptionRate: number
   knowledgeReuseRate: number
+  measuredImpactEvents: number
+  averageImprovementRate: number
+  efficiencyImpactEvents: number
+  businessImpactEvents: number
+  businessSystemValueEvents: number
+  multiAgentValueEvents: number
+  averageConfidence: number
   hasValidatedValue: boolean
   lastValueEventAt?: string
   agentUsage: AgentManagementUsage[]
+}
+
+export type ManagementConnectorStatus = 'NEVER_SYNCED' | 'RUNNING' | 'HEALTHY' | 'DEGRADED' | 'ERROR' | 'DISABLED'
+export type ManagementConnectorAuthType = 'NONE' | 'BEARER_ENV' | 'HEADER_ENV'
+
+export interface ManagementValueConnector {
+  id: number
+  connectorKey: string
+  name: string
+  systemType: string
+  sourceSystem: string
+  endpointUrl: string
+  enabled: boolean
+  syncIntervalMinutes: number
+  authType: ManagementConnectorAuthType
+  credentialEnvKey?: string
+  authHeader?: string
+  authPrefix?: string
+  recordsPath?: string
+  recordKeyPath: string
+  observedAtPath?: string
+  valueTypePath?: string
+  fixedValueType: string
+  descriptionPath?: string
+  benefitMoneyPath: string
+  currencyPath?: string
+  fixedCurrency: string
+  metricNamePath?: string
+  fixedMetricName?: string
+  metricUnitPath?: string
+  fixedMetricUnit?: string
+  baselineValuePath?: string
+  currentValuePath?: string
+  improvementDirection: 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER'
+  agentIdPath?: string
+  defaultAgentId?: number
+  endpointKeyPath?: string
+  defaultEndpointKey?: string
+  validatedBy: string
+  confidence: number
+  measurementWindowStartPath?: string
+  measurementWindowEndPath?: string
+  incrementalParameter?: string
+  maxRecords: number
+  status: ManagementConnectorStatus
+  lastSyncStartedAt?: string
+  lastSyncCompletedAt?: string
+  lastSuccessAt?: string
+  lastImportedCount: number
+  lastSkippedCount: number
+  lastError?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ManagementConnectorRequest = Omit<ManagementValueConnector,
+  'id' | 'status' | 'lastSyncStartedAt' | 'lastSyncCompletedAt' | 'lastSuccessAt' |
+  'lastImportedCount' | 'lastSkippedCount' | 'lastError' | 'createdAt' | 'updatedAt'>
+
+export interface ManagementConnectorSyncResult {
+  connectorId: number
+  connectorKey: string
+  success: boolean
+  fetchedRecords: number
+  importedRecords: number
+  skippedRecords: number
+  failedRecords: number
+  message: string
+  startedAt: string
+  completedAt: string
 }
 
 export interface GovernanceDataEvent {

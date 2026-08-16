@@ -48,6 +48,39 @@ public class ManagementValueEvent {
     @Column(nullable = false, length = 16)
     String currency = "USD";
 
+    @Column(name = "metric_name", length = 128)
+    String metricName;
+
+    @Column(name = "metric_unit", length = 32)
+    String metricUnit;
+
+    @Column(name = "baseline_value", precision = 18, scale = 6)
+    BigDecimal baselineValue;
+
+    @Column(name = "current_value", precision = 18, scale = 6)
+    BigDecimal currentValue;
+
+    @Column(name = "improvement_direction", length = 32)
+    String improvementDirection;
+
+    @Column(name = "source_type", nullable = false, length = 32)
+    String sourceType = "MANUAL";
+
+    @Column(name = "source_system", length = 128)
+    String sourceSystem;
+
+    @Column(name = "source_record_key", length = 128)
+    String sourceRecordKey;
+
+    @Column(name = "confidence", nullable = false, precision = 5, scale = 4)
+    BigDecimal confidence = BigDecimal.ONE;
+
+    @Column(name = "measurement_window_start")
+    Instant measurementWindowStart;
+
+    @Column(name = "measurement_window_end")
+    Instant measurementWindowEnd;
+
     @Column(name = "observed_at", nullable = false)
     Instant observedAt;
 

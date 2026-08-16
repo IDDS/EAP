@@ -14,18 +14,24 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.List;
 
 @Validated
 @RestController
 @RequestMapping("/api/telemetry")
 public class ModelTelemetryController {
     private final ModelTelemetryService telemetryService;
+    private final ProviderUsageReconciliationService providerUsageService;
     private final MachineTokenValidator machineTokenValidator;
 
-    public ModelTelemetryController(ModelTelemetryService telemetryService, MachineTokenValidator machineTokenValidator) {
+    public ModelTelemetryController(
+            ModelTelemetryService telemetryService,
+            ProviderUsageReconciliationService providerUsageService,
+            MachineTokenValidator machineTokenValidator
+    ) {
         this.telemetryService = telemetryService;
+        this.providerUsageService = providerUsageService;
         this.machineTokenValidator = machineTokenValidator;
     }
 
@@ -57,6 +63,30 @@ public class ModelTelemetryController {
             @RequestParam(defaultValue = "24") @Min(1) @Max(8760) int hours
     ) {
         return ApiResponse.ok(telemetryService.summary(hours));
+    }
+
+    @PostMapping("/provider-usage-snapshots")
+    public ApiResponse<ProviderUsageDtos.SnapshotResponse> recordProviderUsage(
+            @RequestHeader(value = "X-EAP-Telemetry-Token", required = false) String token,
+            @Valid @RequestBody ProviderUsageDtos.SnapshotRequest request
+    ) {
+        requireIngestionToken(token);
+        return ApiResponse.ok(providerUsageService.record(request));
+    }
+
+    @GetMapping("/provider-usage-snapshots")
+    public ApiResponse<List<ProviderUsageDtos.SnapshotResponse>> listProviderUsage(
+            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit
+    ) {
+        return ApiResponse.ok(providerUsageService.list(limit));
+    }
+
+    @GetMapping("/usage-reconciliation")
+    public ApiResponse<ProviderUsageDtos.ReconciliationSummary> reconcileProviderUsage(
+            @RequestParam(defaultValue = "24") @Min(1) @Max(8760) int hours,
+            @RequestParam(required = false) String usagePoolKey
+    ) {
+        return ApiResponse.ok(providerUsageService.reconcile(hours, usagePoolKey));
     }
 
     private void requireIngestionToken(String token) {

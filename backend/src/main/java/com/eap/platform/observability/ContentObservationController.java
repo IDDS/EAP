@@ -2,6 +2,7 @@ package com.eap.platform.observability;
 
 import com.eap.platform.common.ApiResponse;
 import com.eap.platform.config.MachineTokenValidator;
+import com.eap.platform.config.SecurityProperties;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -14,8 +15,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.time.Instant;
+import java.util.List;
 
 @Validated
 @RestController
@@ -23,10 +24,16 @@ import java.time.Instant;
 public class ContentObservationController {
     private final ContentObservationService service;
     private final MachineTokenValidator machineTokenValidator;
+    private final SecurityProperties securityProperties;
 
-    public ContentObservationController(ContentObservationService service, MachineTokenValidator machineTokenValidator) {
+    public ContentObservationController(
+            ContentObservationService service,
+            MachineTokenValidator machineTokenValidator,
+            SecurityProperties securityProperties
+    ) {
         this.service = service;
         this.machineTokenValidator = machineTokenValidator;
+        this.securityProperties = securityProperties;
     }
 
     @GetMapping("/status")
@@ -44,7 +51,14 @@ public class ContentObservationController {
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to
     ) {
-        return ApiResponse.ok(service.list(limit, agentId, endpointKey, traceId, direction, from, to));
+        List<ContentObservationDtos.ContentObservationResponse> observations =
+                service.list(limit, agentId, endpointKey, traceId, direction, from, to);
+        if (securityProperties.isDevelopmentMode()) {
+            observations = observations.stream()
+                    .map(ContentObservationDtos.ContentObservationResponse::withoutContent)
+                    .toList();
+        }
+        return ApiResponse.ok(observations);
     }
 
     @PostMapping("/content")

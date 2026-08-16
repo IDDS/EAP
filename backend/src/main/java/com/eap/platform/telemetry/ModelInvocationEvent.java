@@ -51,6 +51,9 @@ public class ModelInvocationEvent {
     @Column(name = "governance_covered", nullable = false)
     Boolean governanceCovered = false;
 
+    @Column(name = "usage_pool_key", length = 128)
+    String usagePoolKey;
+
     @Column(nullable = false, length = 128)
     String provider;
 

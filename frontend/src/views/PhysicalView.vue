@@ -153,6 +153,9 @@
             </el-select>
           </el-form-item>
         </div>
+        <el-form-item label="共享 API Key 用量池别名">
+          <el-input v-model="telemetryForm.usagePoolKey" placeholder="例如 shared-openai-production；不要填写真实 API Key" />
+        </el-form-item>
         <div class="form-row telemetry-number-row">
           <el-form-item label="输入 Token"><el-input-number v-model="telemetryForm.inputTokens" :min="0" :controls="false" /></el-form-item>
           <el-form-item label="输出 Token"><el-input-number v-model="telemetryForm.outputTokens" :min="0" :controls="false" /></el-form-item>
@@ -213,6 +216,60 @@
       <div><span>活跃端点</span><strong>{{ summary.activeEndpoints }}/{{ summary.registeredEndpoints }}</strong></div>
       <div><span>运行实例</span><strong>{{ summary.onlineRuntimeCount }} 在线</strong></div>
     </div>
+
+    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel usage-reconciliation-panel">
+      <template #header>
+        <div class="panel-header">
+          <span>共享 API Key 用量对账</span>
+          <span class="muted">供应商总账 − Agent 调用级遥测 = 未分配用量</span>
+        </div>
+      </template>
+      <div class="physical-stat-grid usage-reconciliation-stats">
+        <div><span>供应商快照</span><strong>{{ reconciliation.snapshotCount }}</strong></div>
+        <div><span>共享用量池</span><strong>{{ reconciliation.usagePoolCount }}</strong></div>
+        <div><span>未标池调用</span><strong>{{ reconciliation.unmappedTelemetryCalls }}</strong></div>
+        <div><span>未标池 Token</span><strong>{{ formatNumber(reconciliation.unmappedTelemetryTokens) }}</strong></div>
+      </div>
+      <el-alert
+        v-if="reconciliation.pools.length === 0"
+        type="info"
+        :closable="false"
+        show-icon
+        title="尚未形成共享用量池。调用侧请上报 usagePoolKey，供应商侧通过 provider-usage-snapshots 接口导入同名账单窗口。"
+      />
+      <el-table v-else :data="reconciliation.pools" size="small">
+        <el-table-column label="用量池" min-width="210">
+          <template #default="{ row }">
+            <strong class="mono">{{ row.usagePoolKey }}</strong>
+            <div class="muted">{{ row.provider }} · {{ row.accountLabel || '未设置账户别名' }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="供应商总量" width="135">
+          <template #default="{ row }"><strong>{{ formatNumber(row.providerTotalTokens) }}</strong><div class="muted">{{ formatMoney(row.providerMoneyCost) }} {{ row.currency }}</div></template>
+        </el-table-column>
+        <el-table-column label="已归因" width="135">
+          <template #default="{ row }"><strong>{{ formatNumber(row.attributedTotalTokens) }}</strong><div class="muted">{{ row.attributedAgents }} Agent · {{ row.attributedCalls }} 调用</div></template>
+        </el-table-column>
+        <el-table-column label="未分配" width="135">
+          <template #default="{ row }"><strong>{{ formatNumber(row.unallocatedTokens) }}</strong><div class="muted">{{ formatMoney(row.unallocatedMoneyCost) }} {{ row.currency }}</div></template>
+        </el-table-column>
+        <el-table-column label="Token 覆盖率" width="160">
+          <template #default="{ row }"><el-progress :percentage="Math.round(row.tokenCoverageRate * 100)" :stroke-width="7" /></template>
+        </el-table-column>
+        <el-table-column label="对账状态" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.snapshotCount === 0" type="info">待供应商快照</el-tag>
+            <el-tag v-else-if="row.overAttributedTokens > 0" type="danger">超额 {{ formatNumber(row.overAttributedTokens) }}</el-tag>
+            <el-tag v-else-if="row.unallocatedTokens > 0" type="warning">存在差额</el-tag>
+            <el-tag v-else type="success">已对平</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="账单窗口" min-width="205">
+          <template #default="{ row }"><span>{{ row.providerWindowStart ? formatTime(row.providerWindowStart) : '尚无快照' }}</span><div class="muted">至 {{ row.providerWindowEnd ? formatTime(row.providerWindowEnd) : '—' }}</div></template>
+        </el-table-column>
+      </el-table>
+      <div class="usage-reconciliation-note">这里只保存共享凭证别名，不保存 API Key；差额不会平均摊派给各智能体。</div>
+    </el-card>
 
     <div v-show="activeSection === 'overview'" class="chart-grid physical-chart-grid">
       <el-card shadow="never" class="panel chart-panel chart-panel-wide">
@@ -297,8 +354,7 @@
       <el-card shadow="never" class="panel">
         <template #header>模型消耗排行</template>
         <el-table :data="summary.modelUsage" size="small">
-          <el-table-column prop="provider" label="供应商" width="120" />
-          <el-table-column prop="modelName" label="模型" min-width="160" />
+          <el-table-column label="模型" min-width="220"><template #default="{ row }"><div class="model-table-name"><ModelGlyph :provider="row.provider" size="xs" /><span><strong>{{ row.modelName }}</strong><small>{{ row.provider }}</small></span></div></template></el-table-column>
           <el-table-column prop="calls" label="调用" width="75" />
           <el-table-column label="Token" width="120">
             <template #default="{ row }">{{ formatNumber(row.totalTokens) }}</template>
@@ -328,6 +384,7 @@
             <div v-if="row.governanceDecisionKey" class="muted">治理 {{ row.governanceDecisionKey }}</div>
             <div class="table-tag-row">
               <el-tag size="small" effect="plain">{{ row.observationSource }}</el-tag>
+              <el-tag v-if="row.usagePoolKey" size="small" type="info" effect="plain">池 {{ row.usagePoolKey }}</el-tag>
               <el-tag size="small" :type="row.governanceCovered ? 'success' : 'warning'">
                 {{ row.governanceCovered ? '治理覆盖' : '被动发现' }}
               </el-tag>
@@ -335,7 +392,7 @@
           </template>
         </el-table-column>
         <el-table-column label="模型" min-width="160">
-          <template #default="{ row }">{{ row.provider }} · {{ row.modelName }}</template>
+          <template #default="{ row }"><div class="model-table-name"><ModelGlyph :provider="row.provider" size="xs" /><span><strong>{{ row.modelName }}</strong><small>{{ row.provider }}</small></span></div></template>
         </el-table-column>
         <el-table-column label="状态" width="105">
           <template #default="{ row }">
@@ -390,7 +447,7 @@
           </template>
         </el-table-column>
         <el-table-column label="模型" min-width="150">
-          <template #default="{ row }">{{ row.provider || '-' }} · {{ row.modelName || '-' }}</template>
+          <template #default="{ row }"><div class="model-table-name"><ModelGlyph :provider="row.provider" size="xs" /><span><strong>{{ row.modelName || '-' }}</strong><small>{{ row.provider || '企业模型' }}</small></span></div></template>
         </el-table-column>
         <el-table-column label="正文观测" min-width="420">
           <template #default="{ row }">
@@ -488,6 +545,7 @@ import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
 import TrendChart from '@/components/TrendChart.vue'
+import ModelGlyph from '@/components/ModelGlyph.vue'
 import type { EChartsOption } from 'echarts'
 import type {
   Agent,
@@ -498,6 +556,7 @@ import type {
   ModelInvocationEvent,
   ModelInvocationStatus,
   PhysicalTelemetrySummary,
+  UsageReconciliationSummary,
   TraceSpanObservation,
   TraceSpanKind,
   ToolInvocationEvent,
@@ -527,12 +586,25 @@ const emptySummary: PhysicalTelemetrySummary = {
   modelUsage: [],
 }
 
+const emptyReconciliation: UsageReconciliationSummary = {
+  windowHours: 24,
+  windowStart: '',
+  windowEnd: '',
+  snapshotCount: 0,
+  usagePoolCount: 0,
+  unmappedTelemetryCalls: 0,
+  unmappedTelemetryTokens: 0,
+  unmappedTelemetryMoneyCost: 0,
+  pools: [],
+}
+
 const windowHours = ref(24)
 const activeSection = ref<'overview' | 'ingest' | 'assets' | 'trace'>('overview')
 const loading = ref(false)
 const scanLoading = ref(false)
 const telemetrySaving = ref(false)
 const summary = ref<PhysicalTelemetrySummary>({ ...emptySummary })
+const reconciliation = ref<UsageReconciliationSummary>({ ...emptyReconciliation })
 const events = ref<ModelInvocationEvent[]>([])
 const contentObservations = ref<ContentObservation[]>([])
 const traceSpans = ref<TraceSpanObservation[]>([])
@@ -545,6 +617,7 @@ const telemetryForm = reactive({
   agentId: undefined as number | undefined,
   provider: 'openai-compatible',
   modelName: 'demo-model',
+  usagePoolKey: '',
   dataCategory: 'BUSINESS_ANALYSIS',
   sensitivity: 'INTERNAL' as GovernanceDataSensitivity,
   internalData: true,
@@ -820,8 +893,9 @@ function clearDrilldown() {
 async function load() {
   loading.value = true
   try {
-    const [nextSummary, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans, nextToolInvocations] = await Promise.all([
+    const [nextSummary, nextReconciliation, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans, nextToolInvocations] = await Promise.all([
       EapApi.getPhysicalTelemetrySummary(windowHours.value),
+      EapApi.getUsageReconciliation(windowHours.value),
       EapApi.listModelInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listDiscoveryEndpoints(),
       EapApi.listDiscoveredAgentAssets(),
@@ -831,6 +905,7 @@ async function load() {
       EapApi.listToolInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
     ])
     summary.value = nextSummary
+    reconciliation.value = nextReconciliation
     events.value = nextEvents
     endpoints.value = nextEndpoints
     assets.value = nextAssets
@@ -907,6 +982,7 @@ async function recordInvocation() {
       currency: 'USD',
       toolCallCount: 0,
       mcpServerCount: 0,
+      usagePoolKey: telemetryForm.usagePoolKey.trim() || undefined,
     })
     ElMessage.success(`模型调用已通过治理预检并记录：${decision.gatewayDirective}`)
     Object.assign(telemetryForm, {

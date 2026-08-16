@@ -6,11 +6,12 @@
         <strong>注册与自主发现</strong>
         <span>发现企业智能体、技能、插件和运行实例，统一复核身份与风险</span>
       </div>
-      <el-button type="primary" :icon="Refresh" :loading="scanLoading" @click="triggerAutonomousScan">立即扫描</el-button>
+      <el-button type="primary" :icon="Refresh" :loading="autonomousLoading" @click="loadAutonomousDiscovery">刷新发现数据</el-button>
     </div>
 
     <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="注册发现分区">
       <el-tag :class="{ 'is-active': activeSection === 'discovery' }" :effect="activeSection === 'discovery' ? 'dark' : 'plain'" @click="activeSection = 'discovery'">发现总览</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'probes' }" :effect="activeSection === 'probes' ? 'dark' : 'plain'" @click="activeSection = 'probes'">发现探针</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'identity' }" :effect="activeSection === 'identity' ? 'dark' : 'plain'" @click="activeSection = 'identity'">身份关联</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">资产清单</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'runtime' }" :effect="activeSection === 'runtime' ? 'dark' : 'plain'" @click="activeSection = 'runtime'">运行时注册</el-tag>
@@ -18,10 +19,10 @@
 
     <div v-show="activeSection === 'discovery'" class="registry-section-stack">
     <el-alert
-      :type="autonomousSummary?.autonomousDiscoveryEnabled ? 'success' : 'warning'"
+      type="info"
       :closable="false"
       show-icon
-      :title="autonomousSummary?.autonomousDiscoveryEnabled ? '自主发现已启用：后台将按配置周期持续扫描' : '自主发现未启用：当前只能手动触发扫描'"
+      title="EAP 仅负责控制、分析与审批；各机器上的独立 Discovery Agent 执行本机扫描并主动上报。"
     />
 
     <div v-if="drilldownLabel" class="drilldown-context">
@@ -128,6 +129,94 @@
     </el-card>
     </div>
 
+    <div v-show="activeSection === 'probes'" class="registry-section-stack">
+      <el-card shadow="never" class="panel">
+        <template #header>
+          <div class="panel-header">
+            <span>发现探针控制面</span>
+            <div class="button-row">
+              <el-button :icon="Refresh" @click="loadProbeAgents">刷新</el-button>
+              <el-button type="primary" :loading="tokenCreating" @click="createEnrollmentToken">创建 15 分钟安装令牌</el-button>
+            </div>
+          </div>
+        </template>
+        <el-alert
+          v-if="installCommand"
+          type="success"
+          :closable="false"
+          show-icon
+          title="令牌仅显示本次，请在目标 Linux 机器上执行安装命令"
+        >
+          <template #default>
+            <div class="probe-install-command mono">{{ installCommand }}</div>
+          </template>
+        </el-alert>
+        <div class="discovery-overview probe-overview">
+          <div class="summary-metric"><span>探针总数</span><strong>{{ probeAgents.length }}</strong></div>
+          <div class="summary-metric managed"><span>在线</span><strong>{{ onlineProbeCount }}</strong></div>
+          <div class="summary-metric extension"><span>内容采集已启用</span><strong>{{ contentEnabledProbeCount }}</strong></div>
+          <div class="summary-metric risk"><span>指纹待复核</span><strong>{{ fingerprintReviewCount }}</strong></div>
+        </div>
+        <el-table :data="probeAgents" v-loading="probeLoading" row-key="id">
+          <el-table-column label="机器 / 探针" min-width="220">
+            <template #default="{ row }">
+              <strong>{{ row.hostName }}</strong>
+              <div class="muted mono">{{ row.endpointKey }}</div>
+              <div class="muted">{{ row.operatingSystem || '未知系统' }} · {{ row.architecture || '未知架构' }} · v{{ row.agentVersion || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="组织上下文" min-width="170">
+            <template #default="{ row }">
+              <div>{{ row.department || '未分配部门' }}</div>
+              <div class="muted">{{ row.siteName || '默认站点' }} · {{ row.environmentName || '未分类环境' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="运行状态" width="145">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'ONLINE' ? 'success' : row.status === 'PENDING_REVIEW' ? 'warning' : 'info'">{{ runtimeStatusLabel(row.status) }}</el-tag>
+              <div class="muted">{{ formatOptionalTime(row.lastHeartbeatAt) }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="扫描 / 离线队列" width="170">
+            <template #default="{ row }">
+              <div>{{ formatOptionalTime(row.lastScanAt) }}</div>
+              <div class="muted">{{ row.queueDepth }} 批 · {{ formatBytes(row.queueBytes) }}</div>
+            </template>
+          </el-table-column>
+        <el-table-column label="业务内容通道" min-width="190">
+            <template #default="{ row }">
+              <el-tag :type="row.contentCaptureEnabled ? 'success' : row.contentCaptureStatus === 'PENDING_APPROVAL' ? 'warning' : 'info'">{{ contentStatusLabel(row.contentCaptureStatus) }}</el-tag>
+              <div v-if="row.contentApprovalMode === 'NONE'" class="muted">当前版本免审核 · 可随时停用</div>
+              <div v-else class="muted">平台：{{ row.contentPlatformApprovedBy || '待审批' }} · 数据：{{ row.contentDataApprovedBy || '待审批' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="采集范围 / Token" min-width="270">
+            <template #default="{ row }">
+              <div class="source-tags">
+                <el-tag v-for="scope in row.collectionScopes" :key="scope" size="small" effect="plain">{{ collectionScopeLabel(scope) }}</el-tag>
+              </div>
+              <el-tag :type="row.tokenUsageStatus === 'AVAILABLE_WHEN_REPORTED' ? 'warning' : 'info'" size="small">
+                {{ tokenUsageStatusLabel(row.tokenUsageStatus) }}
+              </el-tag>
+              <div class="muted collection-note">{{ row.tokenUsageNote || '暂无说明' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="审批与处置" width="255" fixed="right">
+            <template #default="{ row }">
+              <div class="asset-management-actions">
+                <el-button v-if="row.fingerprintReviewRequired" size="small" type="warning" @click="approveFingerprint(row)">复核指纹</el-button>
+                <el-button v-if="row.contentApprovalMode === 'DUAL' && !row.contentPlatformApprovedBy" size="small" @click="approveProbeContent(row, 'PLATFORM_ADMIN')">平台审批</el-button>
+                <el-button v-if="row.contentApprovalMode === 'DUAL' && !row.contentDataApprovedBy" size="small" @click="approveProbeContent(row, 'DATA_OWNER')">数据审批</el-button>
+                <el-button v-if="row.contentApprovalMode === 'NONE' && !row.contentCaptureEnabled" size="small" type="primary" @click="enableProbeContent(row)">启用内容采集</el-button>
+                <el-button v-if="row.contentCaptureEnabled" link type="danger" @click="revokeProbeContent(row)">停用内容采集</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!probeLoading && !probeAgents.length" description="尚未安装 Discovery Agent" />
+      </el-card>
+    </div>
+
     <div v-show="activeSection === 'identity'" class="registry-section-stack">
     <el-card shadow="never" class="panel">
       <template #header>
@@ -148,7 +237,7 @@
         </el-table-column>
         <el-table-column label="来源" min-width="190">
           <template #default="{ row }">
-            <el-tag v-for="source in row.sourceTypes" :key="source" size="small" effect="plain">{{ source }}</el-tag>
+            <el-tag v-for="source in row.sourceTypes" :key="source" size="small" effect="plain">{{ discoverySourceLabel(source) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="置信度" width="120">
@@ -199,7 +288,7 @@
         <el-table-column label="发现证据" min-width="170">
           <template #default="{ row }">
             <div class="source-tags">
-              <el-tag v-for="source in row.sourceTypes" :key="source" size="small" effect="plain">{{ source }}</el-tag>
+              <el-tag v-for="source in row.sourceTypes" :key="source" size="small" effect="plain">{{ discoverySourceLabel(source) }}</el-tag>
             </div>
             <div class="muted">{{ row.evidenceCount }} 条 · MCP {{ row.mcpServerCount }}</div>
           </template>
@@ -226,15 +315,27 @@
         <el-table-column label="最后发现" width="170">
           <template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template>
         </el-table-column>
-        <el-table-column label="处置状态" width="150" fixed="right">
+        <el-table-column label="处置与纳管" width="245" fixed="right">
           <template #default="{ row }">
-            <el-select :model-value="row.status" size="small" @change="handleAssetStatusChange(row.id, $event)">
-              <el-option label="新发现" value="DISCOVERED" />
-              <el-option label="复核中" value="REVIEWING" />
-              <el-option label="已确认" value="CONFIRMED" />
-              <el-option label="已纳管" value="MANAGED" />
-              <el-option label="忽略" value="IGNORED" />
-            </el-select>
+            <div v-if="row.managedAgentId" class="asset-management-actions">
+              <el-tag type="success" effect="light">已纳入目录</el-tag>
+              <el-button link type="primary" @click="openManagedAgent(row.managedAgentId)">查看智能体</el-button>
+            </div>
+            <div v-else class="asset-management-actions">
+              <el-select :model-value="row.status" size="small" @change="handleAssetStatusChange(row.id, $event)">
+                <el-option label="新发现" value="DISCOVERED" />
+                <el-option label="复核中" value="REVIEWING" />
+                <el-option label="已确认" value="CONFIRMED" />
+                <el-option label="忽略" value="IGNORED" />
+              </el-select>
+              <el-button
+                v-if="canManageAgentAsset(row)"
+                type="primary"
+                size="small"
+                :loading="managingAssetId === row.id"
+                @click="manageAsset(row)"
+              >纳入目录</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -397,7 +498,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
@@ -408,6 +509,7 @@ import type {
   AgentRuntimeInstance,
   DiscoveredAgentAsset,
   DiscoveryEndpoint,
+  DiscoveryProbeAgent,
   DiscoveryIdentityLink,
   DiscoveryAssetStatus,
   DiscoveryCandidate,
@@ -423,7 +525,6 @@ const runtimeInstances = ref<AgentRuntimeInstance[]>([])
 const candidates = ref<DiscoveryCandidate[]>([])
 const loading = ref(false)
 const autonomousLoading = ref(false)
-const scanLoading = ref(false)
 const autonomousSummary = ref<AgentDiscoverySummary>()
 const discoveredAssets = ref<DiscoveredAgentAsset[]>([])
 const discoveryEndpoints = ref<DiscoveryEndpoint[]>([])
@@ -431,6 +532,11 @@ const identityLinks = ref<DiscoveryIdentityLink[]>([])
 const endpointLoading = ref(false)
 const protocolLoading = ref(false)
 const protocolResult = ref<ProtocolProbeResponse>()
+const probeAgents = ref<DiscoveryProbeAgent[]>([])
+const probeLoading = ref(false)
+const tokenCreating = ref(false)
+const installCommand = ref('')
+const managingAssetId = ref<number>()
 const heartbeatLoad = ref(22)
 const pageSizes = [10, 20, 50, 100]
 const endpointPage = ref(1)
@@ -439,7 +545,10 @@ const identityPage = ref(1)
 const identityPageSize = ref(20)
 const assetPage = ref(1)
 const assetPageSize = ref(20)
-const activeSection = ref<'discovery' | 'identity' | 'assets' | 'runtime'>('discovery')
+const activeSection = ref<'discovery' | 'probes' | 'identity' | 'assets' | 'runtime'>('discovery')
+const onlineProbeCount = computed(() => probeAgents.value.filter(item => item.status === 'ONLINE').length)
+const contentEnabledProbeCount = computed(() => probeAgents.value.filter(item => item.contentCaptureEnabled).length)
+const fingerprintReviewCount = computed(() => probeAgents.value.filter(item => item.fingerprintReviewRequired).length)
 
 const capabilityForm = reactive({
   capability: 'ops.incident.triage',
@@ -527,21 +636,65 @@ async function loadAutonomousDiscovery() {
     discoveredAssets.value = assets
     discoveryEndpoints.value = endpoints
     identityLinks.value = links
+    await loadProbeAgents()
   } finally {
     autonomousLoading.value = false
     endpointLoading.value = false
   }
 }
 
-async function triggerAutonomousScan() {
-  scanLoading.value = true
+async function loadProbeAgents() {
+  probeLoading.value = true
   try {
-    const run = await EapApi.triggerAgentDiscoveryScan()
-    ElMessage.success(`扫描完成：发现 ${run.discoveredCount} 个资产，记录 ${run.observationsCount} 条证据`)
-    await loadAutonomousDiscovery()
+    probeAgents.value = await EapApi.listDiscoveryProbeAgents()
   } finally {
-    scanLoading.value = false
+    probeLoading.value = false
   }
+}
+
+async function createEnrollmentToken() {
+  tokenCreating.value = true
+  try {
+    const token = await EapApi.createDiscoveryEnrollmentToken({
+      tenantId: 'default', ttlMinutes: 15, maxUses: 1, createdBy: 'platform-admin',
+    })
+    const origin = window.location.origin.replace(/\/$/, '')
+    const insecure = origin.startsWith('http://') ? ' --allow-insecure-http' : ''
+    installCommand.value = `curl -fsSL ${origin}/downloads/install.sh | sudo bash -s -- --server ${origin} --token '${token.token}'${insecure}`
+    ElMessage.success('已创建单次安装令牌，15 分钟后过期')
+  } finally {
+    tokenCreating.value = false
+  }
+}
+
+async function approveProbeContent(agent: DiscoveryProbeAgent, role: 'PLATFORM_ADMIN' | 'DATA_OWNER') {
+  const label = role === 'PLATFORM_ADMIN' ? '平台管理员' : '数据负责人'
+  const { value } = await ElMessageBox.prompt(`请输入${label}审批人姓名，两个角色必须由不同人员完成。`, `业务内容采集 · ${label}`, {
+    confirmButtonText: '确认审批', cancelButtonText: '取消', inputPattern: /\S{2,}/, inputErrorMessage: '请输入审批人',
+  })
+  await EapApi.approveDiscoveryContent(agent.id, { approvalRole: role, approvedBy: value.trim() })
+  ElMessage.success(`${label}审批已记录`)
+  await loadProbeAgents()
+}
+
+async function revokeProbeContent(agent: DiscoveryProbeAgent) {
+  await ElMessageBox.confirm('停用后内容代理将停止采集，历史记录保留。', '停用业务内容采集', { type: 'warning' })
+  await EapApi.revokeDiscoveryContent(agent.id, 'platform-admin')
+  ElMessage.success('业务内容采集已停用')
+  await loadProbeAgents()
+}
+
+async function enableProbeContent(agent: DiscoveryProbeAgent) {
+  await EapApi.enableDiscoveryContent(agent.id, 'platform-admin')
+  ElMessage.success('业务内容采集已启用')
+  await loadProbeAgents()
+}
+
+async function approveFingerprint(agent: DiscoveryProbeAgent) {
+  await ElMessageBox.confirm(`确认接受 ${agent.hostName} 当前机器指纹？`, '复核机器指纹', { type: 'warning' })
+  await EapApi.approveDiscoveryFingerprint(agent.id, 'platform-admin')
+  ElMessage.success('机器指纹已复核')
+  await loadProbeAgents()
 }
 
 async function probeProtocol() {
@@ -568,6 +721,27 @@ async function updateAssetStatus(id: number, status: DiscoveryAssetStatus) {
   await loadAutonomousDiscovery()
 }
 
+function canManageAgentAsset(asset: DiscoveredAgentAsset) {
+  return asset.assetType === 'AGENT' || asset.assetType === 'AGENT_PROJECT'
+}
+
+async function manageAsset(asset: DiscoveredAgentAsset) {
+  managingAssetId.value = asset.id
+  try {
+    const managed = await EapApi.manageDiscoveredAgent(asset.id)
+    ElMessage.success(`${asset.product || asset.name} 已纳入智能体目录`)
+    await loadAutonomousDiscovery()
+    agents.value = await EapApi.listAgents()
+    if (managed.managedAgentId) await router.push(`/agents/${managed.managedAgentId}`)
+  } finally {
+    managingAssetId.value = undefined
+  }
+}
+
+function openManagedAgent(agentId: number) {
+  router.push(`/agents/${agentId}`)
+}
+
 function handleAssetStatusChange(id: number, value: unknown) {
   return updateAssetStatus(id, value as DiscoveryAssetStatus)
 }
@@ -583,7 +757,23 @@ function riskLevelLabel(value: string) {
 }
 
 function runtimeStatusLabel(value: string) {
-  return ({ ONLINE: '在线', OFFLINE: '离线', DEGRADED: '降级', UNKNOWN: '未知' } as Record<string, string>)[value] || value
+  return ({ ONLINE: '在线', OFFLINE: '离线', DEGRADED: '降级', UNKNOWN: '未知', PENDING_REVIEW: '待复核', REVOKED: '已吊销', UNINSTALLED: '已卸载' } as Record<string, string>)[value] || value
+}
+
+function contentStatusLabel(value: string) {
+  return ({ ENABLED: '已授权', NOT_REQUIRED: '已启用（免审核）', PENDING_APPROVAL: '待双人审批', DISABLED: '未启用' } as Record<string, string>)[value] || value
+}
+
+function collectionScopeLabel(value: string) {
+  return ({
+    PROCESS: '进程', DOCKER: 'Docker', PORTS: '端口', FILES: '文件元数据', SKILLS: '技能', PLUGINS: '插件',
+    MCP: 'MCP', A2A: 'A2A', HOST_OBSERVER: '主机观测', EBPF_METADATA: 'eBPF 元数据',
+    BUSINESS_CONTENT: '业务内容',
+  } as Record<string, string>)[value] || value
+}
+
+function tokenUsageStatusLabel(value: string) {
+  return ({ AVAILABLE_WHEN_REPORTED: 'Token 待链路上报', NOT_AVAILABLE: 'Token 未采集' } as Record<string, string>)[value] || value
 }
 
 function identityRelationLabel(value: string) {
@@ -598,6 +788,24 @@ function scanTriggerLabel(value: string) {
   return ({ SCHEDULED: '定时扫描', MANUAL: '手动扫描', ENDPOINT: '端点上报' } as Record<string, string>)[value] || value
 }
 
+function discoverySourceLabel(value: string) {
+  return ({
+    PROCESS: '运行进程',
+    MANIFEST: '项目清单',
+    CONFIGURATION: '本地配置',
+    SKILL: '智能体技能',
+    PLUGIN: '智能体插件',
+    EXTERNAL: '外部系统',
+    DOCKER: 'Docker 容器',
+    A2A: 'A2A 协议',
+    MCP_REGISTRY: 'MCP 注册中心',
+    KUBERNETES_WATCH: 'Kubernetes 监听',
+    KUBERNETES_ADMISSION: 'Kubernetes 准入',
+    EBPF: 'eBPF 网络观测',
+    HOST_OBSERVER: '跨平台主机观测',
+  } as Record<string, string>)[value] || value
+}
+
 function assetTypeLabel(assetType: DiscoveredAgentAsset['assetType']) {
   if (assetType === 'MCP_CONFIGURATION') return 'MCP 配置'
   if (assetType === 'AGENT_PROJECT') return '智能体项目'
@@ -608,6 +816,17 @@ function assetTypeLabel(assetType: DiscoveredAgentAsset['assetType']) {
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatOptionalTime(value?: string) {
+  return value ? formatTime(value) : '尚无上报'
+}
+
+function formatBytes(value: number) {
+  if (!value) return '0 B'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+  return `${(value / 1024 / 1024).toFixed(1)} MB`
 }
 
 async function loadAgentRegistry() {

@@ -102,6 +102,7 @@ public class ModelTelemetryService {
         event.governanceDecisionKey = blankToNull(request.governanceDecisionKey());
         event.observationSource = source;
         event.governanceCovered = event.governanceDecisionKey != null;
+        event.usagePoolKey = blankToNull(request.usagePoolKey());
         event.provider = request.provider();
         event.modelName = request.modelName();
         event.status = request.status();
@@ -290,7 +291,7 @@ public class ModelTelemetryService {
     }
 
     private String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static final class UsageAccumulator {

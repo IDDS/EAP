@@ -1,0 +1,23 @@
+[Unit]
+Description=EAP host and Docker agent discovery collector
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+SupplementaryGroups=docker
+WorkingDirectory=/home/ubuntu/eap
+Environment=EAP_DISCOVERY_SERVER_URL=http://127.0.0.1:8091/api/discovery
+Environment=EAP_DISCOVERY_ENV_FILE=/home/ubuntu/eap/.env
+Environment=EAP_DISCOVERY_INCLUDE_KNOWN_USER_LOCATIONS=false
+Environment=EAP_DISCOVERY_DOCKER_ENABLED=true
+Environment=EAP_DISCOVERY_MAX_PROCESSES=0
+Environment=EAP_DISCOVERY_MAX_FILES=0
+ExecStart=/usr/bin/python3 /home/ubuntu/eap/scripts/eap_discovery_collector.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

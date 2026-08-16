@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -22,6 +23,7 @@ class InfrastructureDiscoveryServiceTests {
 
     private ObjectMapper objectMapper;
     private KubernetesDiscoveryService kubernetesService;
+    private HostObservationService hostObservationService;
     private EbpfDiscoveryService ebpfService;
 
     @BeforeEach
@@ -32,7 +34,10 @@ class InfrastructureDiscoveryServiceTests {
         kubernetesService = new KubernetesDiscoveryService(kubernetesProperties, discoveryService, objectMapper);
         EbpfDiscoveryProperties ebpfProperties = new EbpfDiscoveryProperties();
         ebpfProperties.setEnabled(true);
-        ebpfService = new EbpfDiscoveryService(ebpfProperties, discoveryService);
+        HostObservationProperties hostObservationProperties = new HostObservationProperties();
+        hostObservationProperties.setEnabled(true);
+        hostObservationService = new HostObservationService(hostObservationProperties, discoveryService);
+        ebpfService = new EbpfDiscoveryService(ebpfProperties, hostObservationService);
     }
 
     @Test
@@ -93,7 +98,65 @@ class InfrastructureDiscoveryServiceTests {
         assertThat(response.flowsInspected()).isEqualTo(2);
         assertThat(response.agentsDiscovered()).isEqualTo(1);
         assertThat(response.mcpServersDiscovered()).isEqualTo(1);
-        verify(discoveryService).ingestEndpoint(any());
+        ArgumentCaptor<AgentDiscoveryDtos.EndpointObservationRequest> captor =
+                ArgumentCaptor.forClass(AgentDiscoveryDtos.EndpointObservationRequest.class);
+        verify(discoveryService).ingestEndpoint(captor.capture());
+        assertThat(captor.getValue().observations()).allMatch(item -> item.sourceType() == DiscoverySourceType.EBPF);
+        assertThat(captor.getValue().observations().getFirst().evidence()).containsEntry("sensorType", "EBPF");
+    }
+
+    @Test
+    void normalizesWindowsAndMacSensorsThroughPortableHostObserver() {
+        for (HostObservationSensorType sensor : List.of(
+                HostObservationSensorType.ETW,
+                HostObservationSensorType.WFP,
+                HostObservationSensorType.ENDPOINT_SECURITY,
+                HostObservationSensorType.NETWORK_EXTENSION,
+                HostObservationSensorType.PROCESS_NETWORK_SCAN
+        )) {
+            var response = hostObservationService.ingest(
+                    new HostObservationService.HostObservationDtos.HostObservationRequest(
+                            sensor, "host-" + sensor, "worker-" + sensor, "svc-agent", "test-os", "observer/0.1",
+                            List.of(new HostObservationService.HostObservationDtos.HostNetworkObservation(
+                                    "agent-worker", 42L, "/opt/agent/worker", "container-1", "cgroup-1", "workload-1",
+                                    "10.0.0.2", 45000, "104.18.1.1", 443, "TCP", "OUTBOUND", "HTTPS",
+                                    "OpenAI", "gpt-4o", "api.openai.com", 1200, 800, "ops-agent"
+                            ))
+                    ));
+
+            assertThat(response.sensorType()).isEqualTo(sensor);
+            assertThat(response.agentsDiscovered()).isEqualTo(1);
+            ArgumentCaptor<AgentDiscoveryDtos.EndpointObservationRequest> captor =
+                    ArgumentCaptor.forClass(AgentDiscoveryDtos.EndpointObservationRequest.class);
+            verify(discoveryService).ingestEndpoint(captor.capture());
+            var observation = captor.getValue().observations().getFirst();
+            assertThat(observation.sourceType()).isEqualTo(DiscoverySourceType.HOST_OBSERVER);
+            assertThat(observation.evidence())
+                    .containsEntry("sensorType", sensor.name())
+                    .containsEntry("processId", 42L)
+                    .containsEntry("workloadUid", "workload-1");
+            org.mockito.Mockito.clearInvocations(discoveryService);
+        }
+    }
+
+    @Test
+    void rejectsInfrastructureAgentsAtTheServerBoundary() {
+        var response = hostObservationService.ingest(
+                new HostObservationService.HostObservationDtos.HostObservationRequest(
+                        HostObservationSensorType.PROCESS_NETWORK_SCAN,
+                        "endpoint-1", "worker-01", "root", "linux", "observer/1.0",
+                        List.of(new HostObservationService.HostObservationDtos.HostNetworkObservation(
+                                "tat_agent", 42L, "/usr/local/qcloud/tat_agent", null, null, null,
+                                "10.0.0.1", 40000, "203.0.113.10", 443,
+                                "TCP", "OUTBOUND", "HTTPS", null, null, null,
+                                10L, 20L, "process:worker-01:/usr/local/qcloud/tat_agent"
+                        ))
+                )
+        );
+
+        assertThat(response.observationsInspected()).isEqualTo(1);
+        assertThat(response.observationsRecorded()).isZero();
+        verify(discoveryService, never()).ingestEndpoint(any());
     }
 
     private void captorRiskIs(RiskLevel expected) {

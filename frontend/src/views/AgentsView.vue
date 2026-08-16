@@ -44,9 +44,15 @@
               <strong>{{ agent.name }}</strong>
               <span>{{ agent.code }}</span>
             </div>
+            <span class="agent-ai-signal" title="已接入模型观测"><span class="ai-signal-core">✦</span> AI</span>
+            <el-tag v-if="managedDiscoveryByAgent[agent.id]" size="small" type="success" effect="plain">自主发现</el-tag>
             <el-tag size="small" :type="statusType(agent.lifecycleStatus)" effect="light">{{ statusText(agent.lifecycleStatus) }}</el-tag>
           </div>
           <p class="agent-directory-description">{{ agent.description || '尚未填写业务说明' }}</p>
+          <div v-if="managedDiscoveryByAgent[agent.id]" class="agent-discovery-line">
+            <span>{{ managedDiscoveryByAgent[agent.id].vendor }} · {{ managedDiscoveryByAgent[agent.id].product }}</span>
+            <span>{{ managedDiscoveryByAgent[agent.id].hostName || '未知主机' }} · {{ sourceLabels(managedDiscoveryByAgent[agent.id]) }}</span>
+          </div>
           <div class="agent-directory-meta">
             <span><el-icon><OfficeBuilding /></el-icon>{{ agent.ownerDepartment || '未分配部门' }}</span>
             <span><el-icon><User /></el-icon>{{ agent.ownerUser || '未分配责任人' }}</span>
@@ -68,6 +74,12 @@
         </el-table-column>
         <el-table-column prop="category" label="业务类别" min-width="120" />
         <el-table-column prop="ownerDepartment" label="责任部门" min-width="140" />
+        <el-table-column label="发现来源" min-width="180">
+          <template #default="{ row }">
+            <span v-if="managedDiscoveryByAgent[row.id]">{{ managedDiscoveryByAgent[row.id].hostName || '未知主机' }} · {{ sourceLabels(managedDiscoveryByAgent[row.id]) }}</span>
+            <span v-else class="muted">手工登记</span>
+          </template>
+        </el-table-column>
         <el-table-column label="生命周期" width="125"><template #default="{ row }"><el-tag :type="statusType(row.lifecycleStatus)">{{ statusText(row.lifecycleStatus) }}</el-tag></template></el-table-column>
         <el-table-column label="风险" width="110"><template #default="{ row }"><el-tag :type="riskType(row.riskLevel)" effect="plain">{{ riskText(row.riskLevel) }}</el-tag></template></el-table-column>
         <el-table-column label="操作" width="125" fixed="right"><template #default="{ row }"><el-button text type="primary" @click.stop="openAgent(row.id)">查看详情</el-button></template></el-table-column>
@@ -98,11 +110,12 @@ import { useRouter } from 'vue-router'
 import { ArrowRight, CollectionTag, OfficeBuilding, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
-import type { Agent, AgentLifecycleStatus, AgentRequest, ModelInvocationEvent, RiskLevel } from '@/types/domain'
+import type { Agent, AgentLifecycleStatus, AgentRequest, DiscoveredAgentAsset, ModelInvocationEvent, RiskLevel } from '@/types/domain'
 
 const router = useRouter()
 const agents = ref<Agent[]>([])
 const modelEvents = ref<ModelInvocationEvent[]>([])
+const discoveredAssets = ref<DiscoveredAgentAsset[]>([])
 const loading = ref(false)
 const keyword = ref('')
 const activeFilter = ref<'all' | 'active' | 'risk' | 'pending'>('all')
@@ -115,10 +128,16 @@ const form = reactive<AgentRequest>({ code: '', name: '', description: '', owner
 const activeCount = computed(() => agents.value.filter(agent => agent.lifecycleStatus === 'ACTIVE').length)
 const riskCount = computed(() => agents.value.filter(agent => ['HIGH', 'CRITICAL'].includes(agent.riskLevel)).length)
 const observedAgentCount = computed(() => new Set(modelEvents.value.map(event => event.agentId).filter(Boolean)).size)
+const managedDiscoveryByAgent = computed<Record<number, DiscoveredAgentAsset>>(() => Object.fromEntries(
+  discoveredAssets.value
+    .filter(asset => asset.managedAgentId)
+    .map(asset => [asset.managedAgentId as number, asset]),
+))
 const filteredAgents = computed(() => {
   const term = keyword.value.trim().toLowerCase()
   return agents.value.filter(agent => {
-    const matchesTerm = !term || [agent.name, agent.code, agent.ownerUser, agent.ownerDepartment, agent.category].some(item => (item || '').toLowerCase().includes(term))
+    const discovery = managedDiscoveryByAgent.value[agent.id]
+    const matchesTerm = !term || [agent.name, agent.code, agent.ownerUser, agent.ownerDepartment, agent.category, discovery?.vendor, discovery?.product, discovery?.hostName, discovery?.processName].some(item => (item || '').toLowerCase().includes(term))
     const matchesFilter = activeFilter.value === 'all' || (activeFilter.value === 'active' && agent.lifecycleStatus === 'ACTIVE') || (activeFilter.value === 'risk' && ['HIGH', 'CRITICAL'].includes(agent.riskLevel)) || (activeFilter.value === 'pending' && ['DRAFT', 'REVIEWING'].includes(agent.lifecycleStatus))
     return matchesTerm && matchesFilter
   })
@@ -134,13 +153,15 @@ function statusText(status: AgentLifecycleStatus) { return { DRAFT: '草稿', RE
 function statusType(status: AgentLifecycleStatus) { return status === 'ACTIVE' ? 'success' : status === 'PAUSED' ? 'warning' : status === 'RETIRED' ? 'info' : 'primary' }
 function riskText(risk: RiskLevel) { return { LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '关键' }[risk] }
 function riskType(risk: RiskLevel) { return risk === 'LOW' ? 'success' : risk === 'MEDIUM' ? 'warning' : 'danger' }
+function sourceLabels(asset: DiscoveredAgentAsset) { return asset.sourceTypes.map(source => ({ DOCKER: 'Docker', PROCESS: '进程', A2A: 'A2A', EXTERNAL: '外部系统', KUBERNETES_WATCH: 'Kubernetes', KUBERNETES_ADMISSION: 'Kubernetes', EBPF: 'eBPF', HOST_OBSERVER: '跨平台主机观测' } as Record<string, string>)[source] || source).join(' / ') }
 
 async function load() {
   loading.value = true
   try {
-    const [nextAgents, nextEvents] = await Promise.all([EapApi.listAgents(), EapApi.listModelInvocationEvents({ limit: 500 })])
+    const [nextAgents, nextEvents, nextDiscoveredAssets] = await Promise.all([EapApi.listAgents(), EapApi.listModelInvocationEvents({ limit: 500 }), EapApi.listDiscoveredAgentAssets()])
     agents.value = nextAgents
     modelEvents.value = nextEvents
+    discoveredAssets.value = nextDiscoveredAssets
   } finally { loading.value = false }
 }
 

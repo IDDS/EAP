@@ -1,0 +1,24 @@
+{
+  "server_url": "http://127.0.0.1:8091",
+  "allow_insecure_http": true,
+  "state_dir": "/var/lib/eap-discovery-agent",
+  "content_state_dir": "/var/lib/eap-content-proxy/helloboss",
+  "scan": {
+    "processes": false,
+    "docker": false,
+    "ports": false,
+    "files": false,
+    "roots": [],
+    "max_files": 3000,
+    "max_depth": 6
+  },
+  "content_proxy": {
+    "listen": "172.18.0.1:8687",
+    "upstream_url": "https://api.deepseek.com/v1",
+    "provider": "deepseek",
+    "usage_pool_key": "shared-deepseek-production",
+    "instrumentation_token_file": "/var/lib/eap-content-proxy/helloboss/instrumentation-token",
+    "agent_id": 4,
+    "max_capture_bytes": 4194304
+  }
+}

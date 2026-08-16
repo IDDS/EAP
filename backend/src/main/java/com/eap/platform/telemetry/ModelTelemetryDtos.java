@@ -38,6 +38,7 @@ public final class ModelTelemetryDtos {
             @Min(0) @Max(100000) int toolCallCount,
             @Min(0) @Max(100000) int mcpServerCount,
             @Size(max = 128) String errorType,
+            @Size(max = 128) String usagePoolKey,
             Instant observedAt
     ) {
     }
@@ -54,6 +55,7 @@ public final class ModelTelemetryDtos {
             String governanceDecisionKey,
             ModelObservationSource observationSource,
             Boolean governanceCovered,
+            String usagePoolKey,
             String provider,
             String modelName,
             ModelInvocationStatus status,
@@ -130,7 +132,7 @@ public final class ModelTelemetryDtos {
         return new ModelInvocationResponse(
                 event.id, event.eventKey, event.traceId, event.spanId, event.agentId, event.endpointKey,
                 event.runtimeInstanceKey, event.taskId, event.governanceDecisionKey, event.observationSource,
-                Boolean.TRUE.equals(event.governanceCovered), event.provider, event.modelName, event.status,
+                Boolean.TRUE.equals(event.governanceCovered), event.usagePoolKey, event.provider, event.modelName, event.status,
                 event.inputTokens, event.outputTokens, event.cachedInputTokens, event.reasoningTokens,
                 event.inputTokens + event.outputTokens, event.latencyMs, event.moneyCost, event.currency,
                 event.toolCallCount, event.mcpServerCount, event.errorType, event.observedAt, event.createdAt

@@ -15,3 +15,5 @@ frontend/*.tsbuildinfo
 # Logs
 *.log
 
+# Deployment secrets
+.env.tencent

@@ -1,0 +1,17 @@
+[Unit]
+Description=EAP Discovery Agent automatic workload attachment reconciler
+Wants=network-online.target docker.service
+After=network-online.target docker.service eap-discovery-agent.service
+ConditionPathExists=/etc/eap-discovery-agent/config.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/eap-discovery-agent --config /etc/eap-discovery-agent/config.json reconcile-attachments
+TimeoutStartSec=5min
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true

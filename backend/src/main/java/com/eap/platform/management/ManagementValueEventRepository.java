@@ -9,6 +9,8 @@ import java.util.Optional;
 public interface ManagementValueEventRepository extends JpaRepository<ManagementValueEvent, Long> {
     Optional<ManagementValueEvent> findByEventKey(String eventKey);
 
+    Optional<ManagementValueEvent> findBySourceSystemAndSourceRecordKey(String sourceSystem, String sourceRecordKey);
+
     List<ManagementValueEvent> findTop500ByOrderByObservedAtDesc();
 
     List<ManagementValueEvent> findByObservedAtGreaterThanEqualOrderByObservedAtDesc(Instant observedAt);

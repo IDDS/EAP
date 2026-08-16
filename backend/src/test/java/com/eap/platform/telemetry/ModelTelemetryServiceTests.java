@@ -77,6 +77,27 @@ class ModelTelemetryServiceTests {
     }
 
     @Test
+    void persistsSharedCredentialUsagePoolAlias() {
+        when(eventRepository.findByEventKey("evt-pool")).thenReturn(Optional.empty());
+        when(agentRepository.existsById(7L)).thenReturn(true);
+        when(eventRepository.save(any())).thenAnswer(invocation -> {
+            ModelInvocationEvent event = invocation.getArgument(0);
+            event.id = 13L;
+            event.createdAt = Instant.now();
+            return event;
+        });
+        ModelTelemetryDtos.ModelInvocationRequest request = new ModelTelemetryDtos.ModelInvocationRequest(
+                "evt-pool", null, null, 7L, null, null, null, null, "OpenAI", "gpt-5",
+                ModelInvocationStatus.SUCCEEDED, 20, 10, 0, 0, 100,
+                new BigDecimal("0.002000"), "USD", 0, 0, null, " shared-openai-prod ", Instant.now()
+        );
+
+        ModelTelemetryDtos.ModelInvocationResponse response = service.record(request);
+
+        assertThat(response.usagePoolKey()).isEqualTo("shared-openai-prod");
+    }
+
+    @Test
     void aggregatesCallsTokensCostAndLatency() {
         when(eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(
                 event("evt-1", ModelInvocationStatus.SUCCEEDED, 120, 80, 320, "gpt-4.1"),
@@ -164,7 +185,7 @@ class ModelTelemetryServiceTests {
         return new ModelTelemetryDtos.ModelInvocationRequest(
                 eventKey, null, null, agentId, null, null, null, null, "OpenAI", "gpt-4.1",
                 ModelInvocationStatus.SUCCEEDED, input, output, 0, 0, 320,
-                new BigDecimal("0.004200"), "USD", 1, 0, null, Instant.now()
+                new BigDecimal("0.004200"), "USD", 1, 0, null, null, Instant.now()
         );
     }
 
@@ -172,7 +193,7 @@ class ModelTelemetryServiceTests {
         return new ModelTelemetryDtos.ModelInvocationRequest(
                 eventKey, null, null, agentId, null, null, null, decisionKey, "OpenAI", "gpt-4.1",
                 ModelInvocationStatus.SUCCEEDED, 10, 8, 0, 0, 120,
-                new BigDecimal("0.001000"), "USD", 0, 0, null, Instant.now()
+                new BigDecimal("0.001000"), "USD", 0, 0, null, null, Instant.now()
         );
     }
 

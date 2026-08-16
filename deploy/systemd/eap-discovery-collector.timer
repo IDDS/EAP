@@ -1,0 +1,12 @@
+[Unit]
+Description=Run EAP agent discovery every five minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=eap-discovery-collector.service
+
+[Install]
+WantedBy=timers.target

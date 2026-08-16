@@ -81,6 +81,15 @@ public class DiscoveredAgent {
     @Column(name = "managed_agent_id")
     Long managedAgentId;
 
+    @Column(name = "availability_status", nullable = false, length = 32)
+    String availabilityStatus = "ONLINE";
+
+    @Column(name = "last_endpoint_key", length = 128)
+    String lastEndpointKey;
+
+    @Column(name = "missing_snapshot_count", nullable = false)
+    Integer missingSnapshotCount = 0;
+
     @Column(name = "first_seen_at", nullable = false)
     Instant firstSeenAt;
 

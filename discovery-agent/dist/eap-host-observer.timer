@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodically collect EAP host network observations
+
+[Timer]
+OnBootSec=55s
+OnActiveSec=15s
+OnUnitActiveSec=60s
+RandomizedDelaySec=10s
+Persistent=true
+Unit=eap-host-observer.service
+
+[Install]
+WantedBy=timers.target

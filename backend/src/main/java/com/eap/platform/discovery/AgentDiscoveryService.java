@@ -1,5 +1,8 @@
 package com.eap.platform.discovery;
 
+import com.eap.platform.agent.Agent;
+import com.eap.platform.agent.AgentLifecycleStatus;
+import com.eap.platform.agent.AgentRepository;
 import com.eap.platform.agent.RiskLevel;
 import com.eap.platform.common.BusinessException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -28,6 +31,7 @@ public class AgentDiscoveryService {
     private final DiscoveryRunRepository runRepository;
     private final DiscoveryObservationRepository observationRepository;
     private final DiscoveryIdentityLinkRepository identityLinkRepository;
+    private final AgentRepository managedAgentRepository;
     private final ObjectMapper objectMapper;
     private final AtomicBoolean scanRunning = new AtomicBoolean(false);
 
@@ -39,6 +43,7 @@ public class AgentDiscoveryService {
             DiscoveryRunRepository runRepository,
             DiscoveryObservationRepository observationRepository,
             DiscoveryIdentityLinkRepository identityLinkRepository,
+            AgentRepository managedAgentRepository,
             ObjectMapper objectMapper
     ) {
         this.properties = properties;
@@ -48,6 +53,7 @@ public class AgentDiscoveryService {
         this.runRepository = runRepository;
         this.observationRepository = observationRepository;
         this.identityLinkRepository = identityLinkRepository;
+        this.managedAgentRepository = managedAgentRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -90,6 +96,13 @@ public class AgentDiscoveryService {
     }
 
     @Transactional(readOnly = true)
+    public List<AgentDiscoveryDtos.DiscoveredAgentResponse> listByManagedAgentId(Long managedAgentId) {
+        return agentRepository.findAllByManagedAgentIdOrderByLastSeenAtDesc(managedAgentId).stream()
+                .map(AgentDiscoveryDtos::from)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public List<AgentDiscoveryDtos.DiscoveryRunResponse> listRuns() {
         return runRepository.findTop20ByOrderByStartedAtDesc().stream().map(AgentDiscoveryDtos::from).toList();
     }
@@ -126,6 +139,9 @@ public class AgentDiscoveryService {
             for (AgentDiscoveryDtos.EndpointEvidenceRequest item : request.observations()) {
                 DiscoveryEvidence evidence = toEvidence(endpoint, item);
                 DiscoveredAgent agent = upsert(evidence);
+                agent.lastEndpointKey = endpoint.endpointKey;
+                agent.availabilityStatus = "ONLINE";
+                agent.missingSnapshotCount = 0;
                 discoveredIds.add(agent.id);
                 saveObservation(run.id, agent.id, evidence);
             }
@@ -188,9 +204,120 @@ public class AgentDiscoveryService {
 
     @Transactional
     public AgentDiscoveryDtos.DiscoveredAgentResponse updateStatus(Long id, DiscoveryAssetStatus status) {
+        if (status == DiscoveryAssetStatus.MANAGED) {
+            return manage(id);
+        }
         DiscoveredAgent agent = agentRepository.findById(id).orElseThrow(() -> new BusinessException("发现的智能体资产不存在"));
+        if (agent.managedAgentId != null) {
+            throw new BusinessException("该资产已纳入智能体目录，不能仅修改候选状态");
+        }
         agent.status = status;
         return AgentDiscoveryDtos.from(agent);
+    }
+
+    @Transactional
+    public AgentDiscoveryDtos.DiscoveredAgentResponse manage(Long id) {
+        DiscoveredAgent discovered = agentRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException("发现的智能体资产不存在"));
+        if (discovered.assetType != DiscoveryAssetType.AGENT
+                && discovered.assetType != DiscoveryAssetType.AGENT_PROJECT) {
+            throw new BusinessException("只有智能体或智能体项目可以纳入智能体目录");
+        }
+        if (discovered.managedAgentId != null) {
+            if (!managedAgentRepository.existsById(discovered.managedAgentId)) {
+                throw new BusinessException("发现资产关联的正式智能体不存在，请检查数据完整性");
+            }
+            discovered.status = DiscoveryAssetStatus.MANAGED;
+            return AgentDiscoveryDtos.from(discovered);
+        }
+
+        Agent managed = new Agent();
+        managed.setCode(nextManagedAgentCode(discovered));
+        managed.setName(truncate(preferredManagedName(discovered), 128));
+        managed.setDescription(truncate(managedDescription(discovered), 1024));
+        managed.setOwnerDepartment("待认领");
+        managed.setOwnerUser("待认领");
+        managed.setCategory("自主发现智能体");
+        managed.setLifecycleStatus(AgentLifecycleStatus.REVIEWING);
+        managed.setRiskLevel(discovered.riskLevel);
+        managed = managedAgentRepository.save(managed);
+
+        discovered.managedAgentId = managed.getId();
+        discovered.status = DiscoveryAssetStatus.MANAGED;
+        return AgentDiscoveryDtos.from(discovered);
+    }
+
+    @Transactional
+    public void reconcileEndpointSnapshot(String endpointKey, Set<String> observedFingerprints) {
+        Instant staleBefore = Instant.now().minusSeconds(86_400);
+        Set<String> fingerprints = observedFingerprints == null ? Set.of() : observedFingerprints.stream()
+                .map(value -> fingerprint("endpoint", endpointKey, value))
+                .collect(java.util.stream.Collectors.toSet());
+        for (DiscoveredAgent asset : agentRepository.findAllByLastEndpointKey(endpointKey)) {
+            if (fingerprints.contains(asset.fingerprint)) {
+                asset.availabilityStatus = "ONLINE";
+                asset.missingSnapshotCount = 0;
+                continue;
+            }
+            asset.missingSnapshotCount = (asset.missingSnapshotCount == null ? 0 : asset.missingSnapshotCount) + 1;
+            if (asset.missingSnapshotCount >= 3 || asset.lastSeenAt.isBefore(staleBefore)) {
+                asset.availabilityStatus = "OFFLINE";
+            }
+        }
+    }
+
+    @Transactional
+    public void markEndpointOffline(String endpointKey) {
+        agentRepository.findAllByLastEndpointKey(endpointKey).forEach(agent -> {
+            agent.availabilityStatus = "OFFLINE";
+            agentRepository.save(agent);
+        });
+    }
+
+    private String nextManagedAgentCode(DiscoveredAgent discovered) {
+        String productPart = compactCode(discovered.product);
+        if (productPart.isBlank()) productPart = "AGENT";
+        String fingerprintPart = compactCode(discovered.fingerprint);
+        if (fingerprintPart.isBlank()) fingerprintPart = String.valueOf(discovered.id);
+        String base = truncate("DISC-" + productPart + "-" + fingerprintPart, 58);
+        String candidate = base;
+        int suffix = 2;
+        while (managedAgentRepository.existsByCode(candidate)) {
+            candidate = truncate(base, 58) + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    private String compactCode(String value) {
+        if (value == null) return "";
+        return truncate(value.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "-"), 18)
+                .replaceAll("^-+|-+$", "");
+    }
+
+    private String preferredManagedName(DiscoveredAgent discovered) {
+        if (discovered.product != null && !discovered.product.isBlank()
+                && !"UNKNOWN".equalsIgnoreCase(discovered.product)) {
+            return discovered.product;
+        }
+        return discovered.name;
+    }
+
+    private String managedDescription(DiscoveredAgent discovered) {
+        List<String> details = new java.util.ArrayList<>();
+        addDetail(details, "厂商", discovered.vendor);
+        addDetail(details, "产品", discovered.product);
+        addDetail(details, "版本", discovered.version);
+        addDetail(details, "主机", discovered.hostName);
+        addDetail(details, "账户", discovered.accountName);
+        addDetail(details, "进程", discovered.processName);
+        addDetail(details, "执行路径", discovered.executablePath);
+        addDetail(details, "发现来源", discovered.sourceTypes);
+        if (discovered.confidence != null) details.add("置信度：" + discovered.confidence + "%");
+        return "由 EAP 自主发现并纳入智能体目录。" + String.join("；", details) + "。";
+    }
+
+    private void addDetail(List<String> details, String label, String value) {
+        if (value != null && !value.isBlank()) details.add(label + "：" + value);
     }
 
     private AgentDiscoveryDtos.EndpointEvidenceRequest normalizeDefenderEvidence(
@@ -340,19 +467,23 @@ public class AgentDiscoveryService {
                 .orElseGet(() -> identityLinkRepository.findByIdentityKey(identity.key())
                         .map(link -> link.discoveredAgent).orElseGet(DiscoveredAgent::new));
         boolean newAsset = agent.id == null;
-        agent.fingerprint = item.fingerprint();
-        agent.name = prefer(item.name(), agent.name);
-        agent.vendor = prefer(item.vendor(), agent.vendor);
-        agent.product = prefer(item.product(), agent.product);
-        agent.version = prefer(item.version(), agent.version);
-        agent.assetType = item.assetType();
+        boolean passiveNetworkEvidence = item.sourceType() == DiscoverySourceType.EBPF
+                || item.sourceType() == DiscoverySourceType.HOST_OBSERVER;
+        if (newAsset || !passiveNetworkEvidence) {
+            agent.fingerprint = item.fingerprint();
+            agent.name = prefer(item.name(), agent.name);
+            agent.vendor = prefer(item.vendor(), agent.vendor);
+            agent.product = prefer(item.product(), agent.product);
+            agent.version = prefer(item.version(), agent.version);
+            agent.assetType = item.assetType();
+            agent.processName = prefer(item.processName(), agent.processName);
+            agent.executablePath = prefer(item.executablePath(), agent.executablePath);
+        }
         agent.confidence = agent.confidence == null ? item.confidence() : Math.max(agent.confidence, item.confidence());
         agent.riskLevel = maxRisk(agent.riskLevel, item.riskLevel());
         agent.sourceTypes = mergeSourceType(agent.sourceTypes, item.sourceType());
         agent.hostName = prefer(item.hostName(), agent.hostName);
         agent.accountName = prefer(item.accountName(), agent.accountName);
-        agent.processName = prefer(item.processName(), agent.processName);
-        agent.executablePath = prefer(item.executablePath(), agent.executablePath);
         agent.autoApprove = Boolean.TRUE.equals(agent.autoApprove) || Boolean.TRUE.equals(item.autoApprove());
         agent.trustedProcess = mergeTrust(agent.trustedProcess, item.trustedProcess());
         agent.mcpServerCount = Math.max(agent.mcpServerCount == null ? 0 : agent.mcpServerCount, item.mcpServerCount());
@@ -398,13 +529,16 @@ public class AgentDiscoveryService {
                 case A2A -> item.sourceLocation();
                 case MCP_REGISTRY -> item.name() + "|" + item.version();
                 case KUBERNETES_WATCH, KUBERNETES_ADMISSION -> item.sourceLocation();
-                case EBPF -> item.executablePath() + "|" + stringEvidence(evidence, "tlsServerName", "remoteAddress");
+                case EBPF, HOST_OBSERVER -> item.executablePath() + "|" + stringEvidence(evidence,
+                        "workloadUid", "containerId", "tlsServerName", "remoteAddress");
                 default -> item.executablePath() == null ? item.sourceLocation() : item.executablePath();
             };
         }
-        String normalized = normalize(basis) + "|" + normalize(item.name()) + "|" + normalize(item.product())
-                + "|" + normalize(item.hostName());
         boolean exact = stringEvidence(evidence, "identityKey", "agentIdentity", "workloadUid", "agentUrl") != null;
+        String normalized = exact
+                ? normalize(basis) + "|" + normalize(item.hostName())
+                : normalize(basis) + "|" + normalize(item.name()) + "|" + normalize(item.product())
+                        + "|" + normalize(item.hostName());
         return new Identity(
                 fingerprint("identity", normalized),
                 basis == null ? normalized : basis,

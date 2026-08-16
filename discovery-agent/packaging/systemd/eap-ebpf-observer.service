@@ -1,0 +1,32 @@
+[Unit]
+Description=EAP Linux eBPF connect observer
+Wants=network-online.target
+After=network-online.target docker.service eap-discovery-agent.service
+ConditionPathExists=/etc/eap-discovery-agent/config.json
+ConditionPathExists=/sys/kernel/btf/vmlinux
+ConditionPathExists=/usr/local/lib/eap-discovery-agent/eap-connect.bt
+ConditionPathExists=/usr/local/lib/eap-discovery-agent/eap_ebpf_observer.py
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecCondition=/usr/bin/test -x /usr/bin/bpftrace
+ExecStart=/usr/bin/python3 /usr/local/lib/eap-discovery-agent/eap_ebpf_observer.py --config /etc/eap-discovery-agent/config.json --program /usr/local/lib/eap-discovery-agent/eap-connect.bt
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_DAC_READ_SEARCH
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target

@@ -202,7 +202,7 @@ public class OpenAiCompatibleGatewayService {
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.SUCCEEDED, promptTokens, completionTokens,
                     cachedTokens(responseBody), reasoningTokens(responseBody), elapsedMillis(startedAt), estimateCost(promptTokens, completionTokens), "USD",
-                    toolCalls.size(), 0, null, Instant.now()
+                    toolCalls.size(), 0, null, properties.getUsagePoolKey(), Instant.now()
             ));
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.APPLICATION_JSON)
@@ -216,7 +216,7 @@ public class OpenAiCompatibleGatewayService {
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.FAILED, classification.estimatedTokens(), 0,
                     0, 0, latency, estimateCost(classification.estimatedTokens(), 0), "USD", 0, 0,
-                    "UPSTREAM_" + exception.getStatusCode().value(), Instant.now()
+                    "UPSTREAM_" + exception.getStatusCode().value(), properties.getUsagePoolKey(), Instant.now()
             ));
             JsonNode body = errorBody(exception);
             return ResponseEntity.status(exception.getStatusCode()).contentType(MediaType.APPLICATION_JSON).body(body);
@@ -225,7 +225,7 @@ public class OpenAiCompatibleGatewayService {
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.FAILED, classification.estimatedTokens(), 0,
                     0, 0, elapsedMillis(startedAt), estimateCost(classification.estimatedTokens(), 0), "USD", 0, 0,
-                    exception.getCode().toUpperCase(), Instant.now()
+                    exception.getCode().toUpperCase(), properties.getUsagePoolKey(), Instant.now()
             ));
             throw exception;
         } catch (BusinessException exception) {
@@ -235,7 +235,7 @@ public class OpenAiCompatibleGatewayService {
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.FAILED, classification.estimatedTokens(), 0,
                     0, 0, elapsedMillis(startedAt), estimateCost(classification.estimatedTokens(), 0), "USD", 0, 0,
-                    "UPSTREAM_ERROR", Instant.now()
+                    "UPSTREAM_ERROR", properties.getUsagePoolKey(), Instant.now()
             ));
             throw new GatewayException(HttpStatus.BAD_GATEWAY, "upstream_unavailable", "上游模型服务不可用");
         }
@@ -329,7 +329,7 @@ public class OpenAiCompatibleGatewayService {
                     eventKey, normalizedTrace, null, agentId, blankToNull(endpointKey), null, taskId, decision.decisionKey(),
                     properties.getProvider(), model, ModelInvocationStatus.SUCCEEDED, promptTokens, completionTokens,
                     aggregate.cachedTokens(), aggregate.reasoningTokens(), elapsedMillis(startedAt), estimateCost(promptTokens, completionTokens), "USD",
-                    aggregate.toolCalls().size(), 0, null, Instant.now()
+                    aggregate.toolCalls().size(), 0, null, properties.getUsagePoolKey(), Instant.now()
             ));
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -371,7 +371,8 @@ public class OpenAiCompatibleGatewayService {
         telemetryService.recordGateway(new ModelTelemetryDtos.ModelInvocationRequest(
                 eventKey, traceId, null, agentId, blankToNull(endpointKey), null, taskId, decisionKey,
                 properties.getProvider(), model, ModelInvocationStatus.FAILED, classification.estimatedTokens(), 0,
-                0, 0, latency, estimateCost(classification.estimatedTokens(), 0), "USD", 0, 0, errorType, Instant.now()
+                0, 0, latency, estimateCost(classification.estimatedTokens(), 0), "USD", 0, 0,
+                errorType, properties.getUsagePoolKey(), Instant.now()
         ));
     }
 

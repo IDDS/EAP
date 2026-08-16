@@ -41,7 +41,7 @@ eap:
     roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
     allowed-origins: ${EAP_SECURITY_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   discovery:
-    enabled: ${EAP_DISCOVERY_ENABLED:true}
+    enabled: ${EAP_DISCOVERY_ENABLED:false}
     include-known-user-locations: ${EAP_DISCOVERY_INCLUDE_KNOWN_USER_LOCATIONS:true}
     scan-roots: ${EAP_DISCOVERY_SCAN_ROOTS:}
     initial-delay-ms: ${EAP_DISCOVERY_INITIAL_DELAY_MS:5000}
@@ -51,6 +51,22 @@ eap:
     max-file-bytes: ${EAP_DISCOVERY_MAX_FILE_BYTES:1048576}
     max-processes: ${EAP_DISCOVERY_MAX_PROCESSES:2000}
     ingestion-token: ${EAP_DISCOVERY_INGESTION_TOKEN:}
+    agent-v1:
+      policy-version: ${EAP_DISCOVERY_AGENT_POLICY_VERSION:2026.08.2}
+      rules-version: ${EAP_DISCOVERY_AGENT_RULES_VERSION:2026.08.1}
+      heartbeat-interval-seconds: ${EAP_DISCOVERY_AGENT_HEARTBEAT_SECONDS:60}
+      scan-interval-seconds: ${EAP_DISCOVERY_AGENT_SCAN_SECONDS:300}
+      full-snapshot-interval-seconds: ${EAP_DISCOVERY_AGENT_FULL_SNAPSHOT_SECONDS:86400}
+      offline-queue-days: ${EAP_DISCOVERY_AGENT_QUEUE_DAYS:7}
+      offline-queue-max-bytes: ${EAP_DISCOVERY_AGENT_QUEUE_MAX_BYTES:104857600}
+      require-https: ${EAP_DISCOVERY_AGENT_REQUIRE_HTTPS:true}
+      raw-content-sample-rate: ${EAP_DISCOVERY_AGENT_RAW_SAMPLE_RATE:0.10}
+      raw-content-retention-days: ${EAP_DISCOVERY_AGENT_RAW_RETENTION_DAYS:30}
+      content-approval-mode: ${EAP_DISCOVERY_AGENT_CONTENT_APPROVAL_MODE:DUAL}
+      content-auto-attach-enabled: ${EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_ENABLED:false}
+      content-auto-attach-profiles: ${EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_PROFILES:litellm}
+      content-vault-master-key: ${EAP_CONTENT_VAULT_MASTER_KEY:}
+      content-vault-key-version: ${EAP_CONTENT_VAULT_KEY_VERSION:v1}
     protocol:
       enabled: ${EAP_DISCOVERY_PROTOCOL_ENABLED:true}
       targets: ${EAP_DISCOVERY_PROTOCOL_TARGETS:}
@@ -68,6 +84,9 @@ eap:
     ebpf:
       enabled: ${EAP_DISCOVERY_EBPF_ENABLED:true}
       max-flows: ${EAP_DISCOVERY_EBPF_MAX_FLOWS:1000}
+    host-observer:
+      enabled: ${EAP_DISCOVERY_HOST_OBSERVER_ENABLED:true}
+      max-observations: ${EAP_DISCOVERY_HOST_OBSERVER_MAX_OBSERVATIONS:1000}
   safety:
     gensee:
       sidecar-enabled: ${EAP_GENSEE_SIDECAR_ENABLED:false}
@@ -80,6 +99,12 @@ eap:
     ingestion-token: ${EAP_KNOWLEDGE_INGESTION_TOKEN:}
   management:
     ingestion-token: ${EAP_MANAGEMENT_INGESTION_TOKEN:}
+    connectors:
+      scheduler-enabled: ${EAP_MANAGEMENT_CONNECTOR_SCHEDULER_ENABLED:true}
+      allow-private-networks: ${EAP_MANAGEMENT_CONNECTOR_ALLOW_PRIVATE_NETWORKS:false}
+      connect-timeout-ms: ${EAP_MANAGEMENT_CONNECTOR_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_MANAGEMENT_CONNECTOR_READ_TIMEOUT_MS:15000}
+      max-response-bytes: ${EAP_MANAGEMENT_CONNECTOR_MAX_RESPONSE_BYTES:4194304}
   governance-data:
     ingestion-token: ${EAP_GOVERNANCE_INGESTION_TOKEN:}
     approval-token: ${EAP_GOVERNANCE_APPROVAL_TOKEN:}
@@ -93,6 +118,7 @@ eap:
     allow-unauthenticated: ${EAP_GATEWAY_ALLOW_UNAUTHENTICATED:false}
     auto-attribution-enabled: ${EAP_GATEWAY_AUTO_ATTRIBUTION_ENABLED:true}
     provider: ${EAP_GATEWAY_PROVIDER:openai-compatible}
+    usage-pool-key: ${EAP_GATEWAY_USAGE_POOL_KEY:}
     classifier: ${EAP_GATEWAY_CLASSIFIER:eap-heuristic-v1}
     connect-timeout-ms: ${EAP_GATEWAY_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${EAP_GATEWAY_READ_TIMEOUT_MS:120000}

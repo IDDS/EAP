@@ -18,6 +18,8 @@ import type {
   DiscoveredAgentAsset,
   DiscoveryAssetStatus,
   DiscoveryEndpoint,
+  DiscoveryProbeAgent,
+  DiscoveryEnrollmentToken,
   DiscoveryIdentityLink,
   ProtocolDiscoveryType,
   ProtocolProbeResponse,
@@ -37,6 +39,9 @@ import type {
   LearningFeedbackStatus,
   ManagementSummary,
   ManagementValueEvent,
+  ManagementValueConnector,
+  ManagementConnectorRequest,
+  ManagementConnectorSyncResult,
   KnowledgeInteraction,
   KnowledgeInteractionStatus,
   KnowledgeStepStatus,
@@ -49,6 +54,9 @@ import type {
   ModelInvocationStatus,
   ModelGatewayStatus,
   PhysicalTelemetrySummary,
+  ProviderUsageSnapshot,
+  ProviderUsageSource,
+  UsageReconciliationSummary,
   SafetyEvaluation,
   SafetyEventType,
   SafetySession,
@@ -157,12 +165,48 @@ export const EapApi = {
     postData<DiscoveryResponse, { capability: string; maxRiskLevel?: string; department?: string; protocol?: string }>('/agent-discovery/search', payload),
   getAgentDiscoverySummary: () => getData<AgentDiscoverySummary>('/discovery/summary'),
   listDiscoveredAgentAssets: () => getData<DiscoveredAgentAsset[]>('/discovery/agents'),
+  listManagedAgentDiscoveryAssets: (agentId: number) =>
+    getData<DiscoveredAgentAsset[]>(`/discovery/agents/by-managed-agent/${agentId}`),
   listAgentDiscoveryRuns: () => getData<AgentDiscoveryRun[]>('/discovery/runs'),
   listDiscoveryEndpoints: () => getData<DiscoveryEndpoint[]>('/discovery/endpoints'),
+  listDiscoveryProbeAgents: () => getData<DiscoveryProbeAgent[]>('/discovery/v1/admin/agents'),
+  listDiscoveryEnrollmentTokens: () => getData<DiscoveryEnrollmentToken[]>('/discovery/v1/admin/enrollment-tokens'),
+  createDiscoveryEnrollmentToken: (payload: { tenantId?: string; siteName?: string; environmentName?: string; department?: string; labels?: Record<string, string>; ttlMinutes?: number; maxUses?: number; createdBy?: string }) =>
+    postData<DiscoveryEnrollmentToken, typeof payload>('/discovery/v1/admin/enrollment-tokens', payload),
+  approveDiscoveryContent: (id: number, payload: { approvalRole: 'PLATFORM_ADMIN' | 'DATA_OWNER'; approvedBy: string }) =>
+    postData<DiscoveryProbeAgent, typeof payload>(`/discovery/v1/admin/agents/${id}/content-approval`, payload),
+  revokeDiscoveryContent: (id: number, actor?: string) =>
+    postData<DiscoveryProbeAgent, Record<string, never>>(`/discovery/v1/admin/agents/${id}/content-revoke${actor ? `?actor=${encodeURIComponent(actor)}` : ''}`, {}),
+  enableDiscoveryContent: (id: number, actor?: string) =>
+    postData<DiscoveryProbeAgent, Record<string, never>>(`/discovery/v1/admin/agents/${id}/content-enable${actor ? `?actor=${encodeURIComponent(actor)}` : ''}`, {}),
+  approveDiscoveryFingerprint: (id: number, actor?: string) =>
+    postData<DiscoveryProbeAgent, Record<string, never>>(`/discovery/v1/admin/agents/${id}/approve-fingerprint${actor ? `?actor=${encodeURIComponent(actor)}` : ''}`, {}),
   listDiscoveryIdentityLinks: () => getData<DiscoveryIdentityLink[]>('/discovery/identity-links'),
   probeProtocolDiscovery: (payload: { targetUrl: string; discoveryType: ProtocolDiscoveryType }) =>
     postData<ProtocolProbeResponse, { targetUrl: string; discoveryType: ProtocolDiscoveryType }>('/discovery/protocol/probe', payload),
   getPhysicalTelemetrySummary: (hours = 24) => getData<PhysicalTelemetrySummary>(`/telemetry/physical-summary?hours=${hours}`),
+  getUsageReconciliation: (hours = 24, usagePoolKey?: string) => {
+    const query = new URLSearchParams({ hours: String(hours) })
+    if (usagePoolKey) query.set('usagePoolKey', usagePoolKey)
+    return getData<UsageReconciliationSummary>(`/telemetry/usage-reconciliation?${query.toString()}`)
+  },
+  listProviderUsageSnapshots: (limit = 100) => getData<ProviderUsageSnapshot[]>(`/telemetry/provider-usage-snapshots?limit=${limit}`),
+  recordProviderUsageSnapshot: (payload: {
+    snapshotKey: string
+    usagePoolKey: string
+    provider: string
+    accountLabel?: string
+    windowStart: string
+    windowEnd: string
+    inputTokens: number
+    outputTokens: number
+    cachedInputTokens?: number
+    reasoningTokens?: number
+    moneyCost?: number
+    currency?: string
+    source: ProviderUsageSource
+    observedAt?: string
+  }) => postData<ProviderUsageSnapshot, typeof payload>('/telemetry/provider-usage-snapshots', payload),
   listModelInvocationEvents: (params: { limit?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; status?: ModelInvocationStatus; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 100))
@@ -218,6 +262,7 @@ export const EapApi = {
     toolCallCount?: number
     mcpServerCount?: number
     errorType?: string
+    usagePoolKey?: string
     observedAt?: string
   }) => postData<ModelInvocationEvent, typeof payload>('/telemetry/model-invocations', payload),
   getKnowledgeSummary: (hours = 24) => getData<KnowledgeSummary>(`/knowledge/summary?hours=${hours}`),
@@ -272,10 +317,38 @@ export const EapApi = {
     validatedBy: string
     benefitMoney: number
     currency?: string
+    metricName?: string
+    metricUnit?: string
+    baselineValue?: number
+    currentValue?: number
+    improvementDirection?: 'HIGHER_IS_BETTER' | 'LOWER_IS_BETTER'
+    sourceType?: 'MANUAL' | 'BUSINESS_SYSTEM' | 'DERIVED'
+    sourceSystem?: string
+    sourceRecordKey?: string
+    confidence?: number
+    measurementWindowStart?: string
+    measurementWindowEnd?: string
+    agentContributions?: Array<{
+      agentId: number
+      contributionWeight: number
+      attributionMethod?: 'BUSINESS_CONFIRMED' | 'TRACE_DERIVED' | 'EQUAL_SPLIT'
+      evidenceReference?: string
+    }>
   }) => postData<ManagementValueEvent, typeof payload>('/management/value-events', payload),
+  listManagementConnectors: () => getData<ManagementValueConnector[]>('/management/connectors'),
+  createManagementConnector: (payload: ManagementConnectorRequest) =>
+    postData<ManagementValueConnector, ManagementConnectorRequest>('/management/connectors', payload),
+  updateManagementConnector: (id: number, payload: ManagementConnectorRequest) =>
+    putData<ManagementValueConnector, ManagementConnectorRequest>(`/management/connectors/${id}`, payload),
+  setManagementConnectorEnabled: (id: number, enabled: boolean) =>
+    postData<ManagementValueConnector, Record<string, never>>(`/management/connectors/${id}/enabled?enabled=${enabled}`, {}),
+  syncManagementConnector: (id: number) =>
+    postData<ManagementConnectorSyncResult, Record<string, never>>(`/management/connectors/${id}/sync`, {}),
   triggerAgentDiscoveryScan: () => postData<AgentDiscoveryRun, Record<string, never>>('/discovery/scans', {}),
   updateDiscoveredAgentStatus: (id: number, status: DiscoveryAssetStatus) =>
     postData<DiscoveredAgentAsset, { status: DiscoveryAssetStatus }>(`/discovery/agents/${id}/status`, { status }),
+  manageDiscoveredAgent: (id: number) =>
+    postData<DiscoveredAgentAsset, Record<string, never>>(`/discovery/agents/${id}/manage`, {}),
   listTeams: () => getData<AgentTeam[]>('/orchestration/teams'),
   createTeam: (payload: { code: string; name: string; objective?: string; coordinationMode: string; workspacePolicy: string }) =>
     postData<AgentTeam, { code: string; name: string; objective?: string; coordinationMode: string; workspacePolicy: string }>('/orchestration/teams', payload),

@@ -10,71 +10,71 @@
         <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <div class="nav-section">总览</div>
+        <div class="nav-section"><span class="nav-section-index">01</span>总览</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
           <span>工作台</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section">智能体中心</div>
+        <div class="nav-section"><span class="nav-section-index">02</span>资产与智能体</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/agents">
           <el-icon><Cpu /></el-icon>
-          <span>智能体管理</span>
+          <span>智能体目录</span>
         </el-menu-item>
         <el-menu-item index="/registry">
           <el-icon><Search /></el-icon>
-          <span>注册发现</span>
+          <span>发现与身份</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section">运行与观测</div>
+        <div class="nav-section"><span class="nav-section-index">03</span>运行监控</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/physical">
           <el-icon><DataAnalysis /></el-icon>
-          <span>物理界面</span>
+          <span>运行观测</span>
         </el-menu-item>
         <el-menu-item index="/knowledge">
           <el-icon><Collection /></el-icon>
-          <span>知识界面</span>
+          <span>知识流转</span>
         </el-menu-item>
         <el-menu-item index="/management">
           <el-icon><Money /></el-icon>
-          <span>管理界面</span>
+          <span>价值与成本</span>
         </el-menu-item>
         <el-menu-item index="/operations">
           <el-icon><Monitor /></el-icon>
-          <span>运行中心</span>
+          <span>任务运行</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section">编排与学习</div>
+        <div class="nav-section"><span class="nav-section-index">04</span>编排与自动化</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/orchestration">
           <el-icon><Connection /></el-icon>
-          <span>团队编排</span>
+          <span>智能体团队</span>
         </el-menu-item>
         <el-menu-item index="/workflow-builder">
           <el-icon><Share /></el-icon>
-          <span>工作流编排</span>
+          <span>工作流自动化</span>
         </el-menu-item>
         <el-menu-item index="/learning">
           <el-icon><TrendCharts /></el-icon>
           <span>自适应学习</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section">治理与安全</div>
+        <div class="nav-section"><span class="nav-section-index">05</span>治理与响应</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/governance">
           <el-icon><ScaleToOriginal /></el-icon>
-          <span>治理中心</span>
+          <span>治理策略</span>
         </el-menu-item>
         <el-menu-item index="/safety">
           <el-icon><Connection /></el-icon>
-          <span>多智能体安全</span>
+          <span>安全响应</span>
         </el-menu-item>
         <el-menu-item index="/ethics">
           <el-icon><Lock /></el-icon>
-          <span>伦理安全</span>
+          <span>责任与伦理</span>
         </el-menu-item>
         <el-menu-item index="/audit">
           <el-icon><DocumentChecked /></el-icon>
@@ -95,7 +95,7 @@
       <el-header class="topbar">
         <div class="topbar-title">
           <div class="breadcrumb-line">
-            <span class="topbar-kicker">智能体控制平面</span>
+            <span class="topbar-kicker">EAP · 安全运营中心</span>
             <span class="breadcrumb-separator">/</span>
             <span>实时运行</span>
           </div>

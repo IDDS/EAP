@@ -15,6 +15,7 @@ public class GatewayProperties {
     private boolean allowUnauthenticated = false;
     private boolean autoAttributionEnabled = true;
     private String provider = "openai-compatible";
+    private String usagePoolKey = "";
     private String classifier = "eap-heuristic-v1";
     private long connectTimeoutMs = 3000;
     private long readTimeoutMs = 120000;
@@ -37,6 +38,8 @@ public class GatewayProperties {
     public void setAutoAttributionEnabled(boolean autoAttributionEnabled) { this.autoAttributionEnabled = autoAttributionEnabled; }
     public String getProvider() { return provider == null ? "openai-compatible" : provider; }
     public void setProvider(String provider) { this.provider = provider; }
+    public String getUsagePoolKey() { return usagePoolKey == null ? "" : usagePoolKey; }
+    public void setUsagePoolKey(String usagePoolKey) { this.usagePoolKey = usagePoolKey; }
     public String getClassifier() { return classifier == null ? "eap-heuristic-v1" : classifier; }
     public void setClassifier(String classifier) { this.classifier = classifier; }
     public long getConnectTimeoutMs() { return connectTimeoutMs; }

@@ -391,12 +391,13 @@ public class OtlpTraceIngestionService {
         int mcpServers = hasAny(attrs, "mcp.server.name", "mcp.server.version") ? 1 : 0;
         BigDecimal cost = decimal(attrs, "gen_ai.usage.cost", "llm.usage.total_cost");
         String currency = firstText(attrs, "gen_ai.usage.cost.currency", "llm.usage.currency");
+        String usagePoolKey = firstText(attrs, "eap.usage.pool_key", "gen_ai.usage.pool_key", "llm.usage.pool_key");
 
         telemetryService.recordPassive(new ModelTelemetryDtos.ModelInvocationRequest(
                 eventKey, traceId, spanId, agentId, endpointKey, null, null, null,
                 provider, model, status, inputTokens, outputTokens, cachedTokens, reasoningTokens,
                 latencyMs, cost, currency == null ? "USD" : currency, toolCalls, mcpServers,
-                errorType, observedAt
+                errorType, usagePoolKey, observedAt
         ), ModelObservationSource.OTLP);
         counters.invocationsRecorded++;
 

@@ -23,6 +23,8 @@ eap:
       enabled: true
     ebpf:
       enabled: true
+    host-observer:
+      enabled: true
   telemetry:
     ingestion-token:
     require-governance-preflight: false

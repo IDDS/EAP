@@ -20,6 +20,7 @@ public class AgentDiscoveryController {
     private final MachineTokenValidator machineTokenValidator;
     private final ProtocolDiscoveryService protocolDiscoveryService;
     private final KubernetesDiscoveryService kubernetesDiscoveryService;
+    private final HostObservationService hostObservationService;
     private final EbpfDiscoveryService ebpfDiscoveryService;
 
     public AgentDiscoveryController(
@@ -27,12 +28,14 @@ public class AgentDiscoveryController {
             MachineTokenValidator machineTokenValidator,
             ProtocolDiscoveryService protocolDiscoveryService,
             KubernetesDiscoveryService kubernetesDiscoveryService,
+            HostObservationService hostObservationService,
             EbpfDiscoveryService ebpfDiscoveryService
     ) {
         this.discoveryService = discoveryService;
         this.machineTokenValidator = machineTokenValidator;
         this.protocolDiscoveryService = protocolDiscoveryService;
         this.kubernetesDiscoveryService = kubernetesDiscoveryService;
+        this.hostObservationService = hostObservationService;
         this.ebpfDiscoveryService = ebpfDiscoveryService;
     }
 
@@ -44,6 +47,13 @@ public class AgentDiscoveryController {
     @GetMapping("/agents")
     public ApiResponse<List<AgentDiscoveryDtos.DiscoveredAgentResponse>> agents() {
         return ApiResponse.ok(discoveryService.listAgents());
+    }
+
+    @GetMapping("/agents/by-managed-agent/{managedAgentId}")
+    public ApiResponse<List<AgentDiscoveryDtos.DiscoveredAgentResponse>> managedAgentAssets(
+            @PathVariable Long managedAgentId
+    ) {
+        return ApiResponse.ok(discoveryService.listByManagedAgentId(managedAgentId));
     }
 
     @GetMapping("/runs")
@@ -95,6 +105,15 @@ public class AgentDiscoveryController {
         return ApiResponse.ok(ebpfDiscoveryService.ingest(request));
     }
 
+    @PostMapping("/connectors/host/observations")
+    public ApiResponse<AgentDiscoveryDtos.HostObservationResponse> ingestHostObservations(
+            @RequestHeader(value = "X-EAP-Discovery-Token", required = false) String token,
+            @Valid @RequestBody HostObservationService.HostObservationDtos.HostObservationRequest request
+    ) {
+        requireIngestionToken(token);
+        return ApiResponse.ok(hostObservationService.ingest(request));
+    }
+
     @PostMapping("/scans")
     public ApiResponse<AgentDiscoveryDtos.DiscoveryRunResponse> scan() {
         return ApiResponse.ok(discoveryService.runScan(DiscoveryTriggerType.MANUAL));
@@ -106,6 +125,11 @@ public class AgentDiscoveryController {
             @Valid @RequestBody AgentDiscoveryDtos.StatusRequest request
     ) {
         return ApiResponse.ok(discoveryService.updateStatus(id, request.status()));
+    }
+
+    @PostMapping("/agents/{id}/manage")
+    public ApiResponse<AgentDiscoveryDtos.DiscoveredAgentResponse> manage(@PathVariable Long id) {
+        return ApiResponse.ok(discoveryService.manage(id));
     }
 
     @PostMapping("/endpoints/register")

@@ -1,0 +1,74 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: eap-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${EAP_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: eap
+      MYSQL_USER: eap
+      MYSQL_PASSWORD: ${EAP_DB_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - eap_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ueap", "-p${EAP_DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  backend:
+    build:
+      context: ./backend
+    container_name: eap-backend
+    restart: unless-stopped
+    environment:
+      EAP_DB_URL: jdbc:mysql://mysql:3306/eap?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      EAP_DB_USERNAME: eap
+      EAP_DB_PASSWORD: ${EAP_DB_PASSWORD}
+      EAP_SECURITY_MODE: DEVELOPMENT
+      EAP_SECURITY_ALLOWED_ORIGINS: http://114.132.234.109:8091
+      EAP_DISCOVERY_ENABLED: "false"
+      EAP_DISCOVERY_INITIAL_DELAY_MS: 60000
+      EAP_DISCOVERY_INGESTION_TOKEN: ${EAP_OBSERVABILITY_INGESTION_TOKEN}
+      EAP_DISCOVERY_AGENT_REQUIRE_HTTPS: "false"
+      EAP_DISCOVERY_AGENT_CONTENT_APPROVAL_MODE: NONE
+      EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_ENABLED: "true"
+      EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_PROFILES: litellm
+      EAP_CONTENT_VAULT_MASTER_KEY: ${EAP_CONTENT_VAULT_MASTER_KEY}
+      EAP_CONTENT_VAULT_KEY_VERSION: v1
+      EAP_OTLP_GRPC_ENABLED: "true"
+      EAP_OTLP_GRPC_PORT: 4317
+      EAP_OBSERVABILITY_CAPTURE_MODE: REDACTED
+      EAP_OBSERVABILITY_INGESTION_TOKEN: ${EAP_OBSERVABILITY_INGESTION_TOKEN}
+      EAP_MANAGEMENT_CONNECTOR_SCHEDULER_ENABLED: ${EAP_MANAGEMENT_CONNECTOR_SCHEDULER_ENABLED:-true}
+      EAP_MANAGEMENT_CONNECTOR_ALLOW_PRIVATE_NETWORKS: ${EAP_MANAGEMENT_CONNECTOR_ALLOW_PRIVATE_NETWORKS:-false}
+      EAP_BUSINESS_CONNECTOR_TOKEN_1: ${EAP_BUSINESS_CONNECTOR_TOKEN_1:-}
+      EAP_BUSINESS_CONNECTOR_TOKEN_2: ${EAP_BUSINESS_CONNECTOR_TOKEN_2:-}
+      EAP_BUSINESS_CONNECTOR_TOKEN_3: ${EAP_BUSINESS_CONNECTOR_TOKEN_3:-}
+      EAP_CONTROL_DISPATCH_ENABLED: "false"
+      EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS: "false"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health | grep -q 'UP'"]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: eap-frontend
+    restart: unless-stopped
+    ports:
+      - "8091:80"
+    volumes:
+      - ./discovery-agent/dist:/usr/share/nginx/html/downloads:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  eap_mysql_data:

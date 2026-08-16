@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically reconcile EAP automatic workload attachments
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+RandomizedDelaySec=10s
+Persistent=true
+Unit=eap-discovery-auto-attach.service
+
+[Install]
+WantedBy=timers.target
