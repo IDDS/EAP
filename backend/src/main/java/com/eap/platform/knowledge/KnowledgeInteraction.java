@@ -111,4 +111,7 @@ public class KnowledgeInteraction {
     void preUpdate() {
         updatedAt = Instant.now();
     }
+
+    public Long getAgentId() { return agentId; }
+    public Instant getCreatedAt() { return createdAt; }
 }

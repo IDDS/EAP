@@ -146,4 +146,14 @@ public class DiscoveryEndpoint {
     public Instant getLastSeenAt() {
         return lastSeenAt;
     }
+
+    public String getEndpointKey() { return endpointKey; }
+    public String getHostName() { return hostName; }
+    public String getStatus() { return status; }
+    public String getSiteName() { return siteName; }
+    public String getEnvironmentName() { return environmentName; }
+    public String getDepartment() { return department; }
+    public Instant getLastHeartbeatAt() { return lastHeartbeatAt; }
+    public String getLastError() { return lastError; }
+    public boolean isFingerprintReviewRequired() { return Boolean.TRUE.equals(fingerprintReviewRequired); }
 }

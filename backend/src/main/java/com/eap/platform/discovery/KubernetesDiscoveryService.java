@@ -72,9 +72,10 @@ public class KubernetesDiscoveryService {
             String labelsText = safeLabelValue(metadata.path("labels"), "eap.ai/identity", "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "app.kubernetes.io/component");
             String annotationText = safeLabelValue(metadata.path("annotations"), "eap.ai/identity", "eap.ai/agent", "ai.eap/agent", "eap.ai/framework", "eap.ai/auto-approve");
             String signal = String.join(" ", name, image == null ? "" : image, envNames, labelsText, annotationText).toLowerCase(Locale.ROOT);
+            AgentSignatureCatalog.AgentSignatureRule signature = productSignature(signal);
             boolean explicitAgent = hasText(labelsText) || hasText(annotationText);
             boolean mcp = signal.contains("mcp") || signal.contains("modelcontextprotocol");
-            boolean agent = explicitAgent || containsAgentFramework(signal);
+            boolean agent = explicitAgent || signature != null || containsAgentFramework(signal);
             if (!agent && !mcp) continue;
 
             boolean privileged = object.path("spec").path("template").path("spec").path("securityContext").path("privileged").asBoolean(false)
@@ -87,7 +88,8 @@ public class KubernetesDiscoveryService {
             evidence.put("namespace", namespace);
             evidence.put("workloadKind", kind);
             evidence.put("workloadName", workloadName);
-            evidence.put("workloadUid", uid);
+            evidence.put("workloadObjectUid", uid);
+            evidence.put("workloadUid", uid + ":" + name);
             evidence.put("containerName", name);
             putIfPresent(evidence, "identityKey", labelValue(metadata, "eap.ai/identity", "ai.eap/identity"));
             putIfPresent(evidence, "image", truncate(image, 512));
@@ -101,8 +103,8 @@ public class KubernetesDiscoveryService {
             observations.add(new AgentDiscoveryDtos.EndpointEvidenceRequest(
                     "k8s-" + fingerprint(sourceLocation),
                     name,
-                    mcp ? "MCP" : framework(signal),
-                    mcp ? "MCP Server Workload" : "Kubernetes Agent Workload",
+                    mcp ? "MCP" : signature == null ? framework(signal) : signature.vendor(),
+                    mcp ? "MCP Server Workload" : signature == null ? "Kubernetes Agent Workload" : signature.product(),
                     imageTag(image),
                     mcp ? DiscoveryAssetType.MCP_CONFIGURATION : DiscoveryAssetType.AGENT,
                     admission ? DiscoverySourceType.KUBERNETES_ADMISSION : DiscoverySourceType.KUBERNETES_WATCH,
@@ -148,6 +150,17 @@ public class KubernetesDiscoveryService {
                 || value.contains("autogen") || value.contains("semantic-kernel") || value.contains("semantic_kernel")
                 || value.contains("mastra") || value.contains("agent") || value.contains("copilot")
                 || value.contains("claude") || value.contains("codex") || value.contains("gemini");
+    }
+
+    private AgentSignatureCatalog.AgentSignatureRule productSignature(String value) {
+        String normalized = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return AgentSignatureCatalog.RULES.stream()
+                .filter(rule -> java.util.stream.Stream.concat(
+                                rule.processMarkers().stream(),
+                                java.util.stream.Stream.concat(rule.contentMarkers().stream(), rule.packageNames().stream()))
+                        .filter(marker -> marker != null && !marker.isBlank())
+                        .anyMatch(marker -> normalized.contains(marker.toLowerCase(Locale.ROOT))))
+                .findFirst().orElse(null);
     }
 
     private String framework(String value) {

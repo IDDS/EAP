@@ -51,29 +51,9 @@ public class LocalAgentScanner {
     private static final List<String> MALWARE_MARKERS = List.of(
             "base64 -d", "certutil -decode", "download and execute", "powershell -enc", "chmod +x", "/dev/tcp/"
     );
-    private static final List<AgentSignature> SIGNATURES = List.of(
-            new AgentSignature("Codex", "OpenAI", List.of("codex.app", "/codex", "\\codex.exe", "@openai/codex"), List.of("@openai/codex", ".codex/config.toml"), List.of("@openai/codex")),
-            new AgentSignature("Claude Code", "Anthropic", List.of("claude.app", "/claude", "\\claude.exe", "@anthropic-ai/claude-code"), List.of("@anthropic-ai/claude-code", "claude_desktop_config"), List.of("@anthropic-ai/claude-code")),
-            new AgentSignature("Cursor", "Cursor", List.of("cursor.app", "/cursor", "\\cursor.exe"), List.of(".cursor/mcp.json", "cursor.agent"), List.of()),
-            new AgentSignature("Windsurf", "Codeium", List.of("windsurf.app", "/windsurf", "\\windsurf.exe"), List.of(".windsurf/mcp.json", "codeium.windsurf"), List.of()),
-            new AgentSignature("Kiro", "Amazon Web Services", List.of("kiro.app", "/kiro", "\\kiro.exe"), List.of(".kiro/settings/mcp.json", "kiro-agent"), List.of()),
-            new AgentSignature("OpenCode", "Anomaly", List.of("/opencode", "\\opencode.exe", "opencode-ai"), List.of("opencode.json", "opencode-ai"), List.of("opencode-ai")),
-            new AgentSignature("Amp", "Sourcegraph", List.of("@sourcegraph/amp", "/amp.app/", "\\amp.exe"), List.of("@sourcegraph/amp"), List.of("@sourcegraph/amp")),
-            new AgentSignature("Amazon Q Developer", "Amazon Web Services", List.of("amazon q.app", "amazonq", "aws q"), List.of("aws.amazonq", "amazon q developer"), List.of()),
-            new AgentSignature("Antigravity", "Google", List.of("antigravity.app", "/antigravity", "\\antigravity.exe"), List.of(".antigravity/", "antigravity.agent"), List.of()),
-            new AgentSignature("OpenClaw", "OpenClaw", List.of("/openclaw", "\\openclaw.exe"), List.of(".openclaw/", "openclaw.json"), List.of()),
-            new AgentSignature("Cline", "Cline", List.of("saoudrizwan.claude-dev", "cline-agent"), List.of("saoudrizwan.claude-dev", "cline_mcp_settings"), List.of()),
-            new AgentSignature("Roo Code", "Roo Veterinary", List.of("rooveterinaryinc.roo-cline", "roo-code"), List.of("rooveterinaryinc.roo-cline", "roo-cline"), List.of()),
-            new AgentSignature("Gemini CLI", "Google", List.of("/gemini", "\\gemini.exe", "@google/gemini-cli"), List.of("@google/gemini-cli"), List.of("@google/gemini-cli")),
-            new AgentSignature("GitHub Copilot", "GitHub", List.of("github.copilot", "copilot-agent"), List.of("github.copilot", "@github/copilot"), List.of("@github/copilot")),
-            new AgentSignature("Mastra", "Mastra", List.of("mastra dev", "mastra start"), List.of("@mastra/core"), List.of("@mastra/core")),
-            new AgentSignature("LangGraph", "LangChain", List.of("langgraph"), List.of("langgraph", "langchain"), List.of("langgraph", "langchain")),
-            new AgentSignature("CrewAI", "CrewAI", List.of("crewai"), List.of("crewai"), List.of("crewai")),
-            new AgentSignature("AutoGen", "Microsoft", List.of("autogen"), List.of("pyautogen", "autogen-agentchat"), List.of("pyautogen", "autogen-agentchat")),
-            new AgentSignature("Semantic Kernel", "Microsoft", List.of("semantic-kernel"), List.of("semantic-kernel", "microsoft.semantickernel"), List.of("semantic-kernel", "Microsoft.SemanticKernel")),
-            new AgentSignature("OpenAI Agents SDK", "OpenAI", List.of("openai-agents"), List.of("openai-agents"), List.of("openai-agents")),
-            new AgentSignature("Agent Skills", "Open Agent Standard", List.of(), List.of(), List.of())
-    );
+    private static final List<AgentSignature> SIGNATURES = AgentSignatureCatalog.RULES.stream()
+            .map(rule -> new AgentSignature(rule.product(), rule.vendor(), rule.processMarkers(), rule.contentMarkers(), rule.packageNames()))
+            .toList();
 
     private final DiscoveryProperties properties;
     private final ObjectMapper objectMapper;
@@ -111,11 +91,14 @@ public class LocalAgentScanner {
                     String processName = fileName(command).orElse(signature.product());
                     String sourceLocation = command.isBlank() ? "process:" + process.pid() : command;
                     String fingerprintLocation = canonicalProcessLocation(signature, command + " " + arguments);
+                    String agentIdentity = profileIdentity(command + " " + arguments, hostName);
+                    if (agentIdentity != null) fingerprintLocation = agentIdentity;
                     String fingerprint = fingerprint(signature.vendor(), signature.product(), hostName, accountName, fingerprintLocation);
                     Map<String, Object> details = new LinkedHashMap<>();
                     details.put("pid", process.pid());
                     details.put("matchedSignature", matched.get());
                     details.put("autoApproveFlagDetected", autoApprove);
+                    if (agentIdentity != null) details.put("agentIdentity", agentIdentity);
                     evidence.add(new DiscoveryEvidence(
                             fingerprint,
                             signature.product() + " @ " + hostName,
@@ -220,6 +203,8 @@ public class LocalAgentScanner {
                 details.put("toolShadowingDetected", securitySignals.toolShadowing());
                 details.put("malwarePayloadDetected", securitySignals.malwarePayload());
                 details.put("toxicFlowDetected", securitySignals.toxicFlow(credentialReference));
+                String agentIdentity = profileIdentity(normalizedPath, hostName);
+                if (agentIdentity != null) details.put("agentIdentity", agentIdentity);
                 target.add(new DiscoveryEvidence(
                         fingerprint(signature.vendor(), signature.product(), hostName, accountName, installationLocation),
                         signature.product() + " project · " + displayDirectory(path),
@@ -264,6 +249,7 @@ public class LocalAgentScanner {
         return (normalizedPath.contains("/.codex/") || normalizedPath.contains("/.claude/") || normalizedPath.contains("/.cursor/")
                 || normalizedPath.contains("/.windsurf/") || normalizedPath.contains("/.kiro/") || normalizedPath.contains("/.opencode/")
                 || normalizedPath.contains("/.gemini/") || normalizedPath.contains("/.antigravity/") || normalizedPath.contains("/.openclaw/")
+                || normalizedPath.contains("/.hermes/")
                 || normalizedPath.contains("/.amp/") || normalizedPath.contains("/.aws/amazonq/") || isKnownExtensionStoragePath(normalizedPath)
                 || normalizedPath.contains("/mcp/"))
                 && (fileName.endsWith(".json") || fileName.endsWith(".toml") || fileName.endsWith(".yaml") || fileName.endsWith(".yml"));
@@ -273,7 +259,8 @@ public class LocalAgentScanner {
         return normalizedPath.contains("mcp") || normalizedPath.contains("/.codex/") || normalizedPath.contains("/.claude/")
                 || normalizedPath.contains("/.cursor/") || normalizedPath.contains("/.windsurf/") || normalizedPath.contains("/.kiro/")
                 || normalizedPath.contains("/.opencode/") || normalizedPath.contains("/.gemini/") || normalizedPath.contains("/.antigravity/")
-                || normalizedPath.contains("/.openclaw/") || normalizedPath.contains("/.amp/") || normalizedPath.contains("/.aws/amazonq/")
+                || normalizedPath.contains("/.openclaw/") || normalizedPath.contains("/.hermes/")
+                || normalizedPath.contains("/.amp/") || normalizedPath.contains("/.aws/amazonq/")
                 || isKnownExtensionStoragePath(normalizedPath);
     }
 
@@ -306,6 +293,9 @@ public class LocalAgentScanner {
         }
         if (normalizedPath.contains("/.openclaw/")) {
             return signatureByProduct("OpenClaw");
+        }
+        if (normalizedPath.contains("/.hermes/")) {
+            return signatureByProduct("Hermes Agent");
         }
         if (normalizedPath.contains("/.amp/")) {
             return signatureByProduct("Amp");
@@ -388,8 +378,11 @@ public class LocalAgentScanner {
     }
 
     private boolean isPluginManifest(Path path, String normalizedPath) {
-        return path.getFileName().toString().equalsIgnoreCase("plugin.json")
-                && (normalizedPath.contains("/.codex-plugin/") || normalizedPath.contains("/.claude-plugin/"));
+        String fileName = path.getFileName().toString();
+        return (fileName.equalsIgnoreCase("plugin.json")
+                && (normalizedPath.contains("/.codex-plugin/") || normalizedPath.contains("/.claude-plugin/")))
+                || (fileName.equalsIgnoreCase("openclaw.plugin.json") && normalizedPath.contains("/.openclaw/"))
+                || (fileName.equalsIgnoreCase("plugin.yaml") && normalizedPath.contains("/.hermes/plugins/"));
     }
 
     private boolean isKnownExtensionStoragePath(String normalizedPath) {
@@ -426,6 +419,9 @@ public class LocalAgentScanner {
         }
         if (normalizedPath.contains("/.openclaw/")) {
             return signatureByProduct("OpenClaw");
+        }
+        if (normalizedPath.contains("/.hermes/")) {
+            return signatureByProduct("Hermes Agent");
         }
         if (normalizedPath.contains("/.amp/")) {
             return signatureByProduct("Amp");
@@ -482,6 +478,11 @@ public class LocalAgentScanner {
 
     private String displayPluginDirectory(Path path) {
         Path manifestDirectory = path.getParent();
+        if (manifestDirectory != null && manifestDirectory.getFileName() != null
+                && !Set.of(".codex-plugin", ".claude-plugin").contains(
+                manifestDirectory.getFileName().toString().toLowerCase(Locale.ROOT))) {
+            return manifestDirectory.getFileName().toString();
+        }
         Path pluginDirectory = manifestDirectory == null ? null : manifestDirectory.getParent();
         if (pluginDirectory != null && pluginDirectory.getFileName() != null) {
             return pluginDirectory.getFileName().toString();
@@ -620,6 +621,25 @@ public class LocalAgentScanner {
             }
         }
         return fileName(command).orElse(signature.product());
+    }
+
+    private String profileIdentity(String value, String hostName) {
+        if (value == null) return null;
+        String normalized = value.replace('\\', '/').toLowerCase(Locale.ROOT);
+        for (Map.Entry<String, String> candidate : Map.of(
+                "/.hermes/profiles/", "hermes",
+                "/.openclaw/agents/", "openclaw",
+                "/.openclaw/workspaces/", "openclaw"
+        ).entrySet()) {
+            int index = normalized.indexOf(candidate.getKey());
+            if (index < 0) continue;
+            String remainder = normalized.substring(index + candidate.getKey().length());
+            String profile = remainder.split("[/\\s]", 2)[0].trim();
+            if (!profile.isBlank()) return "profile:" + hostName + ":" + candidate.getValue() + ":" + profile;
+        }
+        if (normalized.contains("/.hermes/")) return "profile:" + hostName + ":hermes-default";
+        if (normalized.contains("/.openclaw/")) return "profile:" + hostName + ":openclaw-default";
+        return null;
     }
 
     private Optional<String> firstMatch(String value, List<String> markers) {

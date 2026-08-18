@@ -32,6 +32,9 @@ public class AgentRuntimeInstance {
     @Column(nullable = false, length = 32)
     String protocol;
 
+    @Column(name = "dispatch_authenticated", nullable = false)
+    Boolean dispatchAuthenticated = false;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     RuntimeStatus status = RuntimeStatus.ONLINE;
@@ -77,11 +80,19 @@ public class AgentRuntimeInstance {
         return protocol;
     }
 
+    public Boolean getDispatchAuthenticated() {
+        return dispatchAuthenticated;
+    }
+
     public RuntimeStatus getStatus() {
         return status;
     }
 
     public Integer getLoadScore() {
         return loadScore;
+    }
+
+    public Instant getLastHeartbeatAt() {
+        return lastHeartbeatAt;
     }
 }

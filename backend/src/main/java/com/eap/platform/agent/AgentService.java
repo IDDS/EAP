@@ -1,6 +1,7 @@
 package com.eap.platform.agent;
 
 import com.eap.platform.common.BusinessException;
+import com.eap.platform.config.SecurityProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -9,14 +10,17 @@ import java.util.List;
 @Service
 public class AgentService {
     private final AgentRepository agentRepository;
+    private final SecurityProperties securityProperties;
 
-    public AgentService(AgentRepository agentRepository) {
+    public AgentService(AgentRepository agentRepository, SecurityProperties securityProperties) {
         this.agentRepository = agentRepository;
+        this.securityProperties = securityProperties;
     }
 
     @Transactional(readOnly = true)
     public List<AgentDtos.AgentResponse> list() {
         return agentRepository.findAll().stream()
+                .filter(this::visible)
                 .map(AgentDtos::from)
                 .toList();
     }
@@ -54,8 +58,12 @@ public class AgentService {
     }
 
     private Agent findAgent(Long id) {
-        return agentRepository.findById(id)
+        return agentRepository.findById(id).filter(this::visible)
                 .orElseThrow(() -> new BusinessException("智能体不存在"));
+    }
+
+    private boolean visible(Agent agent) {
+        return securityProperties.isDevelopmentMode() || agent.getRecordOrigin() != AgentRecordOrigin.DEMO;
     }
 
     private void applyRequest(Agent agent, AgentDtos.AgentRequest request) {
@@ -68,4 +76,3 @@ public class AgentService {
         agent.setRiskLevel(request.riskLevel());
     }
 }
-

@@ -9,11 +9,11 @@ import java.util.List;
 @Component
 @ConfigurationProperties(prefix = "eap.discovery.agent-v1")
 public class DiscoveryAgentV1Properties {
-    private String policyVersion = "2026.08.2";
-    private String rulesVersion = "2026.08.1";
+    private String policyVersion = "2026.08.3";
+    private String rulesVersion = "2026.08.3";
     private int heartbeatIntervalSeconds = 60;
     private int scanIntervalSeconds = 300;
-    private int fullSnapshotIntervalSeconds = 86400;
+    private int fullSnapshotIntervalSeconds = 300;
     private int offlineQueueDays = 7;
     private long offlineQueueMaxBytes = 104_857_600L;
     private boolean requireHttps = true;

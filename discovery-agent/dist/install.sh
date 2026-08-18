@@ -5,7 +5,7 @@ SERVER_URL=""
 ENROLLMENT_TOKEN=""
 ARTIFACT_BASE=""
 ALLOW_INSECURE="false"
-SCAN_ROOTS='["/opt", "/srv"]'
+SCAN_ROOTS='["/opt", "/srv", "/home"]'
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

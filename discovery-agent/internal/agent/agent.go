@@ -26,7 +26,7 @@ import (
 	"github.com/matrix-eap/discovery-agent/internal/state"
 )
 
-const Version = "1.4.0"
+const Version = "1.5.0"
 
 type autoAttachReconcileStatus struct {
 	CheckedAt                time.Time `json:"checked_at"`
@@ -117,7 +117,7 @@ func (r *Runtime) Enroll(ctx context.Context, token string) error {
 }
 
 func (r *Runtime) Scan(ctx context.Context, dryRun bool, full bool) (discovery.Result, error) {
-	result := discovery.Collect(r.cfg.Scan)
+	result := discovery.Collect(r.cfg.Scan, r.state.Policy.AgentSignatures)
 	if dryRun {
 		data, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(data))
@@ -216,8 +216,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	defer cancel()
 	_ = r.Flush(ctx)
 	_ = r.Heartbeat(ctx)
-	full := r.state.LastFullSnapshotAt.IsZero() || time.Since(r.state.LastFullSnapshotAt) >= fullSnapshotInterval(r.state.Policy)
-	if _, err := r.Scan(ctx, false, full); err != nil {
+	if _, err := r.Scan(ctx, false, true); err != nil {
 		slog.Warn("initial scan queued", "error", err)
 	}
 
@@ -240,14 +239,13 @@ func (r *Runtime) Run(ctx context.Context) error {
 			}
 			heartbeatTimer.Reset(backoff(durationSeconds(r.state.Policy.HeartbeatIntervalSeconds, 60), heartbeatFailures))
 		case <-scanTimer.C:
-			full := r.state.LastFullSnapshotAt.IsZero() || time.Since(r.state.LastFullSnapshotAt) >= fullSnapshotInterval(r.state.Policy)
-			result, err := r.Scan(ctx, false, full)
+			result, err := r.Scan(ctx, false, true)
 			if err != nil {
 				scanFailures++
 				slog.Warn("scan upload failed", "observations", len(result.Observations), "error", err)
 			} else {
 				scanFailures = 0
-				slog.Info("scan complete", "observations", len(result.Observations), "full", full)
+				slog.Info("scan complete", "observations", len(result.Observations), "full", true)
 			}
 			scanTimer.Reset(backoff(durationSeconds(r.state.Policy.ScanIntervalSeconds, 300), scanFailures))
 		}
@@ -503,9 +501,6 @@ func durationSeconds(value, fallback int) time.Duration {
 		value = fallback
 	}
 	return time.Duration(value) * time.Second
-}
-func fullSnapshotInterval(policy protocol.Policy) time.Duration {
-	return durationSeconds(policy.FullSnapshotIntervalSeconds, 86400)
 }
 func jittered(value time.Duration) time.Duration {
 	if value <= 0 {

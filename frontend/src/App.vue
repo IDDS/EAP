@@ -10,63 +10,44 @@
         <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <div class="nav-section"><span class="nav-section-index">01</span>总览</div>
+        <div class="nav-section"><span class="nav-section-index">01</span>运营工作台</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/">
           <el-icon><DataBoard /></el-icon>
-          <span>工作台</span>
+          <span>行动队列</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section"><span class="nav-section-index">02</span>资产与智能体</div>
+        <div class="nav-section"><span class="nav-section-index">02</span>资产与接入</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/agents">
           <el-icon><Cpu /></el-icon>
-          <span>智能体目录</span>
+          <span>Agent 目录</span>
         </el-menu-item>
         <el-menu-item index="/registry">
           <el-icon><Search /></el-icon>
-          <span>发现与身份</span>
+          <span>发现与接入</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section"><span class="nav-section-index">03</span>运行监控</div>
+        <div class="nav-section"><span class="nav-section-index">03</span>运行与观测</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/physical">
           <el-icon><DataAnalysis /></el-icon>
-          <span>运行观测</span>
+          <span>运行与遥测</span>
         </el-menu-item>
         <el-menu-item index="/knowledge">
           <el-icon><Collection /></el-icon>
           <span>知识流转</span>
-        </el-menu-item>
-        <el-menu-item index="/management">
-          <el-icon><Money /></el-icon>
-          <span>价值与成本</span>
         </el-menu-item>
         <el-menu-item index="/operations">
           <el-icon><Monitor /></el-icon>
           <span>任务运行</span>
         </el-menu-item>
         </el-menu>
-        <div class="nav-section"><span class="nav-section-index">04</span>编排与自动化</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/orchestration">
-          <el-icon><Connection /></el-icon>
-          <span>智能体团队</span>
-        </el-menu-item>
-        <el-menu-item index="/workflow-builder">
-          <el-icon><Share /></el-icon>
-          <span>工作流自动化</span>
-        </el-menu-item>
-        <el-menu-item index="/learning">
-          <el-icon><TrendCharts /></el-icon>
-          <span>自适应学习</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">05</span>治理与响应</div>
+        <div class="nav-section"><span class="nav-section-index">04</span>治理与安全</div>
         <el-menu router :default-active="navActivePath" class="nav-menu">
         <el-menu-item index="/governance">
           <el-icon><ScaleToOriginal /></el-icon>
-          <span>治理策略</span>
+          <span>策略与审批</span>
         </el-menu-item>
         <el-menu-item index="/safety">
           <el-icon><Connection /></el-icon>
@@ -79,6 +60,28 @@
         <el-menu-item index="/audit">
           <el-icon><DocumentChecked /></el-icon>
           <span>审计日志</span>
+        </el-menu-item>
+        </el-menu>
+        <div class="nav-section"><span class="nav-section-index">05</span>成本与价值</div>
+        <el-menu router :default-active="navActivePath" class="nav-menu">
+        <el-menu-item index="/management">
+          <el-icon><Money /></el-icon>
+          <span>成本与价值</span>
+        </el-menu-item>
+        </el-menu>
+        <div class="nav-section"><span class="nav-section-index">06</span>自动化</div>
+        <el-menu router :default-active="navActivePath" class="nav-menu">
+        <el-menu-item index="/orchestration">
+          <el-icon><Connection /></el-icon>
+          <span>Agent 团队</span>
+        </el-menu-item>
+        <el-menu-item index="/workflow-builder">
+          <el-icon><Share /></el-icon>
+          <span>工作流自动化</span>
+        </el-menu-item>
+        <el-menu-item index="/learning">
+          <el-icon><TrendCharts /></el-icon>
+          <span>自适应学习</span>
         </el-menu-item>
         </el-menu>
       </div>
@@ -95,13 +98,30 @@
       <el-header class="topbar">
         <div class="topbar-title">
           <div class="breadcrumb-line">
-            <span class="topbar-kicker">EAP · 安全运营中心</span>
+            <span class="topbar-kicker">EAP · AgentOps 控制台</span>
             <span class="breadcrumb-separator">/</span>
-            <span>实时运行</span>
+            <span>{{ agentOpsContext.scopeLabel }} · {{ agentOpsContext.windowLabel }}</span>
           </div>
           <h1>{{ routeTitle }}</h1>
         </div>
         <div class="topbar-actions">
+          <el-select
+            :model-value="agentOpsContext.windowHours"
+            class="context-window-select"
+            aria-label="全局时间窗口"
+            @change="handleWindowChange"
+          >
+            <el-option label="最近 1 小时" :value="1" /><el-option label="最近 6 小时" :value="6" />
+            <el-option label="最近 24 小时" :value="24" /><el-option label="最近 3 天" :value="72" /><el-option label="最近 7 天" :value="168" />
+          </el-select>
+          <el-input
+            :model-value="agentOpsContext.organizationScope"
+            class="context-scope-input"
+            clearable
+            placeholder="企业全局"
+            aria-label="组织范围"
+            @change="handleScopeChange"
+          />
           <el-input
             v-model="globalSearchTerm"
             class="global-search"
@@ -196,6 +216,7 @@ import { ArrowDown, ArrowRight, Collection, Connection, Cpu, DataAnalysis, DataB
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
+import { useAgentOpsContextStore } from '@/stores/agentOps'
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy } from '@/types/domain'
 
 type GlobalSearchResult = {
@@ -215,6 +236,7 @@ const fontScaleOptions: Array<{ value: FontScale; label: string; menuLabel: stri
 ]
 
 const route = useRoute()
+const agentOpsContext = useAgentOpsContextStore()
 const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
 const sidebarCollapsed = ref(false)
 const authDialogVisible = ref(false)
@@ -245,6 +267,14 @@ function setFontScale(value: FontScale) {
 
 function handleFontScaleCommand(value: FontScale) {
   setFontScale(value)
+}
+
+function handleWindowChange(value: unknown) {
+  agentOpsContext.setWindowHours(Number(value))
+}
+
+function handleScopeChange(value: unknown) {
+  agentOpsContext.setOrganizationScope(String(value || ''))
 }
 
 function openAuthDialog() {

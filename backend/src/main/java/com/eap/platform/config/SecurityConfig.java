@@ -88,6 +88,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/control/**", "/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")
                             .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/agentops/**")
+                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
                         .requestMatchers("/api/agents/**", "/api/registry/**", "/api/discovery/**")
                             .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
                         .requestMatchers("/api/**").authenticated()

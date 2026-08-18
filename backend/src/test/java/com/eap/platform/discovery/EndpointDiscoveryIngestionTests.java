@@ -2,11 +2,13 @@ package com.eap.platform.discovery;
 
 import com.eap.platform.agent.RiskLevel;
 import com.eap.platform.agent.AgentRepository;
+import com.eap.platform.agent.Agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,6 +23,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,6 +52,12 @@ class EndpointDiscoveryIngestionTests {
                 new DiscoveryProperties(), scanner, agentRepository, endpointRepository,
                 runRepository, observationRepository, identityLinkRepository, managedAgentRepository, new ObjectMapper()
         );
+        lenient().when(managedAgentRepository.existsByCode(any())).thenReturn(false);
+        lenient().when(managedAgentRepository.save(any())).thenAnswer(invocation -> {
+            Agent managed = invocation.getArgument(0);
+            ReflectionTestUtils.setField(managed, "id", 900L);
+            return managed;
+        });
     }
 
     @Test
@@ -108,6 +117,8 @@ class EndpointDiscoveryIngestionTests {
         verify(agentRepository).save(agentCaptor.capture());
         assertThat(agentCaptor.getValue().riskLevel).isEqualTo(RiskLevel.CRITICAL);
         assertThat(agentCaptor.getValue().hostName).isEqualTo("dev-mac.local");
+        assertThat(agentCaptor.getValue().status).isEqualTo(DiscoveryAssetStatus.MANAGED);
+        assertThat(agentCaptor.getValue().managedAgentId).isEqualTo(900L);
 
         ArgumentCaptor<DiscoveryObservation> observationCaptor = ArgumentCaptor.forClass(DiscoveryObservation.class);
         verify(observationRepository).save(observationCaptor.capture());
@@ -180,6 +191,56 @@ class EndpointDiscoveryIngestionTests {
 
         assertThat(existing.availabilityStatus).isEqualTo("ONLINE");
         assertThat(existing.missingSnapshotCount).isZero();
+    }
+
+    @Test
+    void marksAssetOfflineAfterThreeConsecutiveMissingFullSnapshots() {
+        DiscoveredAgent existing = new DiscoveredAgent();
+        existing.fingerprint = "missing-fingerprint";
+        existing.lastSeenAt = Instant.now();
+        existing.availabilityStatus = "ONLINE";
+        existing.missingSnapshotCount = 0;
+        when(agentRepository.findAllByLastEndpointKey("endpoint-1")).thenReturn(List.of(existing));
+
+        service.reconcileEndpointSnapshot("endpoint-1", java.util.Set.of());
+        service.reconcileEndpointSnapshot("endpoint-1", java.util.Set.of());
+        assertThat(existing.availabilityStatus).isEqualTo("ONLINE");
+        service.reconcileEndpointSnapshot("endpoint-1", java.util.Set.of());
+
+        assertThat(existing.availabilityStatus).isEqualTo("OFFLINE");
+        assertThat(existing.missingSnapshotCount).isEqualTo(3);
+    }
+
+    @Test
+    void doesNotCreateAgentFromPassiveModelNetworkFlowAlone() {
+        DiscoveryEndpoint endpoint = new DiscoveryEndpoint();
+        endpoint.endpointKey = "observer-1";
+        endpoint.hostName = "worker-1";
+        endpoint.firstSeenAt = Instant.now();
+        endpoint.lastSeenAt = Instant.now();
+        when(endpointRepository.findByEndpointKey("observer-1")).thenReturn(Optional.of(endpoint));
+        when(runRepository.save(any())).thenAnswer(invocation -> {
+            DiscoveryRun run = invocation.getArgument(0);
+            run.id = 100L;
+            return run;
+        });
+        when(agentRepository.findByFingerprint(any())).thenReturn(Optional.empty());
+        when(identityLinkRepository.findByIdentityKey(any())).thenReturn(Optional.empty());
+
+        AgentDiscoveryDtos.EndpointIngestionResponse response = service.ingestEndpoint(
+                new AgentDiscoveryDtos.EndpointObservationRequest("observer-1", List.of(
+                        new AgentDiscoveryDtos.EndpointEvidenceRequest(
+                                "flow-1", "python -> api.openai.com", "OpenAI", "Model Network Client", null,
+                                DiscoveryAssetType.AGENT, DiscoverySourceType.HOST_OBSERVER,
+                                "host-observer://worker-1/python/api.openai.com", "worker", "python", "/usr/bin/python",
+                                null, null, 0, 80, RiskLevel.LOW, "PROCESS_NETWORK_SCAN_NETWORK_FLOW",
+                                Map.of("tlsServerName", "api.openai.com")
+                        )
+                ))
+        );
+
+        assertThat(response.run().discoveredCount()).isZero();
+        verify(managedAgentRepository, org.mockito.Mockito.never()).save(any());
     }
 
     @Test

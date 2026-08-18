@@ -10,20 +10,32 @@ type Envelope[T any] struct {
 }
 
 type Policy struct {
-	PolicyVersion               string   `json:"policyVersion"`
-	RulesVersion                string   `json:"rulesVersion"`
-	HeartbeatIntervalSeconds    int      `json:"heartbeatIntervalSeconds"`
-	ScanIntervalSeconds         int      `json:"scanIntervalSeconds"`
-	FullSnapshotIntervalSeconds int      `json:"fullSnapshotIntervalSeconds"`
-	OfflineQueueDays            int      `json:"offlineQueueDays"`
-	OfflineQueueMaxBytes        int64    `json:"offlineQueueMaxBytes"`
-	RequireHTTPS                bool     `json:"requireHttps"`
-	EnabledDetectors            []string `json:"enabledDetectors"`
-	ContentCaptureEnabled       bool     `json:"contentCaptureEnabled"`
-	ContentAutoAttachEnabled    bool     `json:"contentAutoAttachEnabled"`
-	ContentAutoAttachProfiles   []string `json:"contentAutoAttachProfiles"`
-	RawContentSampleRate        float64  `json:"rawContentSampleRate"`
-	RawContentRetentionDays     int      `json:"rawContentRetentionDays"`
+	PolicyVersion               string           `json:"policyVersion"`
+	RulesVersion                string           `json:"rulesVersion"`
+	HeartbeatIntervalSeconds    int              `json:"heartbeatIntervalSeconds"`
+	ScanIntervalSeconds         int              `json:"scanIntervalSeconds"`
+	FullSnapshotIntervalSeconds int              `json:"fullSnapshotIntervalSeconds"`
+	OfflineQueueDays            int              `json:"offlineQueueDays"`
+	OfflineQueueMaxBytes        int64            `json:"offlineQueueMaxBytes"`
+	RequireHTTPS                bool             `json:"requireHttps"`
+	EnabledDetectors            []string         `json:"enabledDetectors"`
+	AgentSignatures             []AgentSignature `json:"agentSignatures"`
+	ContentCaptureEnabled       bool             `json:"contentCaptureEnabled"`
+	ContentAutoAttachEnabled    bool             `json:"contentAutoAttachEnabled"`
+	ContentAutoAttachProfiles   []string         `json:"contentAutoAttachProfiles"`
+	RawContentSampleRate        float64          `json:"rawContentSampleRate"`
+	RawContentRetentionDays     int              `json:"rawContentRetentionDays"`
+}
+
+type AgentSignature struct {
+	Product         string   `json:"product"`
+	Vendor          string   `json:"vendor"`
+	Framework       string   `json:"framework,omitempty"`
+	ProcessMarkers  []string `json:"processMarkers"`
+	ContentMarkers  []string `json:"contentMarkers"`
+	PackageNames    []string `json:"packageNames"`
+	HomeDirectories []string `json:"homeDirectories"`
+	ManifestNames   []string `json:"manifestNames"`
 }
 
 type EnrollRequest struct {

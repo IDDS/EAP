@@ -115,4 +115,15 @@ public class DiscoveredAgent {
     void preUpdate() {
         updatedAt = Instant.now();
     }
+
+    public Long getId() { return id; }
+    public String getName() { return name; }
+    public String getProduct() { return product; }
+    public DiscoveryAssetStatus getStatus() { return status; }
+    public RiskLevel getRiskLevel() { return riskLevel; }
+    public Integer getConfidence() { return confidence; }
+    public Long getManagedAgentId() { return managedAgentId; }
+    public String getAvailabilityStatus() { return availabilityStatus; }
+    public String getLastEndpointKey() { return lastEndpointKey; }
+    public Instant getLastSeenAt() { return lastSeenAt; }
 }

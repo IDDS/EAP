@@ -123,4 +123,15 @@ public class ManagementValueConnector {
     void preUpdate() {
         updatedAt = Instant.now();
     }
+
+    public Long getId() { return id; }
+    public String getConnectorKey() { return connectorKey; }
+    public String getName() { return name; }
+    public String getSourceSystem() { return sourceSystem; }
+    public Boolean getEnabled() { return enabled; }
+    public String getStatus() { return status; }
+    public String getLastError() { return lastError; }
+    public Long getDefaultAgentId() { return defaultAgentId; }
+    public String getDefaultEndpointKey() { return defaultEndpointKey; }
+    public Instant getLastSyncCompletedAt() { return lastSyncCompletedAt; }
 }

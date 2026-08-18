@@ -8,7 +8,7 @@
     "docker": true,
     "ports": true,
     "files": true,
-    "roots": ["/opt", "/srv"],
+    "roots": ["/opt", "/srv", "/home"],
     "max_files": 3000,
     "max_depth": 6
   },

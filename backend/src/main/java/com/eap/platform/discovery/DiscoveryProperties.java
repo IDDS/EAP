@@ -112,6 +112,7 @@ public class DiscoveryProperties {
                 ".amp",
                 ".antigravity",
                 ".openclaw",
+                ".hermes",
                 ".agents",
                 ".config/Claude",
                 ".config/Cursor",

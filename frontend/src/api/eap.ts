@@ -66,9 +66,62 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowRun,
+  AgentOpsDashboard,
+  AgentOpsAgentState,
+  AgentOpsWorkItem,
+  AgentOpsWorkItemEvent,
+  ObservationCoverage,
+  OperationalHealth,
+  PagedAgentOpsResponse,
+  RiskPosture,
+  WorkItemSeverity,
+  WorkItemStatus,
 } from '@/types/domain'
 
+function queryString(params: Record<string, string | number | boolean | undefined>) {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') query.set(key, String(value))
+  })
+  const encoded = query.toString()
+  return encoded ? `?${encoded}` : ''
+}
+
 export const EapApi = {
+  getAgentOpsDashboard: (params: { hours?: number; organizationScope?: string } = {}) =>
+    getData<AgentOpsDashboard>(`/agentops/dashboard${queryString(params)}`),
+  listAgentOpsAgents: (params: {
+    hours?: number
+    page?: number
+    size?: number
+    query?: string
+    department?: string
+    lifecycleStatus?: AgentLifecycleStatus
+    health?: OperationalHealth
+    coverage?: ObservationCoverage
+    risk?: RiskPosture
+  } = {}) => getData<PagedAgentOpsResponse>(`/agentops/agents${queryString(params)}`),
+  getAgentOpsAgent: (id: number, hours = 24) =>
+    getData<AgentOpsAgentState>(`/agentops/agents/${id}${queryString({ hours })}`),
+  listAgentOpsWorkItems: (params: {
+    status?: WorkItemStatus
+    severity?: WorkItemSeverity
+    agentId?: number
+    organizationScope?: string
+    limit?: number
+  } = {}) => getData<AgentOpsWorkItem[]>(`/agentops/work-items${queryString(params)}`),
+  listAgentOpsWorkItemEvents: (id: number) =>
+    getData<AgentOpsWorkItemEvent[]>(`/agentops/work-items/${id}/events`),
+  synchronizeAgentOpsWorkItems: () =>
+    postData<number, Record<string, never>>('/agentops/work-items/synchronize', {}),
+  transitionAgentOpsWorkItem: (id: number, payload: {
+    status: WorkItemStatus
+    assignee?: string
+    assignedTeam?: string
+    actor?: string
+    reason?: string
+    resolutionEvidenceJson?: string
+  }) => postData<AgentOpsWorkItem, typeof payload>(`/agentops/work-items/${id}/transition`, payload),
   getDashboardSummary: () => getData<DashboardSummary>('/dashboard/summary'),
   getDashboardNetwork: () => getData<DashboardNetwork>('/dashboard/network'),
   listControlCommands: () => getData<AgentControlCommand[]>('/control/commands'),
@@ -157,8 +210,8 @@ export const EapApi = {
   registerAgentCapability: (agentId: number, payload: { capability: string; name: string; description?: string }) =>
     postData<AgentCapability, { capability: string; name: string; description?: string }>(`/agents/${agentId}/capabilities`, payload),
   listAgentRuntimeInstances: (agentId: number) => getData<AgentRuntimeInstance[]>(`/agents/${agentId}/runtime-instances`),
-  registerAgentRuntimeInstance: (agentId: number, payload: { instanceKey: string; endpoint: string; protocol: string }) =>
-    postData<AgentRuntimeInstance, { instanceKey: string; endpoint: string; protocol: string }>(`/agents/${agentId}/runtime-instances`, payload),
+  registerAgentRuntimeInstance: (agentId: number, payload: { instanceKey: string; endpoint: string; protocol: string; dispatchAuthenticated: boolean }) =>
+    postData<AgentRuntimeInstance, { instanceKey: string; endpoint: string; protocol: string; dispatchAuthenticated: boolean }>(`/agents/${agentId}/runtime-instances`, payload),
   sendAgentHeartbeat: (instanceKey: string, payload: { status: 'ONLINE' | 'DEGRADED' | 'OFFLINE'; loadScore: number }) =>
     postData<AgentRuntimeInstance, { status: 'ONLINE' | 'DEGRADED' | 'OFFLINE'; loadScore: number }>(`/agent-runtime/${instanceKey}/heartbeat`, payload),
   discoverAgents: (payload: { capability: string; maxRiskLevel?: string; department?: string; protocol?: string }) =>

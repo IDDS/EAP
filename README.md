@@ -2,6 +2,8 @@
 
 Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面，覆盖智能体生命周期、运行观测、治理策略、伦理安全和审计追踪。
 
+当前主控制台已完成 AgentOps 第一阶段改造：以正式 Agent 为唯一主实体，提供行动优先工作台、五轴状态、证据分级、统一 Work Item、P0-P3 SLA、全局时间/组织上下文及生产演示数据隔离。系统逻辑和验收边界见 [`docs/AGENTOPS_PHASE1.md`](docs/AGENTOPS_PHASE1.md)。
+
 当前版本已加入 gensee-crate 风格的多智能体运行安全控制能力：
 
 - 安全会话：记录多智能体协作目标和根智能体。
@@ -131,6 +133,13 @@ npm run dev
 
 ## 关键接口
 
+- `GET /api/agentops/dashboard?hours=24`：行动工作台、证据指标、优先事项和关注 Agent。
+- `GET /api/agentops/agents`：按生命周期、运行健康、观测覆盖和风险态势分页筛选正式 Agent。
+- `GET /api/agentops/agents/{id}`：单 Agent 五轴聚合状态。
+- `GET /api/agentops/work-items`：统一运营事项队列。
+- `GET /api/agentops/work-items/{id}/events`：事项事件历史。
+- `POST /api/agentops/work-items/{id}/transition`：认领、处理、解决和关闭事项。
+
 - `GET /api/tasks`：运行任务列表。
 - `GET /api/learning-feedbacks`：自适应学习反馈。
 - `GET /api/safety/summary`：多智能体安全摘要。
@@ -216,7 +225,7 @@ EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=false
 EAP_DISCOVERY_ENABLED=false
 EAP_DISCOVERY_AGENT_HEARTBEAT_SECONDS=60
 EAP_DISCOVERY_AGENT_SCAN_SECONDS=300
-EAP_DISCOVERY_AGENT_FULL_SNAPSHOT_SECONDS=86400
+EAP_DISCOVERY_AGENT_FULL_SNAPSHOT_SECONDS=300
 EAP_DISCOVERY_AGENT_QUEUE_DAYS=7
 EAP_DISCOVERY_AGENT_QUEUE_MAX_BYTES=104857600
 EAP_DISCOVERY_AGENT_REQUIRE_HTTPS=true

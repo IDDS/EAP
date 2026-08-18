@@ -71,6 +71,7 @@ public class AgentDiscoveryService {
             Set<Long> discoveredIds = new LinkedHashSet<>();
             for (DiscoveryEvidence item : evidence) {
                 DiscoveredAgent agent = upsert(item);
+                if (agent == null) continue;
                 discoveredIds.add(agent.id);
                 saveObservation(run.id, agent.id, item);
             }
@@ -139,6 +140,7 @@ public class AgentDiscoveryService {
             for (AgentDiscoveryDtos.EndpointEvidenceRequest item : request.observations()) {
                 DiscoveryEvidence evidence = toEvidence(endpoint, item);
                 DiscoveredAgent agent = upsert(evidence);
+                if (agent == null) continue;
                 agent.lastEndpointKey = endpoint.endpointKey;
                 agent.availabilityStatus = "ONLINE";
                 agent.missingSnapshotCount = 0;
@@ -223,28 +225,36 @@ public class AgentDiscoveryService {
                 && discovered.assetType != DiscoveryAssetType.AGENT_PROJECT) {
             throw new BusinessException("只有智能体或智能体项目可以纳入智能体目录");
         }
+        ensureManaged(discovered);
+        return AgentDiscoveryDtos.from(discovered);
+    }
+
+    private void ensureManaged(DiscoveredAgent discovered) {
+        if (discovered.assetType != DiscoveryAssetType.AGENT
+                && discovered.assetType != DiscoveryAssetType.AGENT_PROJECT) {
+            return;
+        }
         if (discovered.managedAgentId != null) {
             if (!managedAgentRepository.existsById(discovered.managedAgentId)) {
                 throw new BusinessException("发现资产关联的正式智能体不存在，请检查数据完整性");
             }
             discovered.status = DiscoveryAssetStatus.MANAGED;
-            return AgentDiscoveryDtos.from(discovered);
+            return;
         }
 
         Agent managed = new Agent();
         managed.setCode(nextManagedAgentCode(discovered));
         managed.setName(truncate(preferredManagedName(discovered), 128));
         managed.setDescription(truncate(managedDescription(discovered), 1024));
-        managed.setOwnerDepartment("待认领");
-        managed.setOwnerUser("待认领");
+        managed.setOwnerDepartment("自动发现");
+        managed.setOwnerUser("EAP Discovery");
         managed.setCategory("自主发现智能体");
-        managed.setLifecycleStatus(AgentLifecycleStatus.REVIEWING);
+        managed.setLifecycleStatus(AgentLifecycleStatus.ACTIVE);
         managed.setRiskLevel(discovered.riskLevel);
         managed = managedAgentRepository.save(managed);
 
         discovered.managedAgentId = managed.getId();
         discovered.status = DiscoveryAssetStatus.MANAGED;
-        return AgentDiscoveryDtos.from(discovered);
     }
 
     @Transactional
@@ -463,12 +473,18 @@ public class AgentDiscoveryService {
     private DiscoveredAgent upsert(DiscoveryEvidence item) {
         Instant now = Instant.now();
         Identity identity = identity(item);
-        DiscoveredAgent agent = agentRepository.findByFingerprint(item.fingerprint())
-                .orElseGet(() -> identityLinkRepository.findByIdentityKey(identity.key())
-                        .map(link -> link.discoveredAgent).orElseGet(DiscoveredAgent::new));
-        boolean newAsset = agent.id == null;
         boolean passiveNetworkEvidence = item.sourceType() == DiscoverySourceType.EBPF
                 || item.sourceType() == DiscoverySourceType.HOST_OBSERVER;
+        java.util.Optional<DiscoveredAgent> fingerprintMatch = agentRepository.findByFingerprint(item.fingerprint());
+        java.util.Optional<DiscoveryIdentityLink> identityMatch = fingerprintMatch.isPresent()
+                ? java.util.Optional.empty() : identityLinkRepository.findByIdentityKey(identity.key());
+        if (passiveNetworkEvidence && fingerprintMatch.isEmpty() && identityMatch.isEmpty()) {
+            // Model API traffic is supporting evidence only. It must never invent an agent identity.
+            return null;
+        }
+        DiscoveredAgent agent = fingerprintMatch.orElseGet(() -> identityMatch
+                .map(link -> link.discoveredAgent).orElseGet(DiscoveredAgent::new));
+        boolean newAsset = agent.id == null;
         if (newAsset || !passiveNetworkEvidence) {
             agent.fingerprint = item.fingerprint();
             agent.name = prefer(item.name(), agent.name);
@@ -498,6 +514,7 @@ public class AgentDiscoveryService {
         }
         if (saved.id == null) throw new BusinessException("发现资产写入后未获得稳定 ID");
         linkIdentity(saved, item, identity, now);
+        ensureManaged(saved);
         return saved;
     }
 

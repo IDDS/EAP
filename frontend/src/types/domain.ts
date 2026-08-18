@@ -1,5 +1,6 @@
 export type AgentLifecycleStatus = 'DRAFT' | 'REVIEWING' | 'ACTIVE' | 'PAUSED' | 'RETIRED'
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+export type AgentRecordOrigin = 'PRODUCTION' | 'DEMO'
 export type PolicyType = 'PERMISSION' | 'PRIVACY' | 'SECURITY' | 'ALGORITHM' | 'BENEFIT'
 export type EnforcementMode = 'WARN' | 'BLOCK' | 'APPROVAL_REQUIRED'
 export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
@@ -28,6 +29,26 @@ export type TeamStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED'
 export type PlanStatus = 'DRAFT' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 export type StepStatus = 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED'
 export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
+export type WorkItemSeverity = 'P0' | 'P1' | 'P2' | 'P3'
+export type WorkItemStatus = 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
+export type WorkItemType =
+  | 'DISCOVERY_REVIEW'
+  | 'OWNER_ASSIGNMENT'
+  | 'IDENTITY_REVIEW'
+  | 'PROBE_OFFLINE'
+  | 'RUNTIME_DEGRADED'
+  | 'RUNTIME_OFFLINE'
+  | 'SECURITY_RISK'
+  | 'GOVERNANCE_APPROVAL'
+  | 'CONNECTOR_FAILURE'
+  | 'OBSERVABILITY_GAP'
+  | 'USAGE_RECONCILIATION'
+  | 'GENERAL'
+export type EvidenceBasis = 'MEASURED' | 'EXTERNAL_RECONCILED' | 'HUMAN_CONFIRMED' | 'DERIVED' | 'ESTIMATED' | 'DEMO'
+export type OperationalHealth = 'HEALTHY' | 'DEGRADED' | 'OFFLINE' | 'NOT_CONNECTED'
+export type OnboardingState = 'NEEDS_REVIEW' | 'NEEDS_OWNER' | 'MANAGED' | 'MANUAL'
+export type ObservationCoverage = 'FULL' | 'PARTIAL' | 'MISSING'
+export type RiskPosture = 'NORMAL' | 'ATTENTION' | 'HIGH' | 'CRITICAL'
 
 export interface ApiResponse<T> {
   success: boolean
@@ -80,6 +101,119 @@ export interface DashboardNetwork {
   stats: NetworkStats
 }
 
+export interface AgentOpsWorkItem {
+  id: number
+  itemKey: string
+  itemType: WorkItemType
+  title: string
+  description: string
+  severity: WorkItemSeverity
+  status: WorkItemStatus
+  agentId?: number
+  endpointKey?: string
+  runtimeInstanceKey?: string
+  sourceType: string
+  sourceId?: string
+  organizationScope?: string
+  assignee?: string
+  assignedTeam?: string
+  evidenceBasis: EvidenceBasis
+  evidenceJson?: string
+  occurrenceCount: number
+  firstDetectedAt: string
+  lastDetectedAt: string
+  slaDueAt?: string
+  overdue: boolean
+  resolution?: string
+  resolutionEvidenceJson?: string
+  resolvedAt?: string
+  closedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AgentOpsWorkItemEvent {
+  id: number
+  workItemId: number
+  eventType: string
+  actor: string
+  fromStatus?: string
+  toStatus?: string
+  note?: string
+  evidenceJson?: string
+  createdAt: string
+}
+
+export interface AgentOpsAgentState {
+  id: number
+  code: string
+  name: string
+  description?: string
+  ownerDepartment?: string
+  ownerUser?: string
+  category?: string
+  lifecycleStatus: AgentLifecycleStatus
+  declaredRiskLevel: RiskLevel
+  operationalHealth: OperationalHealth
+  onboardingState: OnboardingState
+  observationCoverage: ObservationCoverage
+  riskPosture: RiskPosture
+  coverageScore: number
+  coverageSignals: string[]
+  runtimeCount: number
+  onlineRuntimeCount: number
+  openWorkItemCount: number
+  latestObservedAt?: string
+  dataFreshness: 'FRESH' | 'AGING' | 'STALE' | 'NO_DATA'
+  statusBasis: EvidenceBasis
+  updatedAt: string
+}
+
+export interface PagedAgentOpsResponse {
+  items: AgentOpsAgentState[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
+export interface AgentOpsMetricEvidence {
+  key: string
+  label: string
+  value: number
+  basis: EvidenceBasis
+  source: string
+  measuredAt?: string
+  freshness: string
+}
+
+export interface AgentOpsDashboard {
+  windowHours: number
+  windowStart: string
+  windowEnd: string
+  timeZone: string
+  organizationScope: string
+  agentCount: number
+  healthyAgentCount: number
+  degradedAgentCount: number
+  offlineAgentCount: number
+  missingObservationCount: number
+  highRiskAgentCount: number
+  workItems: {
+    totalOpen: number
+    p0: number
+    p1: number
+    p2: number
+    p3: number
+    overdue: number
+  }
+  metrics: AgentOpsMetricEvidence[]
+  priorityWorkItems: AgentOpsWorkItem[]
+  attentionAgents: AgentOpsAgentState[]
+  demoDataIncluded: boolean
+  generatedAt: string
+}
+
 export type ControlCommandStatus = 'QUEUED' | 'DISPATCHED' | 'ACKED' | 'FAILED'
 
 export interface AgentControlCommand {
@@ -120,6 +254,7 @@ export interface Agent {
   category: string
   lifecycleStatus: AgentLifecycleStatus
   riskLevel: RiskLevel
+  recordOrigin: AgentRecordOrigin
   createdAt: string
   updatedAt: string
 }
@@ -241,6 +376,7 @@ export interface AgentRuntimeInstance {
   instanceKey: string
   endpoint: string
   protocol: string
+  dispatchAuthenticated: boolean
   status: RuntimeStatus
   loadScore: number
   lastHeartbeatAt?: string

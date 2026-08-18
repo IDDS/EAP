@@ -46,6 +46,10 @@ public class Agent {
     @Column(name = "risk_level", nullable = false, length = 32)
     private RiskLevel riskLevel = RiskLevel.LOW;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "record_origin", nullable = false, length = 32)
+    private AgentRecordOrigin recordOrigin = AgentRecordOrigin.PRODUCTION;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -132,6 +136,14 @@ public class Agent {
         this.riskLevel = riskLevel;
     }
 
+    public AgentRecordOrigin getRecordOrigin() {
+        return recordOrigin;
+    }
+
+    public void setRecordOrigin(AgentRecordOrigin recordOrigin) {
+        this.recordOrigin = recordOrigin == null ? AgentRecordOrigin.PRODUCTION : recordOrigin;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -140,4 +152,3 @@ public class Agent {
         return updatedAt;
     }
 }
-

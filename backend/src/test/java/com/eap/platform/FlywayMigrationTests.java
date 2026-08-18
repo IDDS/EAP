@@ -18,7 +18,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(28);
+        assertThat(result.migrationsExecuted).isEqualTo(30);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("select count(*) from agents")) {
@@ -38,6 +38,12 @@ class FlywayMigrationTests {
             )) {
                 columns.next();
                 assertThat(columns.getLong(1)).isEqualTo(1);
+            }
+            try (var rows = statement.executeQuery(
+                    "select count(*) from agents where record_origin = 'DEMO'"
+            )) {
+                rows.next();
+                assertThat(rows.getLong(1)).isEqualTo(3);
             }
             try (var columns = statement.executeQuery(
                     "select count(*) from information_schema.columns " +
@@ -83,6 +89,13 @@ class FlywayMigrationTests {
             )) {
                 tables.next();
                 assertThat(tables.getLong(1)).isEqualTo(1);
+            }
+            try (var columns = statement.executeQuery(
+                    "select count(*) from information_schema.columns " +
+                            "where table_name = 'agent_runtime_instances' and column_name = 'dispatch_authenticated'"
+            )) {
+                columns.next();
+                assertThat(columns.getLong(1)).isEqualTo(1);
             }
         }
     }

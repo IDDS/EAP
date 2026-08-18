@@ -84,6 +84,28 @@ class InfrastructureDiscoveryServiceTests {
     }
 
     @Test
+    void recognizesHermesAndOpenClawKubernetesWorkloadsWithContainerScopedIdentity() throws Exception {
+        var payload = objectMapper.readTree("""
+                {"clusterName":"agents-cluster","object":{"kind":"Pod","metadata":{"name":"agent-pod","namespace":"agents","uid":"uid-agents"},
+                  "spec":{"containers":[
+                    {"name":"hermes","image":"ghcr.io/nousresearch/hermes-agent:1.0.0"},
+                    {"name":"openclaw","image":"ghcr.io/openclaw/openclaw:2.0.0"}
+                  ]}}}
+                """);
+
+        var response = kubernetesService.ingestWatch(payload);
+
+        assertThat(response.agentsDiscovered()).isEqualTo(2);
+        ArgumentCaptor<AgentDiscoveryDtos.EndpointObservationRequest> captor =
+                ArgumentCaptor.forClass(AgentDiscoveryDtos.EndpointObservationRequest.class);
+        verify(discoveryService).ingestEndpoint(captor.capture());
+        assertThat(captor.getValue().observations()).extracting(AgentDiscoveryDtos.EndpointEvidenceRequest::product)
+                .containsExactly("Hermes Agent", "OpenClaw");
+        assertThat(captor.getValue().observations()).extracting(item -> item.evidence().get("workloadUid"))
+                .containsExactly("uid-agents:hermes", "uid-agents:openclaw");
+    }
+
+    @Test
     void normalizesEbpfModelAndMcpFlowsAsPassiveEvidence() {
         var response = ebpfService.ingest(new EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfObservationRequest(
                 "host-01", "worker-01", "svc-agent", "Linux", List.of(

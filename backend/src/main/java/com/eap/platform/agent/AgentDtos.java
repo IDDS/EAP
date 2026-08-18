@@ -34,6 +34,7 @@ public final class AgentDtos {
             String category,
             AgentLifecycleStatus lifecycleStatus,
             RiskLevel riskLevel,
+            AgentRecordOrigin recordOrigin,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -50,9 +51,9 @@ public final class AgentDtos {
                 agent.getCategory(),
                 agent.getLifecycleStatus(),
                 agent.getRiskLevel(),
+                agent.getRecordOrigin(),
                 agent.getCreatedAt(),
                 agent.getUpdatedAt()
         );
     }
 }
-

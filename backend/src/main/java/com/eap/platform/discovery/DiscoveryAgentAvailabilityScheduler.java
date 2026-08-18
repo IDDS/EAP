@@ -5,7 +5,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Set;
 
 @Component
@@ -13,22 +12,26 @@ public class DiscoveryAgentAvailabilityScheduler {
     private static final Set<String> ACTIVE_STATUSES = Set.of("ACTIVE", "ONLINE", "PENDING_REVIEW");
     private final DiscoveryEndpointRepository endpointRepository;
     private final AgentDiscoveryService discoveryService;
+    private final DiscoveryAgentV1Properties properties;
 
     public DiscoveryAgentAvailabilityScheduler(
             DiscoveryEndpointRepository endpointRepository,
-            AgentDiscoveryService discoveryService
+            AgentDiscoveryService discoveryService,
+            DiscoveryAgentV1Properties properties
     ) {
         this.endpointRepository = endpointRepository;
         this.discoveryService = discoveryService;
+        this.properties = properties;
     }
 
     @Scheduled(
-            initialDelayString = "${eap.discovery.agent-v1.availability-check-ms:3600000}",
-            fixedDelayString = "${eap.discovery.agent-v1.availability-check-ms:3600000}"
+            initialDelayString = "${eap.discovery.agent-v1.availability-check-ms:60000}",
+            fixedDelayString = "${eap.discovery.agent-v1.availability-check-ms:60000}"
     )
     @Transactional
     public void markSilentEndpointsOffline() {
-        Instant cutoff = Instant.now().minus(24, ChronoUnit.HOURS);
+        long silenceSeconds = Math.max(180L, properties.getScanIntervalSeconds() * 3L);
+        Instant cutoff = Instant.now().minusSeconds(silenceSeconds);
         endpointRepository.findAll().stream()
                 .filter(endpoint -> ACTIVE_STATUSES.contains(endpoint.status))
                 .filter(endpoint -> {

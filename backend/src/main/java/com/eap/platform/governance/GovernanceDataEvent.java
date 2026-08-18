@@ -85,6 +85,8 @@ public class GovernanceDataEvent {
     public GovernanceDataDirection getDirection() { return direction; }
     public String getDataCategory() { return dataCategory; }
     public GovernanceDataSensitivity getSensitivity() { return sensitivity; }
+    public GovernanceDataAction getAction() { return action; }
+    public Instant getObservedAt() { return observedAt; }
     public boolean isInternalData() { return Boolean.TRUE.equals(internalData); }
     public boolean isCompanySecret() { return Boolean.TRUE.equals(companySecret); }
 }

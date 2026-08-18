@@ -121,4 +121,6 @@ public class GovernancePreflightDecision {
     public Instant getApprovedAt() {
         return approvedAt;
     }
+
+    public String getDecisionKey() { return decisionKey; }
 }

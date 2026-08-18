@@ -79,4 +79,8 @@ public class TraceSpanObservation {
         observedAt = observedAt == null ? now : observedAt;
         createdAt = now;
     }
+
+    public Long getAgentId() { return agentId; }
+    public String getEndpointKey() { return endpointKey; }
+    public Instant getObservedAt() { return observedAt; }
 }

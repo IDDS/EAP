@@ -95,4 +95,9 @@ public class ToolInvocationEvent {
     void preUpdate() {
         updatedAt = Instant.now();
     }
+
+    public Long getAgentId() { return agentId; }
+    public String getEndpointKey() { return endpointKey; }
+    public ToolInvocationStatus getStatus() { return status; }
+    public Instant getObservedAt() { return observedAt; }
 }

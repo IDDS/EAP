@@ -53,6 +53,8 @@ public class AgentRegistryService {
         instance.instanceKey = request.instanceKey();
         instance.endpoint = request.endpoint();
         instance.protocol = request.protocol();
+        instance.dispatchAuthenticated = Boolean.TRUE.equals(request.dispatchAuthenticated())
+                && "A2A".equalsIgnoreCase(request.protocol());
         instance.status = RuntimeStatus.ONLINE;
         instance.lastHeartbeatAt = Instant.now();
         return AgentRegistryDtos.from(runtimeRepository.save(instance));
@@ -82,7 +84,10 @@ public class AgentRegistryService {
 
     private List<AgentRegistryDtos.DiscoveryCandidate> toCandidate(AgentRegistryDtos.DiscoveryRequest request, RiskLevel maxRisk, AgentCapability capability, AgentRuntimeInstance instance) {
         Agent agent = agentRepository.findById(capability.agentId).orElse(null);
-        if (agent == null || agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE || instance.status != RuntimeStatus.ONLINE) {
+        if (agent == null || agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE
+                || instance.status != RuntimeStatus.ONLINE
+                || !"A2A".equalsIgnoreCase(instance.protocol)
+                || !Boolean.TRUE.equals(instance.dispatchAuthenticated)) {
             return List.of();
         }
         if (agent.getRiskLevel().ordinal() > maxRisk.ordinal()) {
@@ -95,7 +100,7 @@ public class AgentRegistryService {
             return List.of();
         }
         int score = 100 - instance.loadScore - agent.getRiskLevel().ordinal() * 8;
-        List<String> constraints = List.of("runtime-online", "safety-evaluation-required", "delegation-audit-required");
+        List<String> constraints = List.of("runtime-online", "a2a-authenticated", "safety-evaluation-required", "delegation-audit-required");
         return List.of(new AgentRegistryDtos.DiscoveryCandidate(
                 agent.getId(),
                 agent.getCode(),
@@ -119,4 +124,3 @@ public class AgentRegistryService {
         }
     }
 }
-

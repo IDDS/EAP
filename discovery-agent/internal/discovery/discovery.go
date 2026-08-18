@@ -21,10 +21,14 @@ import (
 )
 
 type Signature struct {
-	Product   string
-	Vendor    string
-	Framework string
-	Markers   []string
+	Product         string
+	Vendor          string
+	Framework       string
+	Markers         []string
+	ContentMarkers  []string
+	PackageNames    []string
+	HomeDirectories []string
+	ManifestNames   []string
 }
 
 var signatures = []Signature{
@@ -33,6 +37,8 @@ var signatures = []Signature{
 	{Product: "Claude Code", Vendor: "Anthropic", Markers: []string{"claude", "@anthropic-ai/claude-code"}},
 	{Product: "Cursor", Vendor: "Cursor", Markers: []string{"cursor"}},
 	{Product: "Gemini CLI", Vendor: "Google", Markers: []string{"@google/gemini-cli", "gemini"}},
+	{Product: "OpenClaw", Vendor: "OpenClaw Foundation", Framework: "OpenClaw", Markers: []string{"openclaw", "openclaw gateway"}, ContentMarkers: []string{".openclaw/", "openclaw.json", "openclaw.plugin.json"}, PackageNames: []string{"openclaw"}, HomeDirectories: []string{".openclaw"}, ManifestNames: []string{"openclaw.json", "openclaw.plugin.json"}},
+	{Product: "Hermes Agent", Vendor: "Nous Research", Framework: "Hermes Agent", Markers: []string{"hermes-agent", "hermes gateway", "/hermes", "\\hermes.exe"}, ContentMarkers: []string{".hermes/", "hermes-agent", "gateway.pid"}, PackageNames: []string{"hermes-agent"}, HomeDirectories: []string{".hermes"}, ManifestNames: []string{"config.yaml", "gateway.pid", "plugin.yaml"}},
 	{Product: "LangGraph Agent", Vendor: "LangChain", Framework: "LangGraph", Markers: []string{"langgraph"}},
 	{Product: "LangChain Agent", Vendor: "LangChain", Framework: "LangChain", Markers: []string{"langchain"}},
 	{Product: "CrewAI Agent", Vendor: "CrewAI", Framework: "CrewAI", Markers: []string{"crewai"}},
@@ -78,21 +84,22 @@ type Result struct {
 	FinishedAt   time.Time
 }
 
-func Collect(cfg config.ScanConfig) Result {
+func Collect(cfg config.ScanConfig, centralRules ...[]protocol.AgentSignature) Result {
 	result := Result{StartedAt: time.Now()}
+	catalogue := effectiveSignatures(centralRules...)
 	var observations []protocol.Observation
 	if cfg.Processes {
-		items, warnings := processObservations(cfg.Ports)
+		items, warnings := processObservations(cfg.Ports, catalogue)
 		observations = append(observations, items...)
 		result.Warnings = append(result.Warnings, warnings...)
 	}
 	if cfg.Docker {
-		items, warnings := dockerObservations()
+		items, warnings := dockerObservations(catalogue)
 		observations = append(observations, items...)
 		result.Warnings = append(result.Warnings, warnings...)
 	}
 	if cfg.Files {
-		items, warnings := fileObservations(cfg)
+		items, warnings := fileObservations(cfg, catalogue)
 		observations = append(observations, items...)
 		result.Warnings = append(result.Warnings, warnings...)
 	}
@@ -114,7 +121,7 @@ func HostMetadata() (host, account, osName, arch, fingerprint string) {
 	return
 }
 
-func processObservations(withPorts bool) ([]protocol.Observation, []string) {
+func processObservations(withPorts bool, catalogue []Signature) ([]protocol.Observation, []string) {
 	if runtime.GOOS != "linux" {
 		return nil, []string{"process detector currently provides full coverage on Linux only"}
 	}
@@ -136,9 +143,12 @@ func processObservations(withPorts bool) ([]protocol.Observation, []string) {
 		cmdline := strings.ReplaceAll(readText(filepath.Join("/proc", entry.Name(), "cmdline"), 8192), "\x00", " ")
 		executable, _ := os.Readlink(filepath.Join("/proc", entry.Name(), "exe"))
 		searchable := strings.ToLower(strings.Join([]string{comm, cmdline, executable}, " "))
-		signature, ok := matchSignature(searchable)
+		signature, ok := matchSignature(searchable, catalogue)
 		if !ok {
-			continue
+			if !looksGenericAgentProcess(searchable) {
+				continue
+			}
+			signature = Signature{Product: "Unknown Agent", Vendor: "Unknown", Framework: "Unknown"}
 		}
 		ports := []string{}
 		if withPorts {
@@ -149,18 +159,24 @@ func processObservations(withPorts bool) ([]protocol.Observation, []string) {
 			endpoints = append(endpoints, "tcp://"+host+":"+port)
 		}
 		models := matchModels(searchable)
+		agentIdentity := "process:" + host + ":" + firstNonBlank(executable, comm)
+		fingerprintBasis := firstNonBlank(executable, comm)
+		if profile := profileIdentity(searchable, host); profile != "" {
+			agentIdentity = profile
+			fingerprintBasis = profile
+		}
 		security := map[string]any{
 			"autoApproveDetected": containsAny(searchable, "--dangerously-skip-permissions", "--yolo", "--full-auto"),
 			"untrustedProcess":    strings.HasPrefix(executable, "/tmp/") || strings.Contains(executable, "/downloads/"),
-			"agentIdentity":       "process:" + host + ":" + firstNonBlank(executable, comm),
+			"agentIdentity":       agentIdentity,
 		}
 		observations = append(observations, protocol.Observation{
-			Fingerprint: digest("process", signature.Product, host, executable),
+			Fingerprint: digest("process", signature.Product, host, fingerprintBasis),
 			Name:        signature.Product + " @ " + host, Vendor: signature.Vendor, Product: signature.Product,
 			AssetType: "AGENT", SourceType: "PROCESS", SourceLocation: fmt.Sprintf("process://%s/%d", host, pid),
 			AccountName: processAccount(pid, account), ProcessName: comm, ExecutablePath: executable, Framework: signature.Framework,
 			RuntimeStatus: "RUNNING", Ports: ports, Protocols: protocolsForPorts(ports), ServiceEndpoints: endpoints,
-			Models: models, SecuritySignals: security, Confidence: 92, EvidenceType: "RUNNING_PROCESS",
+			Models: models, SecuritySignals: security, Confidence: map[bool]int{true: 92, false: 72}[ok], EvidenceType: "RUNNING_PROCESS",
 		})
 	}
 	return observations, nil
@@ -195,7 +211,7 @@ type dockerInspect struct {
 	} `json:"State"`
 }
 
-func dockerObservations() ([]protocol.Observation, []string) {
+func dockerObservations(catalogue []Signature) ([]protocol.Observation, []string) {
 	idsRaw, err := exec.Command("docker", "ps", "-q").Output()
 	if err != nil {
 		return nil, []string{"docker unavailable: " + err.Error()}
@@ -227,7 +243,7 @@ func dockerObservations() ([]protocol.Observation, []string) {
 			continue
 		}
 		searchable := strings.ToLower(strings.Join([]string{name, document.Config.Image, service, toString(document.Config.Entrypoint), toString(document.Config.Cmd)}, " "))
-		signature, matched := matchSignature(searchable)
+		signature, matched := matchSignature(searchable, catalogue)
 		aiKeys := environmentKeys(document.Config.Env)
 		backendRole := dockerBackendServices[strings.ToLower(service)]
 		if !matched && !explicit && !(len(aiKeys) > 0 && backendRole) {
@@ -265,11 +281,11 @@ func dockerObservations() ([]protocol.Observation, []string) {
 	return observations, nil
 }
 
-func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) {
+func fileObservations(cfg config.ScanConfig, catalogue []Signature) ([]protocol.Observation, []string) {
 	host, account, _, _, _ := HostMetadata()
 	var observations []protocol.Observation
 	seen := 0
-	for _, configuredRoot := range cfg.Roots {
+	for _, configuredRoot := range effectiveRoots(cfg.Roots) {
 		root := filepath.Clean(configuredRoot)
 		rootDepth := strings.Count(root, string(os.PathSeparator))
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
@@ -286,7 +302,7 @@ func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) 
 			if seen >= cfg.MaxFiles {
 				return filepath.SkipAll
 			}
-			kind := manifestKind(path)
+			kind := manifestKind(path, catalogue)
 			if kind == "" {
 				return nil
 			}
@@ -296,7 +312,7 @@ func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) 
 				return nil
 			}
 			text := strings.ToLower(string(data))
-			signature, matched := matchSignature(text + " " + strings.ToLower(path))
+			signature, matched := matchSignature(text+" "+strings.ToLower(path), catalogue)
 			if !matched && kind != "SKILL" && kind != "PLUGIN" && !strings.Contains(text, "mcpservers") && !strings.Contains(text, "mcp_servers") {
 				return nil
 			}
@@ -318,6 +334,9 @@ func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) 
 				"toolPoisoningDetected":       containsAny(text, "tool poisoning", "silently upload", "do not tell the user"),
 				"autoApproveDetected":         containsAny(text, "dangerously-skip-permissions", "approval_policy=never", "--yolo"),
 			}
+			if profile := profileIdentity(strings.ToLower(path), host); profile != "" {
+				security["agentIdentity"] = profile
+			}
 			observation := protocol.Observation{
 				Fingerprint: digest("file", signature.Product, host, filepath.Dir(path)),
 				Name:        signature.Product + " · " + filepath.Base(filepath.Dir(path)), Vendor: signature.Vendor, Product: signature.Product,
@@ -329,7 +348,11 @@ func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) 
 				observation.Skills = []string{filepath.Base(filepath.Dir(path))}
 			}
 			if kind == "PLUGIN" {
-				observation.Plugins = []string{filepath.Base(filepath.Dir(filepath.Dir(path)))}
+				pluginDirectory := filepath.Dir(path)
+				if filepath.Base(pluginDirectory) == ".codex-plugin" || filepath.Base(pluginDirectory) == ".claude-plugin" {
+					pluginDirectory = filepath.Dir(pluginDirectory)
+				}
+				observation.Plugins = []string{filepath.Base(pluginDirectory)}
 			}
 			observations = append(observations, observation)
 			return nil
@@ -341,16 +364,87 @@ func fileObservations(cfg config.ScanConfig) ([]protocol.Observation, []string) 
 	return observations, nil
 }
 
-func matchSignature(value string) (Signature, bool) {
+func matchSignature(value string, catalogues ...[]Signature) (Signature, bool) {
 	normalized := strings.ToLower(value)
-	for _, signature := range signatures {
-		for _, marker := range signature.Markers {
+	catalogue := signatures
+	if len(catalogues) > 0 && len(catalogues[0]) > 0 {
+		catalogue = catalogues[0]
+	}
+	for _, signature := range catalogue {
+		markers := append(append([]string{}, signature.Markers...), signature.ContentMarkers...)
+		for _, marker := range markers {
 			if strings.Contains(normalized, marker) {
 				return signature, true
 			}
 		}
 	}
 	return Signature{}, false
+}
+
+func effectiveSignatures(centralRules ...[]protocol.AgentSignature) []Signature {
+	if len(centralRules) == 0 || len(centralRules[0]) == 0 {
+		return signatures
+	}
+	result := make([]Signature, 0, len(centralRules[0]))
+	for _, rule := range centralRules[0] {
+		if strings.TrimSpace(rule.Product) == "" || strings.TrimSpace(rule.Vendor) == "" {
+			continue
+		}
+		result = append(result, Signature{
+			Product: rule.Product, Vendor: rule.Vendor, Framework: rule.Framework,
+			Markers: rule.ProcessMarkers, ContentMarkers: rule.ContentMarkers,
+			PackageNames: rule.PackageNames, HomeDirectories: rule.HomeDirectories, ManifestNames: rule.ManifestNames,
+		})
+	}
+	if len(result) == 0 {
+		return signatures
+	}
+	return result
+}
+
+func effectiveRoots(configured []string) []string {
+	result := append([]string{}, configured...)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return unique(result)
+	}
+	for _, relative := range []string{".hermes", ".openclaw", ".agents"} {
+		candidate := filepath.Join(home, relative)
+		if _, err := os.Stat(candidate); err == nil {
+			result = append(result, candidate)
+		}
+	}
+	return unique(result)
+}
+
+func looksGenericAgentProcess(value string) bool {
+	return containsAny(value, "agent-worker", "ai-agent", "agent.py", "agent.exe", "agent gateway", "agent runtime")
+}
+
+func profileIdentity(value, host string) string {
+	normalized := filepath.ToSlash(strings.ToLower(value))
+	for _, candidate := range []struct{ home, product string }{
+		{"/.hermes/profiles/", "hermes"},
+		{"/.openclaw/agents/", "openclaw"},
+		{"/.openclaw/workspaces/", "openclaw"},
+	} {
+		index := strings.Index(normalized, candidate.home)
+		if index < 0 {
+			continue
+		}
+		remainder := normalized[index+len(candidate.home):]
+		name := strings.FieldsFunc(remainder, func(r rune) bool { return r == '/' || r == ' ' || r == '\t' })
+		if len(name) > 0 && name[0] != "" {
+			return "profile:" + host + ":" + candidate.product + ":" + strings.TrimSpace(name[0])
+		}
+	}
+	if strings.Contains(normalized, "/.hermes/") {
+		return "profile:" + host + ":hermes-default"
+	}
+	if strings.Contains(normalized, "/.openclaw/") {
+		return "profile:" + host + ":openclaw-default"
+	}
+	return ""
 }
 
 func matchModels(value string) []string {
@@ -471,7 +565,7 @@ func environmentKeys(values []string) []string {
 	return unique(result)
 }
 
-func manifestKind(path string) string {
+func manifestKind(path string, catalogues ...[]Signature) string {
 	normalized := strings.ToLower(filepath.ToSlash(path))
 	name := strings.ToLower(filepath.Base(path))
 	if name == "skill.md" && strings.Contains(normalized, "/skills/") {
@@ -480,9 +574,28 @@ func manifestKind(path string) string {
 	if name == "plugin.json" && (strings.Contains(normalized, "/.codex-plugin/") || strings.Contains(normalized, "/.claude-plugin/")) {
 		return "PLUGIN"
 	}
+	if name == "openclaw.plugin.json" || (name == "plugin.yaml" && strings.Contains(normalized, "/.hermes/plugins/")) {
+		return "PLUGIN"
+	}
 	for _, allowed := range []string{"package.json", "pyproject.toml", "requirements.txt", "pom.xml", "mcp.json", ".mcp.json", "claude_desktop_config.json"} {
 		if name == allowed {
 			return "AGENT"
+		}
+	}
+	catalogue := signatures
+	if len(catalogues) > 0 && len(catalogues[0]) > 0 {
+		catalogue = catalogues[0]
+	}
+	for _, signature := range catalogue {
+		for _, manifest := range signature.ManifestNames {
+			if name != strings.ToLower(manifest) {
+				continue
+			}
+			for _, home := range signature.HomeDirectories {
+				if strings.Contains(normalized, "/"+strings.Trim(strings.ToLower(home), "/")+"/") {
+					return "AGENT"
+				}
+			}
 		}
 	}
 	return ""

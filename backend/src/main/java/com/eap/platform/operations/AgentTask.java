@@ -72,5 +72,8 @@ public class AgentTask {
     void preUpdate() {
         updatedAt = Instant.now();
     }
-}
 
+    public Long getAgentId() { return agentId; }
+    public AgentTaskStatus getStatus() { return status; }
+    public Instant getUpdatedAt() { return updatedAt; }
+}

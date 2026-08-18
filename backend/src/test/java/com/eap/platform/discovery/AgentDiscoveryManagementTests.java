@@ -60,7 +60,9 @@ class AgentDiscoveryManagementTests {
         verify(agentRepository).save(captor.capture());
         Agent managed = captor.getValue();
         assertThat(managed.getName()).isEqualTo("HelloBoss");
-        assertThat(managed.getLifecycleStatus()).isEqualTo(AgentLifecycleStatus.REVIEWING);
+        assertThat(managed.getLifecycleStatus()).isEqualTo(AgentLifecycleStatus.ACTIVE);
+        assertThat(managed.getOwnerDepartment()).isEqualTo("自动发现");
+        assertThat(managed.getOwnerUser()).isEqualTo("EAP Discovery");
         assertThat(managed.getDescription()).contains("VM-0-15-ubuntu", "boss-agent-backend", "DOCKER");
     }
 

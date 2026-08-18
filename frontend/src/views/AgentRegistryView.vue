@@ -403,6 +403,9 @@
                 <el-input-number v-model="heartbeatLoad" :min="0" :max="100" />
               </el-form-item>
             </div>
+            <el-form-item v-if="runtimeForm.protocol === 'A2A'" label="调度认证">
+              <el-switch v-model="runtimeForm.dispatchAuthenticated" active-text="已完成 A2A 认证配置" />
+            </el-form-item>
             <div class="button-row">
               <el-button type="primary" :icon="Connection" @click="registerRuntime">注册实例</el-button>
               <el-button :icon="Refresh" @click="heartbeat">发送心跳</el-button>
@@ -482,6 +485,13 @@
         <el-table :data="runtimeInstances">
           <el-table-column prop="instanceKey" label="实例" min-width="180" />
           <el-table-column prop="protocol" label="协议" width="90" />
+          <el-table-column label="可调度" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.dispatchAuthenticated && row.protocol === 'A2A' ? 'success' : 'info'">
+                {{ row.dispatchAuthenticated && row.protocol === 'A2A' ? '是' : '否' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <el-tag :type="row.status === 'ONLINE' ? 'success' : 'warning'">{{ runtimeStatusLabel(row.status) }}</el-tag>
@@ -560,6 +570,7 @@ const runtimeForm = reactive({
   instanceKey: 'ops-incident-local-2',
   endpoint: 'http://ops-agent.local:9003',
   protocol: 'HTTP',
+  dispatchAuthenticated: false,
 })
 
 const discoveryForm = reactive({

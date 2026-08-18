@@ -98,11 +98,23 @@ public final class DiscoveryAgentV1Dtos {
             long offlineQueueMaxBytes,
             boolean requireHttps,
             List<String> enabledDetectors,
+            List<AgentSignatureRuleResponse> agentSignatures,
             boolean contentCaptureEnabled,
             boolean contentAutoAttachEnabled,
             List<String> contentAutoAttachProfiles,
             double rawContentSampleRate,
             int rawContentRetentionDays
+    ) { }
+
+    public record AgentSignatureRuleResponse(
+            String product,
+            String vendor,
+            String framework,
+            List<String> processMarkers,
+            List<String> contentMarkers,
+            List<String> packageNames,
+            List<String> homeDirectories,
+            List<String> manifestNames
     ) { }
 
     public record ObservationBatchRequest(

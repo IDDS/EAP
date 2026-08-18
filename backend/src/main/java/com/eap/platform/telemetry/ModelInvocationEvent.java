@@ -106,4 +106,10 @@ public class ModelInvocationEvent {
         observedAt = observedAt == null ? now : observedAt;
         createdAt = now;
     }
+
+    public Long getAgentId() { return agentId; }
+    public String getEndpointKey() { return endpointKey; }
+    public ModelInvocationStatus getStatus() { return status; }
+    public Long getLatencyMs() { return latencyMs; }
+    public Instant getObservedAt() { return observedAt; }
 }

@@ -21,11 +21,13 @@ class DiscoveryAgentAvailabilitySchedulerTests {
 
     @Test
     void usesLegacyLastSeenTimeWhenHeartbeatIsUnavailable() {
-        DiscoveryEndpoint stale = endpoint("legacy-stale", "ACTIVE", Instant.now().minus(25, ChronoUnit.HOURS), null);
+        DiscoveryEndpoint stale = endpoint("legacy-stale", "ACTIVE", Instant.now().minus(16, ChronoUnit.MINUTES), null);
         DiscoveryEndpoint current = endpoint("legacy-current", "ACTIVE", Instant.now(), null);
         when(endpointRepository.findAll()).thenReturn(List.of(stale, current));
 
-        new DiscoveryAgentAvailabilityScheduler(endpointRepository, discoveryService).markSilentEndpointsOffline();
+        DiscoveryAgentV1Properties properties = new DiscoveryAgentV1Properties();
+        properties.setScanIntervalSeconds(300);
+        new DiscoveryAgentAvailabilityScheduler(endpointRepository, discoveryService, properties).markSilentEndpointsOffline();
 
         assertThat(stale.status).isEqualTo("OFFLINE");
         assertThat(current.status).isEqualTo("ACTIVE");

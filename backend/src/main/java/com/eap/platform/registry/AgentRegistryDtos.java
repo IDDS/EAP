@@ -25,7 +25,8 @@ public final class AgentRegistryDtos {
     public record RuntimeInstanceRequest(
             @NotBlank @Size(max = 128) String instanceKey,
             @NotBlank @Size(max = 512) String endpoint,
-            @NotBlank @Size(max = 32) String protocol
+            @NotBlank @Size(max = 32) String protocol,
+            Boolean dispatchAuthenticated
     ) {
     }
 
@@ -46,7 +47,7 @@ public final class AgentRegistryDtos {
     public record CapabilityResponse(Long id, Long agentId, String capability, String name, String description, Instant createdAt, Instant updatedAt) {
     }
 
-    public record RuntimeInstanceResponse(Long id, Long agentId, String instanceKey, String endpoint, String protocol, RuntimeStatus status, Integer loadScore, Instant lastHeartbeatAt, Instant createdAt, Instant updatedAt) {
+    public record RuntimeInstanceResponse(Long id, Long agentId, String instanceKey, String endpoint, String protocol, boolean dispatchAuthenticated, RuntimeStatus status, Integer loadScore, Instant lastHeartbeatAt, Instant createdAt, Instant updatedAt) {
     }
 
     public record DiscoveryCandidate(
@@ -74,7 +75,8 @@ public final class AgentRegistryDtos {
     }
 
     static RuntimeInstanceResponse from(AgentRuntimeInstance instance) {
-        return new RuntimeInstanceResponse(instance.id, instance.agentId, instance.instanceKey, instance.endpoint, instance.protocol, instance.status, instance.loadScore, instance.lastHeartbeatAt, instance.createdAt, instance.updatedAt);
+        return new RuntimeInstanceResponse(instance.id, instance.agentId, instance.instanceKey, instance.endpoint,
+                instance.protocol, Boolean.TRUE.equals(instance.dispatchAuthenticated), instance.status,
+                instance.loadScore, instance.lastHeartbeatAt, instance.createdAt, instance.updatedAt);
     }
 }
-

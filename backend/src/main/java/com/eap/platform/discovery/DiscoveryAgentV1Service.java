@@ -393,6 +393,10 @@ public class DiscoveryAgentV1Service {
                 properties.getFullSnapshotIntervalSeconds(), properties.getOfflineQueueDays(),
                 properties.getOfflineQueueMaxBytes(), properties.isRequireHttps(),
                 List.of("PROCESS", "DOCKER", "PORTS", "FILES", "SKILLS", "PLUGINS", "MCP", "A2A", "HOST_OBSERVER"),
+                AgentSignatureCatalog.RULES.stream().map(rule -> new DiscoveryAgentV1Dtos.AgentSignatureRuleResponse(
+                        rule.product(), rule.vendor(), rule.framework(), rule.processMarkers(), rule.contentMarkers(),
+                        rule.packageNames(), rule.homeDirectories(), rule.manifestNames()
+                )).toList(),
                 contentEnabled, contentEnabled && properties.isContentAutoAttachEnabled(),
                 contentEnabled && properties.isContentAutoAttachEnabled()
                         ? properties.contentAutoAttachProfileList() : List.of(),

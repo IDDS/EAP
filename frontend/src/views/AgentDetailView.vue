@@ -74,6 +74,18 @@
       </div>
     </el-card>
 
+    <el-card v-if="agentOpsState" shadow="never" class="panel agentops-detail-axis-panel">
+      <template #header><div class="panel-header"><span>AgentOps 五轴状态</span><EvidenceBadge :basis="agentOpsState.statusBasis" :source="`最近 ${context.windowHours} 小时信号`" /></div></template>
+      <div class="agentops-detail-axis-grid">
+        <div><span>生命周期</span><StatusAxis axis="lifecycle" :value="agentOpsState.lifecycleStatus" /></div>
+        <div><span>运行健康</span><StatusAxis axis="health" :value="agentOpsState.operationalHealth" /></div>
+        <div><span>接入纳管</span><StatusAxis axis="onboarding" :value="agentOpsState.onboardingState" /></div>
+        <div><span>观测覆盖</span><StatusAxis axis="coverage" :value="agentOpsState.observationCoverage" /><small>{{ agentOpsState.coverageScore }} 类信号</small></div>
+        <div><span>风险态势</span><StatusAxis axis="risk" :value="agentOpsState.riskPosture" /></div>
+        <div><span>数据新鲜度</span><StatusAxis axis="freshness" :value="agentOpsState.dataFreshness" /><small>{{ formatDate(agentOpsState.latestObservedAt) }}</small></div>
+      </div>
+    </el-card>
+
     <el-alert v-if="!agent" type="warning" :closable="false" title="未找到该智能体，请返回目录重新选择。" />
 
     <div v-if="agent" class="agent-detail-tabs" role="tablist">
@@ -84,6 +96,7 @@
       <div v-show="activeTab === 'overview'" class="agent-detail-content">
         <div class="metric-strip agent-detail-metrics"><div class="small-box box-primary"><div><strong>{{ formatNumber(totalTokens) }}</strong><span>总 Token</span></div><el-icon><Tickets /></el-icon></div><div class="small-box box-success"><div><strong>{{ modelEvents.length }}</strong><span>模型调用</span></div><el-icon><Connection /></el-icon></div><div class="small-box box-info"><div><strong>{{ tools.length }}</strong><span>工具调用</span></div><el-icon><Tools /></el-icon></div><div class="small-box box-warning"><div><strong>{{ formatMoney(totalCost) }}</strong><span>累计费用 USD</span></div><el-icon><Money /></el-icon></div></div>
         <div class="agent-detail-grid agent-detail-grid-main"><el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>智能体摘要</span><el-tag size="small" effect="plain">实时数据</el-tag></div></template><div class="attribute-grid"><div><span>业务类别</span><strong>{{ agent.category || '未分类' }}</strong></div><div><span>运行实例</span><strong>{{ runtimes.length }} 个</strong></div><div><span>能力标签</span><strong>{{ capabilities.length }} 项</strong></div><div><span>最近 Trace</span><strong class="mono">{{ latestTraceId || '暂无' }}</strong></div><div><span>成功率</span><strong>{{ successRate }}%</strong></div><div><span>平均延迟</span><strong>{{ averageLatency }} ms</strong></div></div></el-card><el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>运行健康</span><span class="muted">当前实例状态</span></div></template><div class="runtime-health-list"><div v-for="runtime in runtimes" :key="runtime.id"><span class="runtime-status-dot" :class="runtime.status.toLowerCase()"></span><div><strong>{{ runtime.instanceKey }}</strong><small>{{ runtime.endpoint }} · {{ runtime.protocol }}</small></div><el-tag size="small" :type="runtime.status === 'ONLINE' ? 'success' : runtime.status === 'DEGRADED' ? 'warning' : 'info'">{{ runtimeStatusLabel(runtime.status) }}</el-tag></div><el-empty v-if="!runtimes.length" description="尚未登记运行实例" :image-size="60" /></div></el-card></div>
+        <el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>关联运营事项</span><span class="muted">{{ workItems.length }} 项待处理</span></div></template><WorkItemTable :items="workItems" @inspect="inspectWorkItem" @transition="transitionWorkItem" @open-agent="openAgent" /></el-card>
         <el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>最近活动</span><el-button link type="primary" @click="activeTab = 'trace'">查看完整 Trace</el-button></div></template><el-table :data="recentActivity" size="small"><el-table-column prop="time" label="时间" width="170" /><el-table-column prop="kind" label="类型" width="110" /><el-table-column prop="title" label="活动" min-width="240" /><el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip /><el-table-column label="状态" width="100"><template #default="{ row }"><el-tag size="small" :type="row.tone">{{ row.status }}</el-tag></template></el-table-column></el-table><el-empty v-if="!recentActivity.length" description="暂无活动记录" :image-size="70" /></el-card>
       </div>
 
@@ -103,20 +116,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Collection, Connection, DataAnalysis, Document, Lock, Money, Refresh, Tickets, Tools } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { EChartsOption } from 'echarts'
 import TrendChart from '@/components/TrendChart.vue'
 import ModelGlyph from '@/components/ModelGlyph.vue'
+import EvidenceBadge from '@/components/EvidenceBadge.vue'
+import StatusAxis from '@/components/StatusAxis.vue'
+import WorkItemTable from '@/components/WorkItemTable.vue'
 import { EapApi } from '@/api/eap'
-import type { Agent, AgentCapability, AgentRuntimeInstance, AgentTask, ContentDirection, ContentObservation, DiscoveredAgentAsset, GovernanceDataAction, GovernanceDataEvent, KnowledgeInteraction, ModelInvocationEvent, ModelInvocationStatus, RiskLevel, RuntimeStatus, ToolInvocationEvent, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
+import { useAgentOpsContextStore } from '@/stores/agentOps'
+import type { Agent, AgentCapability, AgentOpsAgentState, AgentOpsWorkItem, AgentRuntimeInstance, AgentTask, ContentDirection, ContentObservation, DiscoveredAgentAsset, GovernanceDataAction, GovernanceDataEvent, KnowledgeInteraction, ModelInvocationEvent, ModelInvocationStatus, RiskLevel, RuntimeStatus, ToolInvocationEvent, TraceSpanKind, TraceSpanObservation, WorkItemStatus } from '@/types/domain'
 
 const route = useRoute(); const router = useRouter()
+const context = useAgentOpsContextStore()
 const loading = ref(false); const agent = ref<Agent>(); const activeTab = ref('overview')
 const capabilities = ref<AgentCapability[]>([]); const runtimes = ref<AgentRuntimeInstance[]>([]); const modelEvents = ref<ModelInvocationEvent[]>([]); const spans = ref<TraceSpanObservation[]>([]); const tools = ref<ToolInvocationEvent[]>([]); const content = ref<ContentObservation[]>([]); const knowledge = ref<KnowledgeInteraction[]>([]); const governance = ref<GovernanceDataEvent[]>([]); const tasks = ref<AgentTask[]>([])
 const discoveryAssets = ref<DiscoveredAgentAsset[]>([])
+const agentOpsState = ref<AgentOpsAgentState>()
+const workItems = ref<AgentOpsWorkItem[]>([])
 const agentId = computed(() => Number(route.params.id))
 const tabs = computed(() => [{ key: 'overview', label: '总览', icon: DataAnalysis }, { key: 'runtime', label: '运行与能力', icon: Connection, count: runtimes.value.length }, { key: 'trace', label: 'Trace 观测', icon: Document, count: spans.value.length }, { key: 'models', label: '模型与 Token', icon: Tickets, count: modelEvents.value.length }, { key: 'tools', label: '工具与知识', icon: Tools, count: tools.value.length }, { key: 'governance', label: '治理风险', icon: Lock, count: governance.value.length }, { key: 'identity', label: '身份属性', icon: Collection }])
 const primaryDiscovery = computed(() => discoveryAssets.value[0])
@@ -129,10 +149,31 @@ const modelBreakdown = computed(() => { const map = new Map<string, { model: str
 const tokenTrendOption = computed<EChartsOption>(() => { const rows = [...modelEvents.value].slice(0, 14).reverse(); return { tooltip: { trigger: 'axis' }, grid: { left: 42, right: 16, top: 18, bottom: 28 }, xAxis: { type: 'category', data: rows.map(item => formatTime(item.observedAt)), axisLabel: { color: '#7b8ba3' } }, yAxis: { type: 'value', axisLabel: { color: '#7b8ba3' }, splitLine: { lineStyle: { color: '#e8eef6' } } }, series: [{ type: 'bar', barMaxWidth: 22, data: rows.map(item => item.totalTokens || 0), itemStyle: { color: '#3267e8', borderRadius: [4, 4, 0, 0] } }] } })
 const recentActivity = computed(() => [...modelEvents.value.slice(0, 6).map(item => ({ time: formatDate(item.observedAt), kind: '模型调用', title: `${item.provider} · ${item.modelName}`, detail: `${formatNumber(item.totalTokens)} Token · ${item.latencyMs} ms`, status: modelStatusLabel(item.status), tone: item.status === 'SUCCEEDED' ? 'success' : 'danger' })), ...tools.value.slice(0, 4).map(item => ({ time: formatDate(item.observedAt), kind: item.toolKind === 'MCP' ? 'MCP' : '工具', title: item.toolName, detail: `${item.durationMs} ms · ${item.traceId || '无 Trace'}`, status: toolStatusLabel(item.status), tone: item.status === 'SUCCEEDED' ? 'success' : 'warning' }))].slice(0, 8))
 
-async function load() { loading.value = true; try { const [agents, nextCapabilities, nextRuntimes, nextModels, nextSpans, nextTools, nextContent, nextKnowledge, nextGovernance, nextTasks, nextDiscoveryAssets] = await Promise.all([EapApi.listAgents(), EapApi.listAgentCapabilities(agentId.value), EapApi.listAgentRuntimeInstances(agentId.value), EapApi.listModelInvocationEvents({ agentId: agentId.value, limit: 500 }), EapApi.listTraceSpanObservations({ agentId: agentId.value, limit: 500 }), EapApi.listToolInvocationEvents({ agentId: agentId.value, limit: 500 }), EapApi.listContentObservations({ agentId: agentId.value, limit: 500 }), EapApi.listKnowledgeInteractions(500), EapApi.listGovernanceDataEvents(500), EapApi.listTasks(), EapApi.listManagedAgentDiscoveryAssets(agentId.value)]); agent.value = agents.find(item => item.id === agentId.value); capabilities.value = nextCapabilities; runtimes.value = nextRuntimes; modelEvents.value = nextModels; spans.value = nextSpans; tools.value = nextTools; content.value = nextContent; knowledge.value = nextKnowledge.filter(item => item.agentId === agentId.value); governance.value = nextGovernance.filter(item => item.agentId === agentId.value); tasks.value = nextTasks.filter(item => item.agentId === agentId.value); discoveryAssets.value = nextDiscoveryAssets } finally { loading.value = false } }
+async function load() { loading.value = true; try { const [agents, nextCapabilities, nextRuntimes, nextModels, nextSpans, nextTools, nextContent, nextKnowledge, nextGovernance, nextTasks, nextDiscoveryAssets, nextAgentOpsState, nextWorkItems] = await Promise.all([EapApi.listAgents(), EapApi.listAgentCapabilities(agentId.value), EapApi.listAgentRuntimeInstances(agentId.value), EapApi.listModelInvocationEvents({ agentId: agentId.value, limit: 500 }), EapApi.listTraceSpanObservations({ agentId: agentId.value, limit: 500 }), EapApi.listToolInvocationEvents({ agentId: agentId.value, limit: 500 }), EapApi.listContentObservations({ agentId: agentId.value, limit: 500 }), EapApi.listKnowledgeInteractions(500), EapApi.listGovernanceDataEvents(500), EapApi.listTasks(), EapApi.listManagedAgentDiscoveryAssets(agentId.value), EapApi.getAgentOpsAgent(agentId.value, context.windowHours), EapApi.listAgentOpsWorkItems({ agentId: agentId.value, limit: 100 })]); agent.value = agents.find(item => item.id === agentId.value); capabilities.value = nextCapabilities; runtimes.value = nextRuntimes; modelEvents.value = nextModels; spans.value = nextSpans; tools.value = nextTools; content.value = nextContent; knowledge.value = nextKnowledge.filter(item => item.agentId === agentId.value); governance.value = nextGovernance.filter(item => item.agentId === agentId.value); tasks.value = nextTasks.filter(item => item.agentId === agentId.value); discoveryAssets.value = nextDiscoveryAssets; agentOpsState.value = nextAgentOpsState; workItems.value = nextWorkItems.filter(item => !['RESOLVED', 'CLOSED'].includes(item.status)) } finally { loading.value = false } }
 async function changeStatus(status: 'ACTIVE' | 'PAUSED') { if (!agent.value) return; await EapApi.updateAgentStatus(agent.value.id, status); ElMessage.success(status === 'ACTIVE' ? '智能体已启用' : '智能体已暂停'); await load() }
+async function transitionWorkItem(item: AgentOpsWorkItem, status: WorkItemStatus) {
+  let assignee = item.assignee
+  let reason: string | undefined
+  try {
+    if (status === 'CLAIMED') {
+      const result = await ElMessageBox.prompt('填写本次事项负责人', '认领运营事项', { inputValue: item.assignee || '当前操作员', confirmButtonText: '认领', cancelButtonText: '取消' })
+      assignee = result.value
+    } else if (status === 'RESOLVED') {
+      const result = await ElMessageBox.prompt('说明处置结果和验证方式', '解决运营事项', { inputType: 'textarea', confirmButtonText: '提交', cancelButtonText: '取消' })
+      reason = result.value
+    }
+  } catch {
+    return
+  }
+  await EapApi.transitionAgentOpsWorkItem(item.id, { status, assignee, reason })
+  ElMessage.success('运营事项状态已更新')
+  await load()
+}
+function inspectWorkItem(item: AgentOpsWorkItem) { let evidence = item.evidenceJson || '无结构化证据'; try { evidence = JSON.stringify(JSON.parse(evidence), null, 2) } catch { /* 保留原始证据 */ } void ElMessageBox.alert(`${item.description}\n\n${evidence}`, item.title, { confirmButtonText: '关闭' }) }
+function openAgent(id: number) { if (id !== agentId.value) router.push(`/agents/${id}`) }
 function initials(name: string) { return Array.from(name || 'A').slice(0, 2).join('').toUpperCase() }; function formatNumber(value: number) { return new Intl.NumberFormat('zh-CN').format(value || 0) }; function formatMoney(value: number) { return `$${(value || 0).toFixed(4)}` }; function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—' }; function formatTime(value?: string) { return value ? new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '—' }
 function statusText(status: string) { return ({ DRAFT: '草稿', REVIEWING: '审核中', ACTIVE: '运行中', PAUSED: '已暂停', RETIRED: '已下线', SUCCEEDED: '成功', FAILED: '失败', STARTED: '进行中', CANCELLED: '已取消', RUNNING: '运行中', REQUESTED: '已请求', UNKNOWN: '未知' } as Record<string, string>)[status] || status }; function modelStatusLabel(status: ModelInvocationStatus) { return statusText(status) }; function toolStatusLabel(status: string) { return statusText(status) }; function runtimeStatusLabel(status: RuntimeStatus) { return ({ ONLINE: '在线', DEGRADED: '降级', OFFLINE: '离线' } as Record<string, string>)[status] || status }; function riskText(risk: RiskLevel) { return ({ LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '关键' } as Record<string, string>)[risk] }; function riskType(risk: RiskLevel) { return risk === 'LOW' ? 'success' : risk === 'MEDIUM' ? 'warning' : 'danger' }; function statusType(status: string) { return status === 'ACTIVE' || status === 'SUCCEEDED' || status === 'ONLINE' ? 'success' : status === 'PAUSED' || status === 'DEGRADED' || status === 'STARTED' ? 'warning' : status === 'FAILED' || status === 'CRITICAL' ? 'danger' : 'info' }; function traceKindLabel(kind: TraceSpanKind) { return ({ MODEL: '模型', TOOL: '工具', MCP: 'MCP', RAG: '知识检索', A2A: '智能体协作', AGENT: '智能体' } as Record<string, string>)[kind] || kind }; function traceTone(kind: TraceSpanKind) { return kind === 'MODEL' ? 'primary' : kind === 'TOOL' || kind === 'MCP' ? 'warning' : kind === 'RAG' ? 'success' : 'info' }; function statusLabel(status: string) { return statusText(status) }; function directionLabel(direction: ContentDirection) { return ({ INPUT: '模型输入', OUTPUT: '模型输出', TOOL_INPUT: '工具输入', TOOL_OUTPUT: '工具输出', SYSTEM: '系统信息' } as Record<string, string>)[direction] || direction }; function directionGovernanceLabel(direction: string) { return ({ INPUT_TO_MODEL: '进入大模型', OUTPUT_FROM_MODEL: '模型输出', TOOL_INPUT: '工具输入', TOOL_OUTPUT: '工具输出' } as Record<string, string>)[direction] || direction }; function actionLabel(action: GovernanceDataAction) { return ({ ALLOW: '允许', WARN: '告警', REDACT: '脱敏', BLOCK: '阻断', APPROVAL_REQUIRED: '需审批' } as Record<string, string>)[action] || action }
 function discoverySourceLabel(source: string) { return ({ PROCESS: '运行进程', MANIFEST: '项目清单', CONFIGURATION: '本地配置', SKILL: '智能体技能', PLUGIN: '智能体插件', EXTERNAL: '外部系统', DOCKER: 'Docker 容器', A2A: 'A2A 协议', MCP_REGISTRY: 'MCP 注册中心', KUBERNETES_WATCH: 'Kubernetes 监听', KUBERNETES_ADMISSION: 'Kubernetes 准入', EBPF: 'eBPF 网络观测', HOST_OBSERVER: '跨平台主机观测' } as Record<string, string>)[source] || source }
 onMounted(load)
+watch(() => context.windowHours, load)
 </script>

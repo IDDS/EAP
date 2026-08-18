@@ -119,4 +119,34 @@ class LocalAgentScannerTests {
                     assertThat(item.sourceType()).isEqualTo(DiscoverySourceType.PLUGIN);
                 });
     }
+
+    @Test
+    void recognizesHermesProfilesAndOpenClawPlugins() throws IOException {
+        Path hermes = Files.createDirectories(scanRoot.resolve(".hermes/profiles/research"));
+        Files.writeString(hermes.resolve("config.yaml"), "mcp_servers:\n  browser: {}\nmodel: hermes-agent\n");
+        Path openClaw = Files.createDirectories(scanRoot.resolve(".openclaw/plugins/alerts"));
+        Files.writeString(openClaw.resolve("openclaw.plugin.json"), "{\"name\":\"alerts\",\"version\":\"2.0.0\"}");
+
+        DiscoveryProperties properties = new DiscoveryProperties();
+        properties.setScanRoots(List.of(scanRoot.toString()));
+        properties.setIncludeKnownUserLocations(false);
+        properties.setMaxDepth(8);
+        properties.setMaxFiles(20);
+        properties.setMaxProcesses(0);
+        LocalAgentScanner scanner = new LocalAgentScanner(properties, new ObjectMapper());
+
+        List<DiscoveryEvidence> evidence = scanner.scanFiles();
+
+        assertThat(evidence).filteredOn(item -> item.product().equals("Hermes Agent"))
+                .singleElement().satisfies(item -> {
+            assertThat(item.assetType()).isEqualTo(DiscoveryAssetType.AGENT);
+            assertThat(item.evidence()).containsEntry("agentIdentity",
+                    "profile:" + item.hostName() + ":hermes:research");
+        });
+        assertThat(evidence).filteredOn(item -> item.product().equals("OpenClaw"))
+                .singleElement().satisfies(item -> {
+            assertThat(item.assetType()).isEqualTo(DiscoveryAssetType.AGENT_PLUGIN);
+            assertThat(item.name()).isEqualTo("alerts · OpenClaw");
+        });
+    }
 }

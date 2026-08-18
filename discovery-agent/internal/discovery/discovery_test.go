@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"encoding/json"
+	"github.com/matrix-eap/discovery-agent/internal/protocol"
 	"testing"
 )
 
@@ -41,5 +42,33 @@ func TestShellsAndAdministrativeCommandsAreNotAgentProcesses(t *testing.T) {
 	}
 	if ignoredProcessNames["node"] || ignoredProcessNames["python"] {
 		t.Fatal("agent runtimes must remain eligible for discovery")
+	}
+}
+
+func TestCentralSignatureCatalogRecognizesHermes(t *testing.T) {
+	catalogue := effectiveSignatures([]protocol.AgentSignature{{
+		Product: "Hermes Agent", Vendor: "Nous Research", Framework: "Hermes Agent",
+		ProcessMarkers: []string{"hermes-agent"}, HomeDirectories: []string{".hermes"},
+	}})
+	matched, ok := matchSignature("/opt/hermes-agent/bin/hermes gateway", catalogue)
+	if !ok || matched.Product != "Hermes Agent" {
+		t.Fatalf("unexpected signature %#v, matched=%v", matched, ok)
+	}
+}
+
+func TestProfilesHaveStableDistinctIdentities(t *testing.T) {
+	first := profileIdentity("python /home/alice/.hermes/profiles/research/config.yaml", "host-1")
+	second := profileIdentity("python /home/alice/.hermes/profiles/support/config.yaml", "host-1")
+	if first == second || first != "profile:host-1:hermes:research" || second != "profile:host-1:hermes:support" {
+		t.Fatalf("unexpected identities %q and %q", first, second)
+	}
+}
+
+func TestGenericAgentProcessRequiresExplicitAgentSignal(t *testing.T) {
+	if !looksGenericAgentProcess("python /srv/custom/agent-worker.py") {
+		t.Fatal("expected explicit agent worker to qualify as unknown agent")
+	}
+	if looksGenericAgentProcess("python app.py calling api.openai.com") {
+		t.Fatal("model API flow alone must not qualify as an agent")
 	}
 }
