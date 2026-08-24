@@ -2,7 +2,7 @@
   <section class="page-grid agentops-catalog-page">
     <header class="agentops-page-header">
       <div>
-        <span class="interface-eyebrow">AGENTOPS · FORMAL AGENT DIRECTORY</span>
+        <span class="interface-eyebrow">EAP · FORMAL AGENT DIRECTORY</span>
         <h2>Agent 目录</h2>
         <p>正式 Agent 是唯一主实体；发现记录、端点、运行实例和遥测均作为身份或运行证据关联展示。</p>
       </div>

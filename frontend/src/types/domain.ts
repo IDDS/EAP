@@ -101,6 +101,13 @@ export interface DashboardNetwork {
   stats: NetworkStats
 }
 
+export interface PlatformStatus {
+  securityMode: string
+  controlDispatchEnabled: boolean
+  controlDispatchMode: string
+  generatedAt: string
+}
+
 export interface AgentOpsWorkItem {
   id: number
   itemKey: string
@@ -225,10 +232,14 @@ export interface AgentControlCommand {
   status: ControlCommandStatus
   issuedBy: string
   dispatchMode: string
+  runtimeInstanceKey?: string
+  attemptCount?: number
+  httpStatus?: number
   resultMessage?: string
   createdAt: string
   updatedAt: string
   dispatchedAt?: string
+  acknowledgedAt?: string
 }
 
 export interface AuditLog {

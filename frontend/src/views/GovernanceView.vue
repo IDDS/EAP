@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid governance-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">治理 · 策略</span>

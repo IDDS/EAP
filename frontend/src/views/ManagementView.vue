@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid management-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">管理 · 价值</span>

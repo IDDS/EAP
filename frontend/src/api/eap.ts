@@ -25,6 +25,7 @@ import type {
   ProtocolProbeResponse,
   AuditLog,
   DashboardNetwork,
+  PlatformStatus,
   DashboardSummary,
   DiscoveryResponse,
   GovernancePolicy,
@@ -124,9 +125,12 @@ export const EapApi = {
   }) => postData<AgentOpsWorkItem, typeof payload>(`/agentops/work-items/${id}/transition`, payload),
   getDashboardSummary: () => getData<DashboardSummary>('/dashboard/summary'),
   getDashboardNetwork: () => getData<DashboardNetwork>('/dashboard/network'),
+  getPlatformStatus: () => getData<PlatformStatus>('/platform/status'),
   listControlCommands: () => getData<AgentControlCommand[]>('/control/commands'),
   issueControlCommand: (payload: { agentId: number; commandType: string; payloadJson?: string; issuedBy?: string }) =>
     postData<AgentControlCommand, { agentId: number; commandType: string; payloadJson?: string; issuedBy?: string }>('/control/commands', payload),
+  retryControlCommand: (commandKey: string) =>
+    postData<AgentControlCommand, Record<string, never>>(`/control/commands/${encodeURIComponent(commandKey)}/retry`, {}),
   listAuditLogs: () => getData<AuditLog[]>('/audit-logs'),
   listAgents: () => getData<Agent[]>('/agents'),
   createAgent: (payload: AgentRequest) => postData<Agent, AgentRequest>('/agents', payload),

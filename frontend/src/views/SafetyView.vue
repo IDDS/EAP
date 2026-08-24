@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid safety-page">
     <div class="metric-strip">
       <div v-for="item in metrics" :key="item.label" class="small-box" :class="item.tone">
         <div>

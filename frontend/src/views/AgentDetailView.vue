@@ -75,7 +75,7 @@
     </el-card>
 
     <el-card v-if="agentOpsState" shadow="never" class="panel agentops-detail-axis-panel">
-      <template #header><div class="panel-header"><span>AgentOps 五轴状态</span><EvidenceBadge :basis="agentOpsState.statusBasis" :source="`最近 ${context.windowHours} 小时信号`" /></div></template>
+      <template #header><div class="panel-header"><span>EAP 五轴状态</span><EvidenceBadge :basis="agentOpsState.statusBasis" :source="`最近 ${context.windowHours} 小时信号`" /></div></template>
       <div class="agentops-detail-axis-grid">
         <div><span>生命周期</span><StatusAxis axis="lifecycle" :value="agentOpsState.lifecycleStatus" /></div>
         <div><span>运行健康</span><StatusAxis axis="health" :value="agentOpsState.operationalHealth" /></div>

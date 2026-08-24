@@ -141,9 +141,77 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - eBPF 真实测试产生的候选资产 27/28（测试进程和测试容器触发的网络候选）已通过正式状态 API 标记为 `IGNORED`，未删除证据或修改 Boss 容器。
 - 上线后的最终回归再次由独立测试进程触发 1 条 eBPF connect 事件，service 返回 EAP 成功响应且没有产生新资产；当前 eBPF service `enabled/active`，Host Observer fallback timer 和自动挂接 timer 同样保持 active。
 
+### 2.13 智能体请求内容观测边界与纳管能力（2026-08-21）
+
+- 当前平台已具备针对常见智能体产品、Agent 开发框架、Skill、Plugin、MCP 和 A2A Runtime 的自动发现、身份归并、风险识别和正式纳管能力；已覆盖 Codex、Claude Code、Cursor、Windsurf、Kiro、OpenCode、Amp、Amazon Q、Antigravity、Cline、Roo Code、Gemini CLI、GitHub Copilot、Hermes Agent、OpenClaw，以及 Dify、Flowise、Langflow、LangGraph、LangChain、CrewAI、AutoGen、Semantic Kernel、Mastra、OpenAI Agents SDK 等常见框架/运行时。
+- 自动发现层（进程、路径、配置、容器、Kubernetes、Host Observer、eBPF、协议探测）主要采集资产与运行元数据：进程、端口、工作负载身份、模型/供应商提示、协议、Token/延迟/字节数等；普通网络观测不能解密 HTTPS，也不能直接获得 Prompt、响应正文、API Key 或精确调用级 Token usage。
+- 智能体请求输入和模型输出可以通过受控 EAP 模型网关、每 Agent 的 `eap-content-proxy`、SDK/框架插件或 OTLP GenAI Trace 接入，并与 Agent、Endpoint、Runtime、Trace、Provider、Model、Tool/MCP 关联。统一接口包括 `/api/observability/content`、`/api/observability/otlp/v1/traces` 和 `/api/discovery/v1/agent/content`。
+- 深度内容观测策略为 `OFF`、`HASH_ONLY`、`REDACTED`：`HASH_ONLY` 只保存 SHA-256、大小、Token 估算、敏感级别、治理动作和 Trace 关联；`REDACTED` 只保存脱敏版本，原始正文仅在内存中用于计算哈希，不落库；`OFF` 完全关闭正文观测。默认安全模式为 `HASH_ONLY`。
+- 当前腾讯云演示环境已部署 Discovery Agent 1.5.0，但内容采集仍未启用，内容观测统计为 0 条输入/0 条输出；`eap-content-proxy@helloboss.service` 保持 `disabled/inactive`。启用真实请求内容前必须同时满足中央策略、内容采集授权、受控 TLS/网关或代理接入、机器凭证以及数据分类/保留/出境合规要求。
+- 正式正文读取受权限约束：JWT 模式下仅 `GOVERNANCE_ADMIN` 或 `PLATFORM_ADMIN` 可读取 `/api/observability/content`；生产环境应优先使用 `HASH_ONLY`，如需展示正文必须启用 HTTPS + JWT/OIDC，并由平台管理员与数据负责人完成审批。
+
+### 2.14 首页智能体拓扑恢复与线上发布（2026-08-24）
+
+- AgentOps 首页改版曾移除“智能体网络控制面 / 数据面”拓扑组件，但后端 `/api/dashboard/network` 数据接口仍保留并正常返回数据。
+- 已在 `frontend/src/views/DashboardView.vue` 恢复拓扑画布、控制面/数据面连线、节点拖拽、拓扑统计和控制命令 outbox；新的 AgentOps 行动队列继续保留。
+- 已完成前端构建并仅重建腾讯云 `eap-frontend` 容器；后端、MySQL、Discovery Agent、Host Observer、eBPF 和 HelloBoss 容器未重启或修改。
+- 线上首页已切换到新前端资源；当前拓扑接口返回 4 个控制节点、6 个 Agent 节点、22 条控制边和 2 条数据边。浏览器若仍显示旧页面，需要执行一次强制刷新。
+- 前端新增构建版本 `version.json`、每 60 秒和页面重新可见时的版本探测，以及“检测到 EAP 前端有新版本 / 立即刷新”提示；Nginx 对 `index.html`、`version.json` 禁止缓存，对带 hash 的静态资源启用长期缓存。
+- 用户可见品牌统一为 EAP（顶部“EAP · 企业智能体控制台”、首页/目录/详情 EAP 文案）；`AgentOps` 仅保留为内部 API、类型和实现模块名称，不作为产品名称展示。
+
+### 2.15 功能与界面专项审查（2026-08-24）
+
+- 本地审查与 DeepSeek 脱敏第二意见结论一致：当前版本适合演示，不适合直接试点或生产；主要阻断项为 DEVELOPMENT + HTTP、控制命令仍为 outbox 模拟派发、核心长列表缺少服务端分页，以及模拟/已启用能力在拓扑和控制界面上需要更醒目标识。
+- 前端当前没有 Playwright/Cypress 自动化测试；后端 84 个测试通过，但 Discovery Agent Go 测试尚未在本机执行，应在 CI 或容器中补齐。
+- 后续优先补充：开发模式/模拟数据水印、控制流与数据流启用状态、卡片级错误与重试、拓扑缩放/过滤/聚焦、窄屏导航 tooltip/可访问性、Trace/模型/工具服务端分页和 URL 分区状态。
+- DeepSeek 第二意见只接收了脱敏项目摘要，没有发送源码、数据库内容、企业正文或其他凭证；使用的 API Key 应立即轮换。
+
+### 2.16 演示环境与控制派发状态显式化（2026-08-24）
+
+- 后端新增只读 `/api/platform/status`，仅返回安全模式、控制派发是否启用、派发模式和生成时间，不返回凭证、地址或业务数据；JWT 模式下该端点保持公开，便于前端在认证前展示环境事实。
+- 前端新增全局“开发演示环境”提示：当后端返回 `DEVELOPMENT` 时明确提示当前未启用 JWT，避免把演示实例误认为生产控制台；状态探测失败时不猜测环境。
+- 首页拓扑控制台新增“模拟 outbox / Runtime 派发”标签、模拟派发警告、命令结果说明和最近消息的派发模式；模拟命令成功提示改为“已写入 outbox，尚未触达 Agent”，不再显示为已执行。
+- 拓扑请求失败时保留卡片级错误提示和“重试”入口；拓扑刷新同时刷新环境和控制派发状态。
+
+### 2.17 控制命令闭环界面（2026-08-24）
+
+- 首页最近控制消息现在显示命令状态、派发模式、尝试次数、入队/派发/ACK 时间线和服务端结果说明；模拟 outbox 不再被视觉上当作已执行。
+- 失败命令提供“重新尝试”操作，复用后端已有 `POST /api/control/commands/{commandKey}/retry` 接口；ACK、达到最大尝试次数和模拟派发限制仍由服务端决定。
+- 本轮仅重建腾讯云 `eap-frontend`，后端、MySQL 和控制命令数据未重启或修改；线上控制消息接口、平台状态接口和三个应用容器均回归正常。
+
+### 2.18 拓扑关系视图筛选（2026-08-24）
+
+- 首页拓扑新增“全部关系 / 仅控制面 / 仅数据面 / 有运行证据”筛选；右侧统计同步显示当前视图中的控制边与数据边数量。
+- 增加读图提示，明确数据边是工作流/编排关系，不等于真实网络连接；“有运行证据”用于快速排除 `NO_RUNTIME` 等仅配置关系。
+- 本轮仅重建腾讯云 `eap-frontend`；线上拓扑接口仍正常返回 4/6 节点、22/2 条边，三个应用容器保持运行。
+
+### 2.19 前端信息层级收敛（2026-08-24）
+
+- 首页优先级与证据指标由多个独立卡片改为连续信息带，使用分隔线表达同组指标；运营队列、拓扑和下方入口的外层容器取消强阴影和重复圆角。
+- 全站普通 `panel.el-card` 降低阴影和 hover 变化，减少“卡片套卡片”的视觉噪声；功能内容和表格边界仍保留，避免失去分组和可读性。
+- 本轮仅重建腾讯云 `eap-frontend`；线上平台状态、拓扑接口和三个应用容器回归正常。
+
+### 2.20 详情、目录与发现页分区化（2026-08-24）
+
+- 智能体详情页保留档案主面板，五轴状态、关键指标、运行/Trace/模型/工具/治理/身份内容改为连续分区；同组内容使用分隔线和信息带，不再每块都使用独立阴影卡片。
+- Agent 目录统计改为连续指标带，目录表格外层弱化为工作区；发现与接入页面的主要统计和表格面板同样取消重复阴影与圆角。
+- 本轮仅重建腾讯云 `eap-frontend`；`/`、`/agents`、`/agents/1`、`/registry` 均返回 HTTP 200，平台状态和拓扑接口正常，三个应用容器保持运行。
+
+### 2.21 治理、安全、知识与价值页面分区化（2026-08-24）
+
+- 治理、安全、知识和管理价值页面增加统一页面标识，并将指标组、流程组、图表组和表格组改成连续工作区；外层面板取消重复阴影和圆角，内部表格与表头边界保留。
+- 治理执行统计、知识统计、价值统计和安全指标统一采用信息带；安全流程、知识图表、价值归因等双列区域改为分隔区，移动端自动堆叠。
+- 本轮仅重建腾讯云 `eap-frontend`；`/governance`、`/safety`、`/knowledge`、`/management` 均返回 HTTP 200，平台状态和三个应用容器回归正常。
+
+### 2.22 左侧工作区导航收敛（2026-08-24）
+
+- 左侧原本平铺的多组导航改为一个可折叠工作区菜单：总览与拓扑、智能体中心、运行与观测、治理与响应、成本与价值、编排与学习。
+- 当前路由会自动展开所属工作区，其他分组保持收起；侧栏折叠时使用工作区图标，保留路由导航能力。
+- 本轮仅重建腾讯云 `eap-frontend`；主要路由 HTTP 200，`eap-frontend`、`eap-backend`、`eap-mysql` 均保持运行。
+
 ## 3. 最近验证基线
 
-- 后端测试：`mvn -q -f backend/pom.xml package`，69 tests，0 failures，0 errors。
+- 后端测试：`mvn -q test`，84 tests，0 failures，0 errors；后端 JAR 已用于腾讯云演示环境重建。
 - 前端构建：`npm run build` 通过，Vue TypeScript 检查和 Vite 构建成功。
 - 全站 SOC 改版后前端构建：`npm run build` 通过（Vite 6.4.3，TypeScript 检查通过）。
 - 腾讯云部署后的 `eap-backend` 与 `eap-mysql` 健康检查均为 healthy，`eap-frontend` 正常运行并映射 `8091:80`。
@@ -161,6 +229,9 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - LiteLLM 注入器在 HelloBoss 真实镜像中完成注册验证，确认是 LiteLLM `CustomLogger` 实例；Python 单元测试、语法检查、Go 自动挂接/内容入口测试均通过。
 - 共享 Key 对账 API 在远端返回成功；当前尚未导入真实供应商快照，因此用量池数量为 0，这是预期的未配置状态。
 - 前端主要路由 `/`、`/agents`、`/agents/:id`、`/physical`、`/registry`、`/knowledge`、`/management`、`/governance` 返回 HTTP 200。
+- 2026-08-24 线上前端仅重建 `eap-frontend` 后健康运行，新首页资源 `index-PNW0A9iJ.js` 已加载，`/api/dashboard/network` 返回 4/6 节点、22/2 边统计。
+- 2026-08-24 线上后端新增 `/api/platform/status` 并完成前后端重建；接口确认 `DEVELOPMENT`、`CONTROL_PLANE_OUTBOX`、派发未启用，前端已展示开发演示环境和模拟控制状态，拓扑请求失败时提供卡片级重试。
+- 2026-08-24 修复左侧工作区导航首次点击无页面响应：工作区标题现在直接跳转到对应首页，右侧箭头仍可展开子项；前端构建通过并仅重建 `eap-frontend`，后端与 MySQL 未变更。
 - 隔离 OTLP 验证已确认 Tool Span 能归因到 Agent，并生成工具调用、输入/输出观测和 Trace 关联记录。
 - Agent-centric 详情工作台已完成一次实例链路验收：对 `fin-analyst-local-1` 发送在线心跳并更新负载为 42%，通过 OTLP JSON 上报一条包含模型、工具、MCP、RAG 的 Trace；平台实际生成 1 条模型调用（900 Token）、4 个 Span、2 条工具/MCP 调用、8 条输入输出观测、1 条知识交互和 1 条治理事件，前端代理按 `agentId=1` 均可读取。该验证覆盖“实例心跳 → OTLP 归因 → 详情页数据读取”，但 `http://fin-agent.local:9001` 仍是注册测试地址，不代表真实外部 Agent 进程已执行任务。
 

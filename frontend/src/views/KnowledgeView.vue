@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid knowledge-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">知识 · 追踪</span>

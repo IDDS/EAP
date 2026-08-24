@@ -1,9 +1,23 @@
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+function buildVersionPlugin(): Plugin {
+  return {
+    name: 'eap-build-version',
+    generateBundle() {
+      const buildId = new Date().toISOString()
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ buildId, builtAt: buildId }),
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), buildVersionPlugin()],
   build: {
     chunkSizeWarningLimit: 1000,
     rollupOptions: {

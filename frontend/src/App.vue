@@ -10,79 +10,66 @@
         <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <div class="nav-section"><span class="nav-section-index">01</span>运营工作台</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/">
-          <el-icon><DataBoard /></el-icon>
-          <span>行动队列</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">02</span>资产与接入</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/agents">
-          <el-icon><Cpu /></el-icon>
-          <span>Agent 目录</span>
-        </el-menu-item>
-        <el-menu-item index="/registry">
-          <el-icon><Search /></el-icon>
-          <span>发现与接入</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">03</span>运行与观测</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/physical">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>运行与遥测</span>
-        </el-menu-item>
-        <el-menu-item index="/knowledge">
-          <el-icon><Collection /></el-icon>
-          <span>知识流转</span>
-        </el-menu-item>
-        <el-menu-item index="/operations">
-          <el-icon><Monitor /></el-icon>
-          <span>任务运行</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">04</span>治理与安全</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/governance">
-          <el-icon><ScaleToOriginal /></el-icon>
-          <span>策略与审批</span>
-        </el-menu-item>
-        <el-menu-item index="/safety">
-          <el-icon><Connection /></el-icon>
-          <span>安全响应</span>
-        </el-menu-item>
-        <el-menu-item index="/ethics">
-          <el-icon><Lock /></el-icon>
-          <span>责任与伦理</span>
-        </el-menu-item>
-        <el-menu-item index="/audit">
-          <el-icon><DocumentChecked /></el-icon>
-          <span>审计日志</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">05</span>成本与价值</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/management">
-          <el-icon><Money /></el-icon>
-          <span>成本与价值</span>
-        </el-menu-item>
-        </el-menu>
-        <div class="nav-section"><span class="nav-section-index">06</span>自动化</div>
-        <el-menu router :default-active="navActivePath" class="nav-menu">
-        <el-menu-item index="/orchestration">
-          <el-icon><Connection /></el-icon>
-          <span>Agent 团队</span>
-        </el-menu-item>
-        <el-menu-item index="/workflow-builder">
-          <el-icon><Share /></el-icon>
-          <span>工作流自动化</span>
-        </el-menu-item>
-        <el-menu-item index="/learning">
-          <el-icon><TrendCharts /></el-icon>
-          <span>自适应学习</span>
-        </el-menu-item>
+        <el-menu
+          ref="navMenuRef"
+          router
+          :collapse="sidebarCollapsed"
+          :default-active="navActivePath"
+          :default-openeds="navOpenGroups"
+          class="nav-menu nav-menu-workspaces"
+        >
+          <el-menu-item index="/">
+            <el-icon><DataBoard /></el-icon>
+            <span>总览与拓扑</span>
+          </el-menu-item>
+          <el-sub-menu index="workspace-agents">
+            <template #title>
+              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-agents', '/agents')">
+                <el-icon><Cpu /></el-icon><span>智能体中心</span>
+              </span>
+            </template>
+            <el-menu-item index="/agents">智能体目录</el-menu-item>
+            <el-menu-item index="/registry">发现与接入</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="workspace-observe">
+            <template #title>
+              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-observe', '/physical')">
+                <el-icon><DataAnalysis /></el-icon><span>运行与观测</span>
+              </span>
+            </template>
+            <el-menu-item index="/physical">运行与遥测</el-menu-item>
+            <el-menu-item index="/knowledge">知识流转</el-menu-item>
+            <el-menu-item index="/operations">任务运行</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="workspace-governance">
+            <template #title>
+              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-governance', '/governance')">
+                <el-icon><ScaleToOriginal /></el-icon><span>治理与响应</span>
+              </span>
+            </template>
+            <el-menu-item index="/governance">策略与审批</el-menu-item>
+            <el-menu-item index="/safety">安全响应</el-menu-item>
+            <el-menu-item index="/ethics">责任与伦理</el-menu-item>
+            <el-menu-item index="/audit">审计日志</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="workspace-value">
+            <template #title>
+              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-value', '/management')">
+                <el-icon><Money /></el-icon><span>成本与价值</span>
+              </span>
+            </template>
+            <el-menu-item index="/management">成本与价值</el-menu-item>
+          </el-sub-menu>
+          <el-sub-menu index="workspace-orchestration">
+            <template #title>
+              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-orchestration', '/orchestration')">
+                <el-icon><Connection /></el-icon><span>编排与学习</span>
+              </span>
+            </template>
+            <el-menu-item index="/orchestration">Agent 团队</el-menu-item>
+            <el-menu-item index="/workflow-builder">工作流自动化</el-menu-item>
+            <el-menu-item index="/learning">自适应学习</el-menu-item>
+          </el-sub-menu>
         </el-menu>
       </div>
       <div class="sidebar-status">
@@ -98,7 +85,7 @@
       <el-header class="topbar">
         <div class="topbar-title">
           <div class="breadcrumb-line">
-            <span class="topbar-kicker">EAP · AgentOps 控制台</span>
+            <span class="topbar-kicker">EAP · 企业智能体控制台</span>
             <span class="breadcrumb-separator">/</span>
             <span>{{ agentOpsContext.scopeLabel }} · {{ agentOpsContext.windowLabel }}</span>
           </div>
@@ -163,6 +150,20 @@
     </el-container>
   </el-container>
 
+  <div v-if="platformStatus?.securityMode === 'DEVELOPMENT'" class="app-environment-banner" role="status">
+    <span class="app-environment-dot"></span>
+    <span><strong>开发演示环境</strong> · 当前接口未启用 JWT 认证，请勿接入生产数据</span>
+  </div>
+  <div v-else-if="platformStatusLoading" class="app-environment-banner app-environment-banner-muted" role="status">
+    <span class="app-environment-dot"></span>
+    <span>正在确认 EAP 运行环境…</span>
+  </div>
+
+  <div v-if="updateAvailable" class="app-update-banner" role="status">
+    <span>检测到 EAP 前端有新版本</span>
+    <el-button type="primary" size="small" @click="reloadForUpdate">立即刷新</el-button>
+  </div>
+
   <el-dialog v-model="authDialogVisible" title="企业身份认证" width="520px">
     <el-alert
       type="info"
@@ -212,12 +213,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowRight, Collection, Connection, Cpu, DataAnalysis, DataBoard, DocumentChecked, Expand, Fold, Lock, Money, Monitor, ScaleToOriginal, Search, Share, TrendCharts } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Connection, Cpu, DataAnalysis, DataBoard, Expand, Fold, Money, ScaleToOriginal, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
 import { useAgentOpsContextStore } from '@/stores/agentOps'
-import type { Agent, DiscoveredAgentAsset, GovernancePolicy } from '@/types/domain'
+import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
 
 type GlobalSearchResult = {
   type: string
@@ -254,10 +255,30 @@ const fontScale = ref<FontScale>(
 )
 let searchRequestId = 0
 let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined
+let buildVersion = ''
+let versionCheckTimer: number | undefined
+let versionCheckInFlight = false
+const updateAvailable = ref(false)
+const platformStatus = ref<PlatformStatus>()
+const platformStatusLoading = ref(true)
 
 const router = useRouter()
+const navMenuRef = ref<{ open: (index: string) => void } | null>(null)
 const navActivePath = computed(() => route.path.startsWith('/agents/') ? '/agents' : route.path)
+const navOpenGroups = computed(() => {
+  const path = route.path
+  if (path.startsWith('/agents') || path === '/registry') return ['workspace-agents']
+  if (['/physical', '/knowledge', '/operations'].includes(path)) return ['workspace-observe']
+  if (['/governance', '/safety', '/ethics', '/audit'].includes(path)) return ['workspace-governance']
+  if (path === '/management') return ['workspace-value']
+  if (['/orchestration', '/workflow-builder', '/learning'].includes(path)) return ['workspace-orchestration']
+  return []
+})
 const currentFontScaleLabel = computed(() => fontScaleOptions.find(option => option.value === fontScale.value)?.label || '舒适')
+
+function openWorkspace(index: string, path: string) {
+  void router.push(path).then(() => navMenuRef.value?.open(index))
+}
 
 function setFontScale(value: FontScale) {
   fontScale.value = value
@@ -379,12 +400,54 @@ function selectSearchResult(result: GlobalSearchResult) {
   router.push({ path: result.path, query: result.query })
 }
 
+async function checkForBuildUpdate() {
+  if (versionCheckInFlight) return
+  versionCheckInFlight = true
+  try {
+    const response = await fetch(`/version.json?check=${Date.now()}`, { cache: 'no-store' })
+    if (!response.ok) return
+    const payload = await response.json() as { buildId?: string }
+    if (!payload.buildId) return
+    if (!buildVersion) buildVersion = payload.buildId
+    else if (payload.buildId !== buildVersion) updateAvailable.value = true
+  } catch {
+    // 版本探测失败不影响业务页面和 API 请求。
+  } finally {
+    versionCheckInFlight = false
+  }
+}
+
+async function loadPlatformStatus() {
+  platformStatusLoading.value = true
+  try {
+    platformStatus.value = await EapApi.getPlatformStatus()
+  } catch {
+    // 状态端点不可用时不猜测环境，业务页面仍可继续使用。
+  } finally {
+    platformStatusLoading.value = false
+  }
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden) void checkForBuildUpdate()
+}
+
+function reloadForUpdate() {
+  window.location.reload()
+}
+
 onMounted(() => {
   setFontScale(fontScale.value)
   window.addEventListener('eap-auth-required', requireAuthentication)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  void checkForBuildUpdate()
+  void loadPlatformStatus()
+  versionCheckTimer = window.setInterval(() => void checkForBuildUpdate(), 60_000)
 })
 onBeforeUnmount(() => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   window.removeEventListener('eap-auth-required', requireAuthentication)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (versionCheckTimer) window.clearInterval(versionCheckTimer)
 })
 </script>

@@ -2,7 +2,7 @@
   <section class="page-grid agentops-workbench" v-loading="loading">
     <header class="agentops-page-header">
       <div>
-        <span class="interface-eyebrow">AGENTOPS · ACTION WORKBENCH</span>
+        <span class="interface-eyebrow">EAP · ACTION WORKBENCH</span>
         <h2>运营工作台</h2>
         <p>优先处理影响运行、身份、治理和观测完整性的事项。所有数字均显示证据基础与时间窗口。</p>
       </div>
@@ -12,7 +12,7 @@
       </div>
     </header>
 
-    <el-alert v-if="dashboard.demoDataIncluded" type="warning" :closable="false" show-icon title="当前为开发模式：页面包含明确标记的演示 Agent；JWT 生产模式会从 AgentOps 主视图排除这些记录。" />
+    <el-alert v-if="dashboard.demoDataIncluded" type="warning" :closable="false" show-icon title="当前为开发模式：页面包含明确标记的演示 Agent；JWT 生产模式会从 EAP 主视图排除这些记录。" />
 
     <div class="workbench-priority-strip">
       <button class="priority-cell priority-critical" type="button" @click="applySeverity('P0')">
@@ -36,6 +36,165 @@
         <small>{{ metric.source }} · {{ metric.measuredAt ? formatDate(metric.measuredAt) : '尚无观测时间' }}</small>
       </article>
     </div>
+
+    <el-card shadow="never" class="panel topology-panel">
+      <template #header>
+        <div class="panel-header">
+          <span>智能体网络控制面 / 数据面</span>
+          <div class="plane-legend">
+            <span><i class="legend-control" />控制面</span>
+            <span><i class="legend-data" />数据面</span>
+            <el-select v-model="networkViewMode" size="small" class="network-view-select" aria-label="拓扑关系视图">
+              <el-option label="全部关系" value="ALL" />
+              <el-option label="仅控制面" value="CONTROL" />
+              <el-option label="仅数据面" value="DATA" />
+              <el-option label="有运行证据" value="EVIDENCE" />
+            </el-select>
+            <el-button text :icon="Refresh" :loading="networkLoading" @click="loadNetwork">刷新拓扑</el-button>
+          </div>
+        </div>
+      </template>
+      <el-alert
+        v-if="networkError"
+        class="topology-error-alert"
+        type="error"
+        :closable="false"
+        show-icon
+      >
+        <template #default>
+          <span>{{ networkError }}</span>
+          <el-button link type="danger" :loading="networkLoading" @click="loadNetwork">重试</el-button>
+        </template>
+      </el-alert>
+      <div class="network-workbench">
+        <div
+          ref="networkCanvasRef"
+          class="network-canvas"
+          @mousemove="moveNetworkNode"
+          @mouseup="stopNetworkDrag"
+          @mouseleave="stopNetworkDrag"
+        >
+          <svg class="network-lines" viewBox="0 0 1040 620" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker id="arrow-control" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#2563eb" />
+              </marker>
+              <marker id="arrow-data" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#16a34a" />
+              </marker>
+            </defs>
+            <line
+              v-for="edge in networkEdges"
+              :key="edge.id"
+              :x1="edge.x1"
+              :y1="edge.y1"
+              :x2="edge.x2"
+              :y2="edge.y2"
+              :class="['network-edge', edge.plane.toLowerCase()]"
+              :marker-end="edge.plane === 'CONTROL' ? 'url(#arrow-control)' : 'url(#arrow-data)'"
+            />
+            <text
+              v-for="edge in networkEdges"
+              :key="`${edge.id}-label`"
+              :x="edge.labelX"
+              :y="edge.labelY"
+              :class="['network-edge-label', edge.plane.toLowerCase()]"
+            >
+              {{ edge.label }}
+            </text>
+          </svg>
+          <button
+            v-for="node in network.nodes"
+            :key="node.id"
+            type="button"
+            class="network-node"
+            :class="[node.plane.toLowerCase(), { selected: selectedNetworkNode?.id === node.id, dragging: draggingNodeId === node.id }]"
+            :style="{ left: `${node.x}px`, top: `${node.y}px` }"
+            @mousedown.stop="startNetworkDrag(node, $event)"
+            @click="selectNetworkNode(node)"
+          >
+            <span>{{ node.nodeType }}</span>
+            <strong>{{ node.label }}</strong>
+            <em>{{ node.status }} · {{ node.metric }}</em>
+          </button>
+          <el-empty v-if="!networkLoading && !network.nodes.length" description="暂无拓扑数据" :image-size="64" />
+        </div>
+
+        <aside class="network-side">
+          <div class="network-stat-grid">
+            <div><span>控制节点</span><strong>{{ network.stats.controlNodeCount }}</strong></div>
+            <div><span>Agent 节点</span><strong>{{ network.stats.agentNodeCount }}</strong></div>
+            <div><span>控制边 · 当前视图</span><strong>{{ visibleControlEdgeCount }}</strong></div>
+            <div><span>数据边 · 当前视图</span><strong>{{ visibleDataEdgeCount }}</strong></div>
+          </div>
+
+          <div class="network-interpretation-note">
+            <strong>读图提示</strong>
+            <span>数据边表示工作流/编排关系，不等于真实网络连接；“有运行证据”仅保留当前有在线、活动或可派发证据的关系。</span>
+          </div>
+
+          <div class="control-console">
+            <div class="control-console-heading">
+              <strong>控制命令</strong>
+              <el-tag size="small" :type="controlDispatchEnabled ? 'success' : 'warning'">
+                {{ controlDispatchEnabled ? 'Runtime 派发' : '模拟 outbox' }}
+              </el-tag>
+            </div>
+            <el-alert
+              v-if="platformStatus && !platformStatus.controlDispatchEnabled"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="当前命令只写入 EAP outbox，不会触达真实 Agent Runtime。"
+            />
+            <span v-else-if="!platformStatus" class="muted">正在确认控制派发状态；提交结果以服务端返回为准。</span>
+            <span v-else class="muted">控制面向选中的 Agent Runtime 下发命令，需等待 ACK 才算执行完成。</span>
+            <el-select v-model="commandForm.agentId" placeholder="选择 Agent">
+              <el-option
+                v-for="node in agentNodes"
+                :key="node.id"
+                :label="node.label"
+                :value="Number(node.id.replace('agent:', ''))"
+              />
+            </el-select>
+            <el-select v-model="commandForm.commandType">
+              <el-option v-for="command in commandTypes" :key="command" :label="command" :value="command" />
+            </el-select>
+            <el-input v-model="commandForm.payloadJson" type="textarea" :rows="3" />
+            <el-button type="primary" :icon="Connection" :disabled="!commandForm.agentId" :loading="commandLoading" @click="issueCommand">下发控制命令</el-button>
+          </div>
+
+          <div class="command-log">
+            <div class="panel-header compact">
+              <span>最近控制消息</span>
+              <el-button text :icon="Refresh" @click="loadNetwork">刷新</el-button>
+            </div>
+            <div v-for="command in commands" :key="command.id" class="command-log-item">
+              <div class="command-log-title">
+                <strong>{{ command.commandType }}</strong>
+                <div class="command-log-badges">
+                  <el-tag size="small" :type="commandStatusType(command.status)">{{ commandStatusLabel(command.status) }}</el-tag>
+                  <el-tag size="small" :type="command.dispatchMode === 'CONTROL_PLANE_OUTBOX' ? 'warning' : 'success'">
+                    {{ commandDispatchLabel(command.dispatchMode) }}
+                  </el-tag>
+                </div>
+              </div>
+              <div class="command-status-timeline" :aria-label="`命令 ${command.commandKey} 状态时间线`">
+                <span class="command-status-step is-done"><i />已入队<small>{{ formatDate(command.createdAt) }}</small></span>
+                <span :class="['command-status-step', command.dispatchedAt ? 'is-done' : command.status === 'FAILED' ? 'is-failed' : 'is-pending']"><i />已派发<small>{{ command.dispatchedAt ? formatDate(command.dispatchedAt) : '未发生' }}</small></span>
+                <span :class="['command-status-step', command.status === 'ACKED' ? 'is-done' : command.status === 'FAILED' ? 'is-failed' : 'is-pending']"><i />ACK<small>{{ command.acknowledgedAt ? formatDate(command.acknowledgedAt) : '未确认' }}</small></span>
+              </div>
+              <span>{{ command.commandKey }} · Agent {{ command.agentId }} · 尝试 {{ command.attemptCount ?? 0 }} 次</span>
+              <small v-if="command.resultMessage">{{ command.resultMessage }}</small>
+              <div v-if="command.status === 'FAILED'" class="command-log-actions">
+                <el-button size="small" type="warning" plain :loading="retryingCommandKey === command.commandKey" @click="retryCommand(command)">重新尝试</el-button>
+              </div>
+            </div>
+            <el-empty v-if="!commands.length" description="暂无控制消息" :image-size="48" />
+          </div>
+        </aside>
+      </div>
+    </el-card>
 
     <el-card shadow="never" class="panel workbench-queue-panel">
       <template #header>
@@ -121,18 +280,24 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { ArrowRight, Connection, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import EvidenceBadge from '@/components/EvidenceBadge.vue'
 import StatusAxis from '@/components/StatusAxis.vue'
 import WorkItemTable from '@/components/WorkItemTable.vue'
 import { EapApi } from '@/api/eap'
 import { useAgentOpsContextStore } from '@/stores/agentOps'
-import type { AgentOpsDashboard, AgentOpsWorkItem, WorkItemSeverity, WorkItemStatus } from '@/types/domain'
+import type { AgentControlCommand, AgentOpsDashboard, AgentOpsWorkItem, DashboardNetwork, NetworkNode, PlatformStatus, WorkItemSeverity, WorkItemStatus } from '@/types/domain'
+
+type NetworkViewMode = 'ALL' | 'CONTROL' | 'DATA' | 'EVIDENCE'
 
 const router = useRouter()
 const context = useAgentOpsContextStore()
 const loading = ref(false)
+const networkLoading = ref(false)
+const networkError = ref('')
+const commandLoading = ref(false)
+const retryingCommandKey = ref('')
 const transitioning = ref(false)
 const severityFilter = ref<WorkItemSeverity>()
 const showOverdueOnly = ref(false)
@@ -148,6 +313,25 @@ const dashboard = ref<AgentOpsDashboard>({
   workItems: { totalOpen: 0, p0: 0, p1: 0, p2: 0, p3: 0, overdue: 0 },
   metrics: [], priorityWorkItems: [], attentionAgents: [], demoDataIncluded: false, generatedAt: '',
 })
+const network = ref<DashboardNetwork>({
+  nodes: [],
+  edges: [],
+  stats: { controlNodeCount: 0, agentNodeCount: 0, controlEdgeCount: 0, dataEdgeCount: 0 },
+})
+const commands = ref<AgentControlCommand[]>([])
+const platformStatus = ref<PlatformStatus>()
+const selectedNetworkNode = ref<NetworkNode>()
+const networkCanvasRef = ref<HTMLElement>()
+const draggingNodeId = ref<string>()
+const dragOffset = ref({ x: 0, y: 0 })
+const draggedDuringMove = ref(false)
+const commandForm = ref({
+  agentId: undefined as number | undefined,
+  commandType: 'RUN_HEALTH_CHECK',
+  payloadJson: '{"reason":"operator_request"}',
+})
+const commandTypes = ['RUN_HEALTH_CHECK', 'RELOAD_POLICY', 'PAUSE', 'RESUME', 'UPDATE_CONFIG', 'SET_RATE_LIMIT']
+const networkViewMode = ref<NetworkViewMode>('ALL')
 
 const lifecycleEntries = [
   { index: '01', title: '资产与身份', description: '复核发现资产并纳入 Agent 目录', path: '/registry' },
@@ -161,11 +345,36 @@ const filteredWorkItems = computed(() => dashboard.value.priorityWorkItems.filte
   (!severityFilter.value || item.severity === severityFilter.value) && (!showOverdueOnly.value || item.overdue),
 ))
 const queueCaption = computed(() => `${filteredWorkItems.value.length} / ${dashboard.value.workItems.totalOpen} 项 · 生成于 ${formatDate(dashboard.value.generatedAt)}`)
+const nodeMap = computed(() => new Map(network.value.nodes.map((node) => [node.id, node])))
+const visibleNetworkEdges = computed(() => network.value.edges.filter((edge) => {
+  if (networkViewMode.value === 'CONTROL') return edge.plane === 'CONTROL'
+  if (networkViewMode.value === 'DATA') return edge.plane === 'DATA'
+  if (networkViewMode.value === 'EVIDENCE') return ['ACTIVE', 'ONLINE', 'READY', 'ACKED'].includes(edge.status)
+  return true
+}))
+const visibleControlEdgeCount = computed(() => visibleNetworkEdges.value.filter((edge) => edge.plane === 'CONTROL').length)
+const visibleDataEdgeCount = computed(() => visibleNetworkEdges.value.filter((edge) => edge.plane === 'DATA').length)
+const networkEdges = computed(() => visibleNetworkEdges.value.map((edge) => {
+  const source = nodeMap.value.get(edge.source)
+  const target = nodeMap.value.get(edge.target)
+  if (!source || !target) return undefined
+  return {
+    ...edge,
+    x1: source.x + 86,
+    y1: source.y + 38,
+    x2: target.x + 86,
+    y2: target.y + 38,
+    labelX: (source.x + target.x) / 2 + 86,
+    labelY: (source.y + target.y) / 2 + 30,
+  }
+}).filter((edge): edge is NonNullable<typeof edge> => Boolean(edge)))
+const agentNodes = computed(() => network.value.nodes.filter((node) => node.nodeType === 'AGENT'))
 const formattedEvidence = computed(() => {
   if (!selectedWorkItem.value?.evidenceJson) return '无结构化源证据'
   try { return JSON.stringify(JSON.parse(selectedWorkItem.value.evidenceJson), null, 2) } catch { return selectedWorkItem.value.evidenceJson }
 })
 const transitionTitle = computed(() => targetStatus.value === 'CLAIMED' ? '认领运营事项' : targetStatus.value === 'IN_PROGRESS' ? '开始处理' : '提交解决结果')
+const controlDispatchEnabled = computed(() => platformStatus.value?.controlDispatchEnabled === true)
 
 async function load() {
   loading.value = true
@@ -177,6 +386,81 @@ async function load() {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '运营工作台加载失败')
   } finally { loading.value = false }
+}
+
+async function loadNetwork() {
+  networkLoading.value = true
+  networkError.value = ''
+  try {
+    const [nextNetwork, nextCommands, nextPlatformStatus] = await Promise.all([
+      EapApi.getDashboardNetwork(),
+      EapApi.listControlCommands(),
+      EapApi.getPlatformStatus().catch(() => undefined),
+    ])
+    network.value = nextNetwork
+    commands.value = nextCommands
+    platformStatus.value = nextPlatformStatus
+  } catch (error) {
+    networkError.value = error instanceof Error ? error.message : '智能体拓扑或控制状态加载失败'
+  } finally { networkLoading.value = false }
+}
+
+function selectNetworkNode(node: NetworkNode) {
+  if (draggedDuringMove.value) { draggedDuringMove.value = false; return }
+  selectedNetworkNode.value = node
+  if (node.nodeType === 'AGENT') commandForm.value.agentId = Number(node.id.replace('agent:', ''))
+}
+
+function startNetworkDrag(node: NetworkNode, event: MouseEvent) {
+  draggingNodeId.value = node.id
+  draggedDuringMove.value = false
+  dragOffset.value = { x: event.offsetX, y: event.offsetY }
+  selectedNetworkNode.value = node
+  if (node.nodeType === 'AGENT') commandForm.value.agentId = Number(node.id.replace('agent:', ''))
+}
+
+function moveNetworkNode(event: MouseEvent) {
+  if (!draggingNodeId.value || !networkCanvasRef.value) return
+  const node = network.value.nodes.find((item) => item.id === draggingNodeId.value)
+  if (!node) return
+  const rect = networkCanvasRef.value.getBoundingClientRect()
+  draggedDuringMove.value = true
+  node.x = Math.min(860, Math.max(12, Math.round(event.clientX - rect.left + networkCanvasRef.value.scrollLeft - dragOffset.value.x)))
+  node.y = Math.min(530, Math.max(12, Math.round(event.clientY - rect.top + networkCanvasRef.value.scrollTop - dragOffset.value.y)))
+}
+
+function stopNetworkDrag() { draggingNodeId.value = undefined }
+
+async function issueCommand() {
+  if (!commandForm.value.agentId) return
+  commandLoading.value = true
+  try {
+    const command = await EapApi.issueControlCommand({
+      agentId: commandForm.value.agentId,
+      commandType: commandForm.value.commandType,
+      payloadJson: commandForm.value.payloadJson,
+      issuedBy: 'platform-admin',
+    })
+    await loadNetwork()
+    ElMessage.success(command.dispatchMode === 'CONTROL_PLANE_OUTBOX'
+      ? '命令已写入模拟 outbox，尚未触达 Agent'
+      : '命令已提交到 Agent Runtime，等待 ACK')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '控制命令下发失败')
+  } finally { commandLoading.value = false }
+}
+
+async function retryCommand(command: AgentControlCommand) {
+  retryingCommandKey.value = command.commandKey
+  try {
+    const retried = await EapApi.retryControlCommand(command.commandKey)
+    await loadNetwork()
+    ElMessage.success(retried.dispatchMode === 'CONTROL_PLANE_OUTBOX'
+      ? '命令已重新写入模拟 outbox'
+      : '命令已重新提交到 Agent Runtime')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '控制命令重试失败')
+  } finally { retryingCommandKey.value = '' }
 }
 
 function applySeverity(value: WorkItemSeverity) { severityFilter.value = severityFilter.value === value ? undefined : value }
@@ -213,7 +497,10 @@ function formatNumber(value: number) { return new Intl.NumberFormat('zh-CN').for
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—' }
 function freshnessLabel(value: string) { return ({ FRESH: '新鲜', AGING: '临近过期', STALE: '已过期', NO_DATA: '无数据' } as Record<string, string>)[value] || value }
 function workItemStatusLabel(value: WorkItemStatus) { return ({ OPEN: '待处理', CLAIMED: '已认领', IN_PROGRESS: '处理中', WAITING: '等待中', RESOLVED: '已解决', CLOSED: '已关闭' } as Record<WorkItemStatus, string>)[value] }
+function commandDispatchLabel(value: string) { return value === 'CONTROL_PLANE_OUTBOX' ? '模拟 outbox' : value === 'HTTP_RUNTIME' ? 'Runtime' : value }
+function commandStatusLabel(value: AgentControlCommand['status']) { return ({ QUEUED: '已入队', DISPATCHED: '已派发', ACKED: '已确认', FAILED: '失败' } as Record<AgentControlCommand['status'], string>)[value] }
+function commandStatusType(value: AgentControlCommand['status']) { return ({ QUEUED: 'info', DISPATCHED: 'primary', ACKED: 'success', FAILED: 'danger' } as Record<AgentControlCommand['status'], 'info' | 'primary' | 'success' | 'danger'>)[value] }
 
 watch(() => [context.windowHours, context.organizationScope], load)
-onMounted(load)
+onMounted(() => { void Promise.all([load(), loadNetwork()]) })
 </script>
