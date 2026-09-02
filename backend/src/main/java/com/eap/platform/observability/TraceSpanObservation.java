@@ -80,7 +80,16 @@ public class TraceSpanObservation {
         createdAt = now;
     }
 
+    public Long getId() { return id; }
     public Long getAgentId() { return agentId; }
+    public String getTraceId() { return traceId; }
+    public String getSpanId() { return spanId; }
+    public String getSpanName() { return spanName; }
+    public String getParentSpanId() { return parentSpanId; }
+    public TraceSpanKind getSpanKind() { return spanKind; }
+    public String getStatus() { return status; }
+    public Long getDurationMs() { return durationMs; }
+    public String getAttributesJson() { return attributesJson; }
     public String getEndpointKey() { return endpointKey; }
     public Instant getObservedAt() { return observedAt; }
 }

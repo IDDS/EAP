@@ -10,6 +10,11 @@ import com.eap.platform.audit.AuditLogRepository;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.common.TraceContext;
 import com.eap.platform.config.SecurityProperties;
+import com.eap.platform.evaluation.EvaluationResult;
+import com.eap.platform.evaluation.EvaluationResultRepository;
+import com.eap.platform.evaluation.EvaluationStatus;
+import com.eap.platform.evaluation.EvaluatorDefinition;
+import com.eap.platform.evaluation.EvaluatorDefinitionRepository;
 import com.eap.platform.discovery.DiscoveredAgent;
 import com.eap.platform.discovery.DiscoveredAgentRepository;
 import com.eap.platform.discovery.DiscoveryAssetStatus;
@@ -52,7 +57,7 @@ public class WorkItemService {
             WorkItemType.DISCOVERY_REVIEW, WorkItemType.OWNER_ASSIGNMENT, WorkItemType.IDENTITY_REVIEW,
             WorkItemType.PROBE_OFFLINE, WorkItemType.RUNTIME_DEGRADED, WorkItemType.RUNTIME_OFFLINE,
             WorkItemType.SECURITY_RISK, WorkItemType.GOVERNANCE_APPROVAL, WorkItemType.CONNECTOR_FAILURE,
-            WorkItemType.OBSERVABILITY_GAP);
+            WorkItemType.OBSERVABILITY_GAP, WorkItemType.EVALUATION_FAILURE);
 
     private final AgentWorkItemRepository repository;
     private final AgentWorkItemEventRepository eventRepository;
@@ -63,6 +68,8 @@ public class WorkItemService {
     private final GovernancePreflightDecisionRepository governanceDecisionRepository;
     private final GovernanceDataEventRepository governanceEventRepository;
     private final ManagementValueConnectorRepository connectorRepository;
+    private final EvaluationResultRepository evaluationResultRepository;
+    private final EvaluatorDefinitionRepository evaluatorDefinitionRepository;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
     private final SecurityProperties securityProperties;
@@ -77,6 +84,8 @@ public class WorkItemService {
             GovernancePreflightDecisionRepository governanceDecisionRepository,
             GovernanceDataEventRepository governanceEventRepository,
             ManagementValueConnectorRepository connectorRepository,
+            EvaluationResultRepository evaluationResultRepository,
+            EvaluatorDefinitionRepository evaluatorDefinitionRepository,
             AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper,
             SecurityProperties securityProperties
@@ -90,6 +99,8 @@ public class WorkItemService {
         this.governanceDecisionRepository = governanceDecisionRepository;
         this.governanceEventRepository = governanceEventRepository;
         this.connectorRepository = connectorRepository;
+        this.evaluationResultRepository = evaluationResultRepository;
+        this.evaluatorDefinitionRepository = evaluatorDefinitionRepository;
         this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
         this.securityProperties = securityProperties;
@@ -251,6 +262,33 @@ public class WorkItemService {
                                 "lastSyncCompletedAt", Objects.toString(connector.getLastSyncCompletedAt(), "")), now
                 ));
             }
+        }
+
+        List<EvaluationResult> failedEvaluations = evaluationResultRepository.findTop500ByOrderByEvaluatedAtDesc().stream()
+                .filter(item -> item.getStatus() == EvaluationStatus.COMPLETED && !item.isPassed())
+                .filter(item -> item.getAgentId() == null || visibleAgentIds.contains(item.getAgentId()))
+                .toList();
+        Map<Long, EvaluatorDefinition> evaluatorById = evaluatorDefinitionRepository.findAllById(
+                        failedEvaluations.stream().map(EvaluationResult::getEvaluatorId).distinct().toList())
+                .stream().collect(java.util.stream.Collectors.toMap(EvaluatorDefinition::getId, item -> item));
+        for (EvaluationResult result : failedEvaluations) {
+            EvaluatorDefinition evaluator = evaluatorById.get(result.getEvaluatorId());
+            if (evaluator == null) continue;
+            String target = blank(result.getTraceId()) ? String.valueOf(result.getId()) : result.getTraceId();
+            WorkItemSeverity severity = evaluationSeverity(evaluator.getEvaluatorKey());
+            created[0] += registerSignal(detectedKeys, new Signal(
+                    "EVALUATION:" + evaluator.getEvaluatorKey() + ":" + target,
+                    WorkItemType.EVALUATION_FAILURE,
+                    "评估未通过：" + evaluator.getName(),
+                    blank(result.getRationale()) ? "请检查关联 Trace、Span 和 Agent 运行轨迹。" : result.getRationale(),
+                    severity, result.getAgentId(), null, null, "EVALUATION_RESULT", result.getResultKey(),
+                    result.getAgentId() == null ? null : agentScope(result.getAgentId()), EvidenceBasis.DERIVED,
+                    Map.of("evaluatorKey", evaluator.getEvaluatorKey(), "evaluatorVersion", evaluator.getVersion(),
+                            "score", result.getScore(), "confidence", result.getConfidence(),
+                            "traceId", Objects.toString(result.getTraceId(), ""),
+                            "spanId", Objects.toString(result.getSpanId(), ""),
+                            "rationale", Objects.toString(result.getRationale(), "")), now
+            ));
         }
         resolveClearedSignals(detectedKeys, now);
         return created[0];
@@ -446,6 +484,12 @@ public class WorkItemService {
         if (risk == RiskLevel.HIGH) return WorkItemSeverity.P1;
         if (risk == RiskLevel.MEDIUM) return WorkItemSeverity.P2;
         return fallback;
+    }
+
+    private WorkItemSeverity evaluationSeverity(String evaluatorKey) {
+        String key = evaluatorKey == null ? "" : evaluatorKey.toUpperCase();
+        return key.contains("PII") || key.contains("INJECTION") || key.contains("SENSITIVE") || key.contains("UNSAFE")
+                ? WorkItemSeverity.P1 : WorkItemSeverity.P2;
     }
 
     private Duration sla(WorkItemSeverity severity) {

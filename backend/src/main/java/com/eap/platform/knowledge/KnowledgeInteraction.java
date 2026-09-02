@@ -112,6 +112,19 @@ public class KnowledgeInteraction {
         updatedAt = Instant.now();
     }
 
+    public Long getId() { return id; }
     public Long getAgentId() { return agentId; }
+    public String getInteractionKey() { return interactionKey; }
+    public String getTraceId() { return traceId; }
+    public String getInputType() { return inputType; }
+    public String getOutputType() { return outputType; }
+    public Integer getInputSourceCount() { return inputSourceCount; }
+    public Integer getOutputSourceCount() { return outputSourceCount; }
+    public String getInputRefsJson() { return inputRefsJson; }
+    public String getOutputRefsJson() { return outputRefsJson; }
+    public KnowledgeInteractionStatus getStatus() { return status; }
+    public Boolean getAdopted() { return adopted; }
+    public Boolean getReused() { return reused; }
+    public Integer getQualityScore() { return qualityScore; }
     public Instant getCreatedAt() { return createdAt; }
 }

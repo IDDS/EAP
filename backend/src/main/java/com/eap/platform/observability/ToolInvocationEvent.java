@@ -97,6 +97,13 @@ public class ToolInvocationEvent {
     }
 
     public Long getAgentId() { return agentId; }
+    public Long getId() { return id; }
+    public String getInvocationKey() { return invocationKey; }
+    public String getTraceId() { return traceId; }
+    public String getSpanId() { return spanId; }
+    public String getToolName() { return toolName; }
+    public String getAttributesJson() { return attributesJson; }
+    public Long getDurationMs() { return durationMs; }
     public String getEndpointKey() { return endpointKey; }
     public ToolInvocationStatus getStatus() { return status; }
     public Instant getObservedAt() { return observedAt; }

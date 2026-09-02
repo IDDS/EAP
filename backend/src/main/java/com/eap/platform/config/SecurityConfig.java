@@ -86,6 +86,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/observability/content")
                             .hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole("VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/evaluations/evaluators", "/api/evaluations/datasets", "/api/evaluations/results", "/api/evaluations/synchronize", "/api/evaluations/jobs")
+                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
                         .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/control/**", "/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")
                             .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
