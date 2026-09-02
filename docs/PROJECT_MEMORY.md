@@ -185,6 +185,7 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 新增数据集批量运行与校准接口：`POST /api/evaluations/datasets/{datasetKey}/run` 执行最多 500 条样本，`GET /api/evaluations/datasets/{datasetKey}/calibration` 读取已有结果；返回 TP、FP、TN、FN、Precision、Recall、F1、Accuracy、未标注/弃权/跳过/失败统计，并按评估器拆分。
 - 批量校准只会使用仍可安全读取的结构化样本；`OFF`、`HASH_ONLY`、`REDACTED` 内容会被跳过，不会为了评估重新暴露原文。运行结果使用数据集、样本和评估器版本生成稳定 `resultKey`，复用现有结果幂等机制。
 - 评估工作台新增“运行数据集校准”和混淆矩阵视图，展示 SME ground truth 与评估器预测的差异；本轮前端源码已同步更新并通过生产构建。
+- Agent 详情页新增“评估质量”页签：按 Agent 加载最近评估结果，汇总通过率、平均分、置信度和失败评估器，并可从结果直接跳转到关联 Trace；评估接口不可用时详情页仍保持可用。
 
 ### 2.15 功能与界面专项审查（2026-08-24）
 
