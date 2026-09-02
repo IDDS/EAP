@@ -181,7 +181,7 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - V35 阶段验证基线为 `mvn -q test` 共 99 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
 - 新增 Flyway V36：评估结果保存执行时 `evaluatorVersion` 与请求指纹，历史结果不再随评估器当前版本变化；相同 `resultKey` 只有请求指纹一致才幂等返回，避免不同输入静默复用旧结果。
 - JWT 模式新增评估样本创建与标注权限：创建限制 `OPERATOR/PLATFORM_ADMIN`，标注限制 `OPERATOR/GOVERNANCE_ADMIN/PLATFORM_ADMIN`；标注接口优先使用认证主体作为操作者，并写入 `ANNOTATE_EVALUATION_DATASET_ITEM` 审计事件。
-- 当前验证基线更新为：Flyway 迁移至 V36；`mvn -q test` 共 101 项测试，0 failures、0 errors、0 skipped；前端既有构建基线保持通过。
+- 当前验证基线更新为：Flyway 迁移至 V36；`mvn -q test` 共 102 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
 
 ### 2.15 功能与界面专项审查（2026-08-24）
 
