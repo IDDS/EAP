@@ -186,9 +186,14 @@ GET  /api/evaluations/evaluators
 POST /api/evaluations/evaluators
 GET  /api/evaluations/datasets
 POST /api/evaluations/datasets
+GET  /api/evaluations/datasets/{datasetKey}/items?limit=
+POST /api/evaluations/datasets/{datasetKey}/items
+PATCH /api/evaluations/datasets/{datasetKey}/items/{itemKey}/annotation
 GET  /api/evaluations/results?agentId=&traceId=&limit=
 POST /api/evaluations/results
 ```
+
+数据集样本接口用于把脱敏 Trace/评估输入、期望和实际结果固化为可回归条目，并记录 SME 的 `PASS`、`FAIL` 或 `ABSTAIN` 标注、分数与理由。它是人工反馈回流评估工程的最小闭环；`OFF` 模式下正文列允许为空，`HASH_ONLY/REDACTED` 仍由服务端统一处理。
 
 示例：对一次工具调用做参数完整性评分。`input.requiredArguments` 是工具契约，`actual.arguments` 是实际参数：
 
@@ -299,10 +304,10 @@ EAP 已有 OTLP HTTP/gRPC 接入，因此技术上可以增加一个 Galileo/Spl
 
 ### P0：评估基础（约 1 周）
 
-1. 定义 `Evaluator / Dataset / EvalRun / EvalResult / Feedback` 五组对象及 API；
+1. 定义 `Evaluator / Dataset / DatasetItem / EvalRun / EvalResult / Feedback` 六组对象及 API；
 2. 复用现有 TraceSpan、ToolInvocation、ContentObservation 和治理事件；
 3. 统一 GenAI/OpenInference 语义属性：operation、provider、model、input/output、token、error、tool、retrieval、session、traceparent；
-4. 先实现 5 个确定性评估器：工具参数合法性、工具错误/重试、成本异常、PII/密钥、敏感操作审批。
+4. 先实现 5 个确定性评估器：工具参数合法性、工具错误/重试、成本异常、PII/密钥、敏感操作审批；数据集样本和 SME 标注已落地，可直接作为回归集入口。
 
 ### P1：任务与知识质量（约 1 周）
 

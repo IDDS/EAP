@@ -1256,6 +1256,28 @@ export interface EvaluationDataset {
   updatedAt: string
 }
 
+export type EvaluationGroundTruthLabel = 'PASS' | 'FAIL' | 'ABSTAIN'
+
+export interface EvaluationDatasetItem {
+  id: number
+  itemKey: string
+  evaluatorKey: string
+  evaluatorVersion?: string
+  agentId?: number
+  traceId?: string
+  spanId?: string
+  input: Record<string, unknown>
+  expected?: unknown
+  actual: Record<string, unknown>
+  groundTruthLabel?: EvaluationGroundTruthLabel
+  groundTruthScore?: number
+  annotationRationale?: string
+  annotatedBy?: string
+  annotatedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface EvaluationResult {
   id: number
   resultKey: string

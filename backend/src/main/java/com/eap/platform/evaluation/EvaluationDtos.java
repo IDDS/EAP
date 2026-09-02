@@ -76,6 +76,48 @@ public final class EvaluationDtos {
         }
     }
 
+    public record DatasetItemCreateRequest(
+            @NotBlank @Size(max = 128) String itemKey,
+            @NotBlank @Size(max = 128) String evaluatorKey,
+            @Size(max = 64) String evaluatorVersion,
+            Long agentId,
+            @Size(max = 128) String traceId,
+            @Size(max = 128) String spanId,
+            @NotNull JsonNode input,
+            JsonNode expected,
+            @NotNull JsonNode actual
+    ) {
+    }
+
+    public record DatasetItemAnnotationRequest(
+            @NotBlank @Size(max = 16) String groundTruthLabel,
+            @DecimalMin("0.0") @DecimalMax("1.0") @Digits(integer = 1, fraction = 6) BigDecimal groundTruthScore,
+            @NotBlank @Size(max = 128) String annotatedBy,
+            @Size(max = 2048) String rationale
+    ) {
+    }
+
+    public record DatasetItemResponse(
+            Long id,
+            String itemKey,
+            String evaluatorKey,
+            String evaluatorVersion,
+            Long agentId,
+            String traceId,
+            String spanId,
+            JsonNode input,
+            JsonNode expected,
+            JsonNode actual,
+            String groundTruthLabel,
+            BigDecimal groundTruthScore,
+            String annotationRationale,
+            String annotatedBy,
+            Instant annotatedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
     public record EvaluationRequest(
             @Size(max = 128) String resultKey,
             @NotBlank @Size(max = 128) String evaluatorKey,

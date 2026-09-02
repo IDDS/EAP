@@ -99,14 +99,49 @@
     </el-card>
 
     <el-card shadow="never" class="panel">
-      <template #header><div class="panel-heading"><strong>数据集</strong><span>下一步将支持从脱敏 Trace 固化样本和 SME 标注</span></div></template>
+      <template #header><div class="panel-heading"><strong>数据集</strong><span>版本化管理脱敏样本，并通过人工标签校准评估器</span></div></template>
       <div class="dataset-actions">
-        <div v-for="item in datasets" :key="item.datasetKey" class="dataset-item">
+        <div v-for="item in datasets" :key="item.datasetKey" class="dataset-item" :class="{ 'is-selected': item.datasetKey === selectedDatasetKey }" role="button" tabindex="0" @click="selectDataset(item.datasetKey)" @keydown.enter="selectDataset(item.datasetKey)">
           <div><strong>{{ item.name }}</strong><span>{{ item.datasetKey }} · {{ item.version }}</span></div>
           <el-tag size="small">{{ item.itemCount }} 条</el-tag>
         </div>
         <el-button plain @click="createDemoDataset">创建示例数据集</el-button>
       </div>
+    </el-card>
+
+    <el-card shadow="never" class="panel">
+      <template #header>
+        <div class="panel-heading">
+          <strong>SME 标注样本</strong>
+          <div class="dataset-annotation-toolbar">
+            <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" @change="loadDatasetItems">
+              <el-option v-for="item in datasets" :key="item.datasetKey" :label="`${item.name} · ${item.version}`" :value="item.datasetKey" />
+            </el-select>
+            <el-input v-model="annotationActor" size="small" placeholder="标注人" style="width: 150px" />
+          </div>
+        </div>
+      </template>
+      <div class="annotation-note">只保存现有观测模式允许的脱敏/哈希 JSON；人工标签用于后续评估器校准，不会直接改变线上控制决策。</div>
+      <el-table :data="datasetItems" v-loading="datasetItemsLoading" size="small" row-key="id">
+        <el-table-column prop="itemKey" label="样本" min-width="180" show-overflow-tooltip />
+        <el-table-column prop="evaluatorKey" label="评估器" min-width="190" />
+        <el-table-column label="人工标签" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.groundTruthLabel" size="small" :type="annotationTagType(row.groundTruthLabel)">{{ annotationLabel(row.groundTruthLabel) }}</el-tag>
+            <span v-else class="muted">未标注</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="annotatedBy" label="标注人" width="130" show-overflow-tooltip />
+        <el-table-column prop="annotationRationale" label="标注说明" min-width="220" show-overflow-tooltip />
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="success" plain @click="annotateItem(row, 'PASS')">通过</el-button>
+            <el-button size="small" type="danger" plain @click="annotateItem(row, 'FAIL')">失败</el-button>
+            <el-button size="small" plain @click="annotateItem(row, 'ABSTAIN')">弃权</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!datasetItems.length && !datasetItemsLoading" description="当前数据集还没有样本，可创建示例数据集开始标注" />
     </el-card>
 
     <el-drawer v-model="detailVisible" title="评估证据详情" size="620px">
@@ -151,12 +186,16 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
-import type { EvaluationDataset, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
+import type { EvaluationDataset, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
 const evaluators = ref<EvaluatorDefinition[]>([])
 const datasets = ref<EvaluationDataset[]>([])
 const results = ref<EvaluationResult[]>([])
 const jobs = ref<EvaluationJob[]>([])
+const datasetItems = ref<EvaluationDatasetItem[]>([])
+const selectedDatasetKey = ref('')
+const annotationActor = ref('控制台用户')
+const datasetItemsLoading = ref(false)
 const summary = ref<EvaluationSummary>({ windowHours: 24, total: 0, passed: 0, failed: 0, passRate: 0, averageScore: 0, averageConfidence: 0, evaluators: [] })
 const selectedResult = ref<EvaluationResult>()
 const detailVisible = ref(false)
@@ -192,6 +231,10 @@ async function load() {
     results.value = resultItems
     jobs.value = jobItems
     summary.value = summaryItem
+    if (!selectedDatasetKey.value || !datasetItems.some(item => item.datasetKey === selectedDatasetKey.value)) {
+      selectedDatasetKey.value = datasetItems[0]?.datasetKey || ''
+    }
+    if (selectedDatasetKey.value) await loadDatasetItems(selectedDatasetKey.value)
     if (evaluatorItems.length && !evaluatorItems.some(item => item.evaluatorKey === form.evaluatorKey)) {
       form.evaluatorKey = evaluatorItems[0].evaluatorKey
       applyExample()
@@ -291,8 +334,49 @@ function jobTagType(status: EvaluationJobStatus) {
 async function createDemoDataset() {
   const key = `eap-demo-${Date.now()}`
   await EapApi.createEvaluationDataset({ datasetKey: key, name: 'EAP 示例回归集', sourceType: 'MANUAL', version: 'v1', itemCount: 0 })
-  ElMessage.success('示例数据集已创建')
+  await EapApi.createEvaluationDatasetItem(key, {
+    itemKey: 'action-completion-demo', evaluatorKey: 'ACTION_COMPLETION', evaluatorVersion: 'v1',
+    input: { task: '完成示例任务' }, actual: { completed: true },
+  })
+  ElMessage.success('示例数据集和样本已创建，可在下方进行 SME 标注')
   await load()
+}
+
+async function selectDataset(datasetKey: string) {
+  selectedDatasetKey.value = datasetKey
+  await loadDatasetItems(datasetKey)
+}
+
+async function loadDatasetItems(datasetKey = selectedDatasetKey.value) {
+  if (!datasetKey) {
+    datasetItems.value = []
+    return
+  }
+  datasetItemsLoading.value = true
+  try {
+    datasetItems.value = await EapApi.listEvaluationDatasetItems(datasetKey)
+  } finally {
+    datasetItemsLoading.value = false
+  }
+}
+
+async function annotateItem(item: EvaluationDatasetItem, label: EvaluationGroundTruthLabel) {
+  if (!selectedDatasetKey.value) return
+  await EapApi.annotateEvaluationDatasetItem(selectedDatasetKey.value, item.itemKey, {
+    groundTruthLabel: label,
+    annotatedBy: annotationActor.value.trim() || '控制台用户',
+    rationale: label === 'PASS' ? 'SME 确认样本结果符合预期' : label === 'FAIL' ? 'SME 确认样本结果不符合预期' : 'SME 暂不对该样本下结论',
+  })
+  ElMessage.success(`样本 ${item.itemKey} 已标注为${annotationLabel(label)}`)
+  await loadDatasetItems()
+}
+
+function annotationLabel(label?: EvaluationGroundTruthLabel) {
+  return ({ PASS: '通过', FAIL: '失败', ABSTAIN: '弃权' } as Record<EvaluationGroundTruthLabel, string>)[label || 'ABSTAIN']
+}
+
+function annotationTagType(label?: EvaluationGroundTruthLabel) {
+  return label === 'PASS' ? 'success' : label === 'FAIL' ? 'danger' : 'info'
 }
 
 async function openResult(result: EvaluationResult) {

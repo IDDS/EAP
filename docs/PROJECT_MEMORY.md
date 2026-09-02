@@ -1,6 +1,6 @@
 # EAP 项目记忆
 
-> 最近更新：2026-08-15。此文件用于跨会话保存项目共识、已完成能力、验证基线和下一步工作；具体实现以代码、数据库迁移和测试为准。
+> 最近更新：2026-09-02。此文件用于跨会话保存项目共识、已完成能力、验证基线和下一步工作；具体实现以代码、数据库迁移和测试为准。
 
 ## 1. 产品目标
 
@@ -176,7 +176,9 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 前端评估工作台已同步升级：结果表支持点击查看评估证据、分数/置信度/版本/Trace 标识，自动加载关联 Span，并可跳转 Physical Trace 工作台；投影任务区展示队列状态和扫描统计。
 - 新增 `GET /api/evaluations/summary?hours=24` 汇总接口，按完整时间窗口返回评估总数、通过率、平均分、平均置信度和各评估器失败分布；前端增加“评估窗口摘要”，避免仅根据最近 100 条结果判断整体质量。
 - AgentOps 信号同步现已消费未通过评估结果，生成 `EVALUATION_FAILURE` 运营事项，携带评估器、版本、分数、置信度、Trace/Span 和理由；安全相关评估器默认为 P1，其他评估器默认为 P2。该信号只创建/更新运营事项，不改变模型或工具调用决策。
-- 新增 Flyway V32，预置 `TRACE_ACTION_COMPLETION`；新增 V33，预置 `RAG_CONTEXT_COVERAGE`；新增 V34，持久化异步投影任务。验证基线：`mvn -q -DskipTests compile` 通过；`mvn -q test` 共 96 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+- 新增 Flyway V32，预置 `TRACE_ACTION_COMPLETION`；新增 V33，预置 `RAG_CONTEXT_COVERAGE`；新增 V34，持久化异步投影任务；新增 V35，持久化数据集样本和 SME ground-truth 标注。新增 `POST/GET /api/evaluations/datasets/{datasetKey}/items` 与 `PATCH /api/evaluations/datasets/{datasetKey}/items/{itemKey}/annotation`，支持 `PASS/FAIL/ABSTAIN`、分数、理由和标注人；样本正文继续遵循 `OFF/HASH_ONLY/REDACTED` 脱敏策略。
+- 前端评估工作台已同步增加“SME 标注样本”入口，可按数据集查看样本、选择标注结果、填写理由并回写服务端；创建示例数据集时会同时生成一个可标注样本，形成“采集 → 评估 → 人工反馈 → 回归集”的最小闭环。
+- 当前验证基线：Flyway 迁移至 V35；`mvn -q test` 共 99 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
 
 ### 2.15 功能与界面专项审查（2026-08-24）
 

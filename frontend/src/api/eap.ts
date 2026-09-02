@@ -1,4 +1,4 @@
-import { getData, postData, putData } from './http'
+import { getData, patchData, postData, putData } from './http'
 import type {
   Agent,
   AgentLifecycleStatus,
@@ -79,6 +79,7 @@ import type {
   WorkItemStatus,
   EvaluatorDefinition,
   EvaluationDataset,
+  EvaluationDatasetItem,
   EvaluationResult,
   EvaluationJob,
   EvaluationSummary,
@@ -114,6 +115,27 @@ export const EapApi = {
     version?: string
     itemCount?: number
   }) => postData<EvaluationDataset, typeof payload>('/evaluations/datasets', payload),
+  listEvaluationDatasetItems: (datasetKey: string, limit = 200) =>
+    getData<EvaluationDatasetItem[]>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/items?limit=${limit}`),
+  createEvaluationDatasetItem: (datasetKey: string, payload: {
+    itemKey: string
+    evaluatorKey: string
+    evaluatorVersion?: string
+    agentId?: number
+    traceId?: string
+    spanId?: string
+    input: Record<string, unknown>
+    expected?: unknown
+    actual: Record<string, unknown>
+  }) => postData<EvaluationDatasetItem, typeof payload>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/items`, payload),
+  annotateEvaluationDatasetItem: (datasetKey: string, itemKey: string, payload: {
+    groundTruthLabel: 'PASS' | 'FAIL' | 'ABSTAIN'
+    groundTruthScore?: number
+    annotatedBy: string
+    rationale?: string
+  }) => patchData<EvaluationDatasetItem, typeof payload>(
+    `/evaluations/datasets/${encodeURIComponent(datasetKey)}/items/${encodeURIComponent(itemKey)}/annotation`, payload,
+  ),
   listEvaluationResults: (params: { agentId?: number; traceId?: string; limit?: number } = {}) =>
     getData<EvaluationResult[]>(`/evaluations/results${queryString(params)}`),
   getEvaluationSummary: (hours = 24) => getData<EvaluationSummary>(`/evaluations/summary?hours=${hours}`),

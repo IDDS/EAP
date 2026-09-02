@@ -64,3 +64,8 @@ export async function putData<T, P>(url: string, payload: P): Promise<T> {
   const response = await http.put<ApiResponse<T>>(url, payload)
   return response.data.data
 }
+
+export async function patchData<T, P>(url: string, payload: P): Promise<T> {
+  const response = await http.patch<ApiResponse<T>>(url, payload)
+  return response.data.data
+}

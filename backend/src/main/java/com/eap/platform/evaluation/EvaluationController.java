@@ -6,10 +6,12 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -21,12 +23,14 @@ public class EvaluationController {
     private final EvaluationService service;
     private final EvaluationProjectionService projectionService;
     private final EvaluationJobService jobService;
+    private final EvaluationDatasetItemService datasetItemService;
 
     public EvaluationController(EvaluationService service, EvaluationProjectionService projectionService,
-                                EvaluationJobService jobService) {
+                                EvaluationJobService jobService, EvaluationDatasetItemService datasetItemService) {
         this.service = service;
         this.projectionService = projectionService;
         this.jobService = jobService;
+        this.datasetItemService = datasetItemService;
     }
 
     @PostMapping("/evaluators")
@@ -51,6 +55,31 @@ public class EvaluationController {
     @GetMapping("/datasets")
     public ApiResponse<List<EvaluationDtos.DatasetResponse>> listDatasets() {
         return ApiResponse.ok(service.listDatasets());
+    }
+
+    @PostMapping("/datasets/{datasetKey}/items")
+    public ApiResponse<EvaluationDtos.DatasetItemResponse> createDatasetItem(
+            @PathVariable String datasetKey,
+            @Valid @RequestBody EvaluationDtos.DatasetItemCreateRequest request
+    ) {
+        return ApiResponse.ok(datasetItemService.create(datasetKey, request));
+    }
+
+    @GetMapping("/datasets/{datasetKey}/items")
+    public ApiResponse<List<EvaluationDtos.DatasetItemResponse>> listDatasetItems(
+            @PathVariable String datasetKey,
+            @RequestParam(defaultValue = "200") @Min(1) @Max(500) int limit
+    ) {
+        return ApiResponse.ok(datasetItemService.list(datasetKey, limit));
+    }
+
+    @PatchMapping("/datasets/{datasetKey}/items/{itemKey}/annotation")
+    public ApiResponse<EvaluationDtos.DatasetItemResponse> annotateDatasetItem(
+            @PathVariable String datasetKey,
+            @PathVariable String itemKey,
+            @Valid @RequestBody EvaluationDtos.DatasetItemAnnotationRequest request
+    ) {
+        return ApiResponse.ok(datasetItemService.annotate(datasetKey, itemKey, request));
     }
 
     @PostMapping("/results")
