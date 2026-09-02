@@ -447,6 +447,10 @@
             <el-form-item label="记录唯一编号路径" required><el-input v-model="connectorForm.recordKeyPath" placeholder="id" /></el-form-item>
           </div>
           <div class="form-row">
+            <el-form-item label="关联 EAP 任务 ID 路径"><el-input v-model="connectorForm.taskIdPath" placeholder="taskId；用于把业务结果回链到任务" /></el-form-item>
+            <div class="management-metric-hint">配置后，CRM / 工单 / 运维记录会显示在对应智能体任务的业务价值链路中。</div>
+          </div>
+          <div class="form-row">
             <el-form-item label="价值金额路径" required><el-input v-model="connectorForm.benefitMoneyPath" placeholder="benefitMoney" /></el-form-item>
             <el-form-item label="业务时间路径"><el-input v-model="connectorForm.observedAtPath" placeholder="closedAt" /></el-form-item>
           </div>
@@ -528,8 +532,11 @@
         <el-table-column label="数据来源" width="150">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ sourceTypeLabel(row.sourceType) }}</el-tag>
-            <div class="muted">{{ row.sourceSystem || 'EAP 管理台' }} · {{ Math.round(row.confidence * 100) }}%</div>
+            <div class="muted">{{ row.sourceSystem || 'EAP 管理台' }}<span v-if="row.sourceRecordKey"> · {{ row.sourceRecordKey }}</span> · {{ Math.round(row.confidence * 100) }}%</div>
           </template>
+        </el-table-column>
+        <el-table-column label="关联任务" width="95">
+          <template #default="{ row }">{{ row.taskId ? `#${row.taskId}` : '—' }}</template>
         </el-table-column>
         <el-table-column label="价值类型" width="150">
           <template #default="{ row }">{{ managementValueTypeLabel(row.valueType) }}</template>
@@ -669,6 +676,7 @@ function emptyConnectorForm(): ManagementConnectorRequest {
     agentIdPath: '',
     defaultAgentId: undefined,
     endpointKeyPath: '',
+    taskIdPath: '',
     defaultEndpointKey: '',
     validatedBy: '业务系统自动同步',
     confidence: 0.9,

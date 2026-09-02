@@ -18,7 +18,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(37);
+        assertThat(result.migrationsExecuted).isEqualTo(38);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("select count(*) from agents")) {
@@ -77,6 +77,13 @@ class FlywayMigrationTests {
             )) {
                 columns.next();
                 assertThat(columns.getLong(1)).isEqualTo(3);
+            }
+            try (var columns = statement.executeQuery(
+                    "select count(*) from information_schema.columns " +
+                            "where table_name = 'management_value_connectors' and column_name = 'task_id_path'"
+            )) {
+                columns.next();
+                assertThat(columns.getLong(1)).isEqualTo(1);
             }
             try (var columns = statement.executeQuery(
                     "select count(*) from information_schema.columns " +

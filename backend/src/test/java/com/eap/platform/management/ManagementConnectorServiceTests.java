@@ -46,7 +46,7 @@ class ManagementConnectorServiceTests {
         when(client.fetch(connector)).thenReturn(new ObjectMapper().readTree("""
                 {"data":{"records":[
                   {"id":"deal-1","closedAt":"2026-08-16T01:00:00Z","benefit":"120.50","description":"智能体辅助成交"},
-                  {"id":"deal-2","closedAt":"2026-08-16T02:00:00Z","benefit":80,"description":"续费挽回"}
+                  {"id":"deal-2","closedAt":"2026-08-16T02:00:00Z","benefit":80,"taskId":17,"description":"续费挽回"}
                 ]}}
                 """));
         when(valueRepository.findBySourceSystemAndSourceRecordKey("CRM", "deal-1"))
@@ -68,6 +68,7 @@ class ManagementConnectorServiceTests {
         assertThat(request.getValue().sourceRecordKey()).isEqualTo("deal-2");
         assertThat(request.getValue().benefitMoney()).isEqualByComparingTo("80");
         assertThat(request.getValue().agentId()).isEqualTo(4L);
+        assertThat(request.getValue().taskId()).isEqualTo(17L);
         assertThat(request.getValue().observedAt()).isEqualTo(Instant.parse("2026-08-16T02:00:00Z"));
     }
 
@@ -85,6 +86,7 @@ class ManagementConnectorServiceTests {
         connector.recordsPath = "data.records";
         connector.recordKeyPath = "id";
         connector.observedAtPath = "closedAt";
+        connector.taskIdPath = "taskId";
         connector.fixedValueType = "REVENUE";
         connector.descriptionPath = "description";
         connector.benefitMoneyPath = "benefit";

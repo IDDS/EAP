@@ -156,6 +156,7 @@ public class ManagementConnectorService {
     ) {
         Long agentId = firstNonNull(longValue(record, connector.agentIdPath), connector.defaultAgentId);
         String endpointKey = firstNonBlank(text(record, connector.endpointKeyPath), connector.defaultEndpointKey);
+        Long taskId = longValue(record, connector.taskIdPath);
         if (agentId == null && blank(endpointKey)) {
             throw new BusinessException("记录未能关联智能体或发现端点");
         }
@@ -166,7 +167,7 @@ public class ManagementConnectorService {
         Instant observedAt = instant(record, connector.observedAtPath);
         return new ManagementDtos.ValueEventRequest(
                 eventKey(connector.connectorKey, recordKey),
-                agentId, endpointKey, null, null, valueType,
+                agentId, endpointKey, taskId, null, valueType,
                 truncate(text(record, connector.descriptionPath), 2048, null), connector.validatedBy,
                 benefit, firstNonBlank(text(record, connector.currencyPath), connector.fixedCurrency, "USD"),
                 observedAt == null ? Instant.now() : observedAt,
@@ -223,6 +224,7 @@ public class ManagementConnectorService {
             throw new BusinessException("默认智能体不存在");
         }
         connector.endpointKeyPath = path(request.endpointKeyPath());
+        connector.taskIdPath = path(request.taskIdPath());
         connector.defaultEndpointKey = normalize(request.defaultEndpointKey(), 128);
         if (!blank(connector.defaultEndpointKey) && endpointRepository.findByEndpointKey(connector.defaultEndpointKey).isEmpty()) {
             throw new BusinessException("默认发现端点不存在");

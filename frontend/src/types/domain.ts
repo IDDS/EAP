@@ -964,6 +964,7 @@ export interface ManagementValueConnector {
   agentIdPath?: string
   defaultAgentId?: number
   endpointKeyPath?: string
+  taskIdPath?: string
   defaultEndpointKey?: string
   validatedBy: string
   confidence: number

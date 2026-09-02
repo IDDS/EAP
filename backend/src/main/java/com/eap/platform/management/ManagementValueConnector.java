@@ -79,6 +79,8 @@ public class ManagementValueConnector {
     Long defaultAgentId;
     @Column(name = "endpoint_key_path", length = 256)
     String endpointKeyPath;
+    @Column(name = "task_id_path", length = 256)
+    String taskIdPath;
     @Column(name = "default_endpoint_key", length = 128)
     String defaultEndpointKey;
     @Column(name = "validated_by", nullable = false, length = 128)
@@ -133,5 +135,6 @@ public class ManagementValueConnector {
     public String getLastError() { return lastError; }
     public Long getDefaultAgentId() { return defaultAgentId; }
     public String getDefaultEndpointKey() { return defaultEndpointKey; }
+    public String getTaskIdPath() { return taskIdPath; }
     public Instant getLastSyncCompletedAt() { return lastSyncCompletedAt; }
 }
