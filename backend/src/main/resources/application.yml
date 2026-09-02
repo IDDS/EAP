@@ -146,3 +146,11 @@ eap:
         enabled: ${EAP_OTLP_GRPC_ENABLED:true}
         port: ${EAP_OTLP_GRPC_PORT:4317}
         max-inbound-message-bytes: ${EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES:4194304}
+  evaluation:
+    # Keep automatic projection opt-in until evaluator precision is calibrated.
+    auto-sync-enabled: ${EAP_EVALUATION_AUTO_SYNC_ENABLED:false}
+    auto-sync-initial-delay-ms: ${EAP_EVALUATION_AUTO_SYNC_INITIAL_DELAY_MS:30000}
+    auto-sync-interval-ms: ${EAP_EVALUATION_AUTO_SYNC_INTERVAL_MS:60000}
+    async-worker-enabled: ${EAP_EVALUATION_ASYNC_WORKER_ENABLED:true}
+    worker-initial-delay-ms: ${EAP_EVALUATION_WORKER_INITIAL_DELAY_MS:10000}
+    worker-interval-ms: ${EAP_EVALUATION_WORKER_INTERVAL_MS:5000}
