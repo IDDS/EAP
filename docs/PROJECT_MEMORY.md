@@ -181,7 +181,10 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - V35 阶段验证基线为 `mvn -q test` 共 99 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
 - 新增 Flyway V36：评估结果保存执行时 `evaluatorVersion` 与请求指纹，历史结果不再随评估器当前版本变化；相同 `resultKey` 只有请求指纹一致才幂等返回，避免不同输入静默复用旧结果。
 - JWT 模式新增评估样本创建与标注权限：创建限制 `OPERATOR/PLATFORM_ADMIN`，标注限制 `OPERATOR/GOVERNANCE_ADMIN/PLATFORM_ADMIN`；标注接口优先使用认证主体作为操作者，并写入 `ANNOTATE_EVALUATION_DATASET_ITEM` 审计事件。
-- 当前验证基线更新为：Flyway 迁移至 V36；`mvn -q test` 共 102 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+- 当前验证基线更新为：Flyway 迁移至 V36；`mvn -q test` 共 105 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+- 新增数据集批量运行与校准接口：`POST /api/evaluations/datasets/{datasetKey}/run` 执行最多 500 条样本，`GET /api/evaluations/datasets/{datasetKey}/calibration` 读取已有结果；返回 TP、FP、TN、FN、Precision、Recall、F1、Accuracy、未标注/弃权/跳过/失败统计，并按评估器拆分。
+- 批量校准只会使用仍可安全读取的结构化样本；`OFF`、`HASH_ONLY`、`REDACTED` 内容会被跳过，不会为了评估重新暴露原文。运行结果使用数据集、样本和评估器版本生成稳定 `resultKey`，复用现有结果幂等机制。
+- 评估工作台新增“运行数据集校准”和混淆矩阵视图，展示 SME ground truth 与评估器预测的差异；本轮前端源码已同步更新并通过生产构建。
 
 ### 2.15 功能与界面专项审查（2026-08-24）
 
@@ -284,7 +287,7 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 2. 完成端到端演示链路：自动发现 Agent → 采集 Trace → 查看模型与工具调用 → 触发治理策略 → 统计 Token、成本和 ROI。
 3. 扩展发行包：Kubernetes Helm Chart、Tetragon/eBPF 适配器、Windows/macOS 服务安装器和服务网格接入说明。
 4. 强化无侵入观测：透明代理、OpenTelemetry Collector 处理器、常见 Agent 框架自动探针和网关旁路元数据采集；为实际使用的模型供应商增加 Usage/Billing 只读适配器。
-5. 完成评估数据集批量运行和混淆矩阵，比较 evaluator 与 SME ground truth 的 Precision、Recall、F1，并支持已发布版本只读。
+5. 完善评估数据集校准：增加已发布版本只读、服务端分页、按版本比较和校准历史留存。
 6. 增加前端端到端自动化测试，覆盖分页、筛选、Trace 钻取、治理审批、控制命令、评估标注和错误状态。
 7. 在生产部署中启用 MySQL、JWT、机器凭证、保密信息 fail-closed、审计留存和数据生命周期策略。
 

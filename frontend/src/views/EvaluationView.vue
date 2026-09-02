@@ -106,6 +106,7 @@
           <el-tag size="small">{{ item.itemCount }} 条</el-tag>
         </div>
         <el-button plain @click="createDemoDataset">创建示例数据集</el-button>
+        <el-button v-if="selectedDatasetKey" type="primary" plain :loading="calibrating" @click="runDatasetCalibration">运行数据集校准</el-button>
       </div>
     </el-card>
 
@@ -114,7 +115,7 @@
         <div class="panel-heading">
           <strong>SME 标注样本</strong>
           <div class="dataset-annotation-toolbar">
-            <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" @change="loadDatasetItems">
+            <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" @change="selectDataset">
               <el-option v-for="item in datasets" :key="item.datasetKey" :label="`${item.name} · ${item.version}`" :value="item.datasetKey" />
             </el-select>
             <el-input v-model="annotationActor" size="small" placeholder="标注人" style="width: 150px" />
@@ -142,6 +143,41 @@
         </el-table-column>
       </el-table>
       <el-empty v-if="!datasetItems.length && !datasetItemsLoading" description="当前数据集还没有样本，可创建示例数据集开始标注" />
+    </el-card>
+
+    <el-card v-if="selectedDatasetKey" shadow="never" class="panel">
+      <template #header><div class="panel-heading"><strong>评估器校准</strong><span>{{ selectedDatasetKey }} · 对比 SME ground truth 与评估器预测，弃权样本不进入混淆矩阵</span></div></template>
+      <div class="evaluation-summary-grid evaluation-calibration-overview">
+        <div><span>样本总数</span><strong>{{ calibration.totalItems }}</strong></div>
+        <div><span>已运行 / 跳过</span><strong>{{ calibration.evaluatedItems }} / {{ calibration.skippedItems }}</strong></div>
+        <div><span>未标注 / 弃权</span><strong>{{ calibration.unannotatedItems }} / {{ calibration.abstainedItems }}</strong></div>
+        <div><span>执行失败</span><strong>{{ calibration.failedItems }}</strong></div>
+      </div>
+      <div class="evaluation-calibration-metrics">
+        <div><span>Precision</span><strong>{{ percent(calibration.precision) }}</strong></div>
+        <div><span>Recall</span><strong>{{ percent(calibration.recall) }}</strong></div>
+        <div><span>F1</span><strong>{{ percent(calibration.f1) }}</strong></div>
+        <div><span>Accuracy</span><strong>{{ percent(calibration.accuracy) }}</strong></div>
+      </div>
+      <div class="evaluation-calibration-content">
+        <div>
+          <div class="calibration-section-title">混淆矩阵</div>
+          <el-table :data="confusionRows" size="small" border>
+            <el-table-column prop="prediction" label="预测 \\ 人工" width="130" />
+            <el-table-column prop="pass" label="人工通过 PASS" />
+            <el-table-column prop="fail" label="人工失败 FAIL" />
+          </el-table>
+        </div>
+        <div>
+          <div class="calibration-section-title">按评估器</div>
+          <el-table :data="calibration.evaluators" size="small">
+            <el-table-column prop="evaluatorKey" label="评估器" min-width="190" />
+            <el-table-column label="P / R / F1" width="150"><template #default="{ row }">{{ percent(row.precision) }} / {{ percent(row.recall) }} / {{ percent(row.f1) }}</template></el-table-column>
+            <el-table-column prop="evaluatedItems" label="已运行" width="80" />
+          </el-table>
+        </div>
+      </div>
+      <div class="annotation-note">如果样本正文已经按 OFF、HASH_ONLY 或 REDACTED 保存，平台会安全跳过该样本，不会为了校准重新暴露原文。</div>
     </el-card>
 
     <el-drawer v-model="detailVisible" title="评估证据详情" size="620px">
@@ -186,7 +222,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
-import type { EvaluationDataset, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
+import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
 const evaluators = ref<EvaluatorDefinition[]>([])
 const datasets = ref<EvaluationDataset[]>([])
@@ -196,6 +232,8 @@ const datasetItems = ref<EvaluationDatasetItem[]>([])
 const selectedDatasetKey = ref('')
 const annotationActor = ref('控制台用户')
 const datasetItemsLoading = ref(false)
+const calibration = ref<EvaluationDatasetCalibration>({ datasetKey: '', datasetVersion: '', requestedLimit: 200, totalItems: 0, evaluatedItems: 0, skippedItems: 0, failedItems: 0, unannotatedItems: 0, abstainedItems: 0, truePositive: 0, falsePositive: 0, trueNegative: 0, falseNegative: 0, precision: 0, recall: 0, f1: 0, accuracy: 0, calculatedAt: '', evaluators: [] })
+const calibrating = ref(false)
 const summary = ref<EvaluationSummary>({ windowHours: 24, total: 0, passed: 0, failed: 0, passRate: 0, averageScore: 0, averageConfidence: 0, evaluators: [] })
 const selectedResult = ref<EvaluationResult>()
 const detailVisible = ref(false)
@@ -220,6 +258,11 @@ const passRate = computed(() => {
   return Math.round(results.value.filter(item => item.passed).length / results.value.length * 100)
 })
 
+const confusionRows = computed(() => [
+  { prediction: '评估通过', pass: `TP ${calibration.value.truePositive}`, fail: `FP ${calibration.value.falsePositive}` },
+  { prediction: '评估未通过', pass: `FN ${calibration.value.falseNegative}`, fail: `TN ${calibration.value.trueNegative}` },
+])
+
 async function load() {
   loading.value = true
   try {
@@ -234,7 +277,7 @@ async function load() {
     if (!selectedDatasetKey.value || !datasetItems.some(item => item.datasetKey === selectedDatasetKey.value)) {
       selectedDatasetKey.value = datasetItems[0]?.datasetKey || ''
     }
-    if (selectedDatasetKey.value) await loadDatasetItems(selectedDatasetKey.value)
+    if (selectedDatasetKey.value) await Promise.all([loadDatasetItems(selectedDatasetKey.value), loadDatasetCalibration(selectedDatasetKey.value)])
     if (evaluatorItems.length && !evaluatorItems.some(item => item.evaluatorKey === form.evaluatorKey)) {
       form.evaluatorKey = evaluatorItems[0].evaluatorKey
       applyExample()
@@ -344,7 +387,7 @@ async function createDemoDataset() {
 
 async function selectDataset(datasetKey: string) {
   selectedDatasetKey.value = datasetKey
-  await loadDatasetItems(datasetKey)
+  await Promise.all([loadDatasetItems(datasetKey), loadDatasetCalibration(datasetKey)])
 }
 
 async function loadDatasetItems(datasetKey = selectedDatasetKey.value) {
@@ -368,7 +411,27 @@ async function annotateItem(item: EvaluationDatasetItem, label: EvaluationGround
     rationale: label === 'PASS' ? 'SME 确认样本结果符合预期' : label === 'FAIL' ? 'SME 确认样本结果不符合预期' : 'SME 暂不对该样本下结论',
   })
   ElMessage.success(`样本 ${item.itemKey} 已标注为${annotationLabel(label)}`)
-  await loadDatasetItems()
+  await Promise.all([loadDatasetItems(), loadDatasetCalibration()])
+}
+
+async function loadDatasetCalibration(datasetKey = selectedDatasetKey.value) {
+  if (!datasetKey) {
+    calibration.value = { ...calibration.value, datasetKey: '', evaluators: [] }
+    return
+  }
+  calibration.value = await EapApi.getEvaluationDatasetCalibration(datasetKey)
+}
+
+async function runDatasetCalibration() {
+  if (!selectedDatasetKey.value) return
+  calibrating.value = true
+  try {
+    calibration.value = await EapApi.runEvaluationDataset(selectedDatasetKey.value, 200)
+    ElMessage.success(`数据集校准完成：运行 ${calibration.value.evaluatedItems} 条，F1 ${percent(calibration.value.f1)}`)
+    await load()
+  } finally {
+    calibrating.value = false
+  }
 }
 
 function annotationLabel(label?: EvaluationGroundTruthLabel) {

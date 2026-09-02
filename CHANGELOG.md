@@ -10,6 +10,7 @@
 - Added the “评估与可靠性” frontend workspace with evaluator catalog, manual runs, queued synchronization, result evidence, Trace links, dataset creation, and summary metrics.
 - Added dataset sample APIs and a frontend SME annotation workflow with `PASS`/`FAIL`/`ABSTAIN` labels, rationale, score, and privacy-aware storage for regression-set feedback.
 - Added evaluator-version persistence and request-fingerprint checks so historical results remain reproducible and conflicting `resultKey` reuse is rejected.
+- Added dataset batch evaluation and calibration metrics, including TP/FP/TN/FN, Precision, Recall, F1, Accuracy, and a frontend confusion matrix; withheld observations are skipped safely.
 - Added the Galileo research memo and project memory entry documenting the internalized capture-to-feedback evaluation lifecycle.
 
 ### Changed

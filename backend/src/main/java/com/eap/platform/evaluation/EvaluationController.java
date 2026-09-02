@@ -26,13 +26,16 @@ public class EvaluationController {
     private final EvaluationProjectionService projectionService;
     private final EvaluationJobService jobService;
     private final EvaluationDatasetItemService datasetItemService;
+    private final EvaluationDatasetRunService datasetRunService;
 
     public EvaluationController(EvaluationService service, EvaluationProjectionService projectionService,
-                                EvaluationJobService jobService, EvaluationDatasetItemService datasetItemService) {
+                                EvaluationJobService jobService, EvaluationDatasetItemService datasetItemService,
+                                EvaluationDatasetRunService datasetRunService) {
         this.service = service;
         this.projectionService = projectionService;
         this.jobService = jobService;
         this.datasetItemService = datasetItemService;
+        this.datasetRunService = datasetRunService;
     }
 
     @PostMapping("/evaluators")
@@ -85,6 +88,22 @@ public class EvaluationController {
         String actor = authentication != null && authentication.isAuthenticated()
                 && !(authentication instanceof AnonymousAuthenticationToken) ? authentication.getName() : null;
         return ApiResponse.ok(datasetItemService.annotate(datasetKey, itemKey, request, actor));
+    }
+
+    @PostMapping("/datasets/{datasetKey}/run")
+    public ApiResponse<EvaluationDtos.EvaluationDatasetCalibrationResponse> runDataset(
+            @PathVariable String datasetKey,
+            @RequestParam(defaultValue = "200") @Min(1) @Max(500) int limit
+    ) {
+        return ApiResponse.ok(datasetRunService.run(datasetKey, limit));
+    }
+
+    @GetMapping("/datasets/{datasetKey}/calibration")
+    public ApiResponse<EvaluationDtos.EvaluationDatasetCalibrationResponse> datasetCalibration(
+            @PathVariable String datasetKey,
+            @RequestParam(defaultValue = "200") @Min(1) @Max(500) int limit
+    ) {
+        return ApiResponse.ok(datasetRunService.calibration(datasetKey, limit));
     }
 
     @PostMapping("/results")

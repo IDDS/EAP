@@ -68,6 +68,11 @@ class JwtSecurityIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/evaluations/datasets/REGRESSION/run")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))
+                        .param("limit", "10"))
+                .andExpect(status().isForbidden());
     }
 
     @Test

@@ -1325,6 +1325,47 @@ export interface EvaluationSummary {
   evaluators: EvaluationEvaluatorSummary[]
 }
 
+export interface EvaluationDatasetCalibration {
+  datasetKey: string
+  datasetVersion: string
+  requestedLimit: number
+  totalItems: number
+  evaluatedItems: number
+  skippedItems: number
+  failedItems: number
+  unannotatedItems: number
+  abstainedItems: number
+  truePositive: number
+  falsePositive: number
+  trueNegative: number
+  falseNegative: number
+  precision: number
+  recall: number
+  f1: number
+  accuracy: number
+  calculatedAt: string
+  evaluators: EvaluationEvaluatorCalibration[]
+}
+
+export interface EvaluationEvaluatorCalibration {
+  evaluatorKey: string
+  evaluatorVersion: string
+  totalItems: number
+  evaluatedItems: number
+  skippedItems: number
+  failedItems: number
+  unannotatedItems: number
+  abstainedItems: number
+  truePositive: number
+  falsePositive: number
+  trueNegative: number
+  falseNegative: number
+  precision: number
+  recall: number
+  f1: number
+  accuracy: number
+}
+
 export interface EvaluationEvaluatorSummary {
   evaluatorKey: string
   name: string

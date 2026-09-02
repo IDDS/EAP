@@ -196,6 +196,49 @@ public final class EvaluationDtos {
     ) {
     }
 
+    public record EvaluationDatasetCalibrationResponse(
+            String datasetKey,
+            String datasetVersion,
+            int requestedLimit,
+            int totalItems,
+            int evaluatedItems,
+            int skippedItems,
+            int failedItems,
+            int unannotatedItems,
+            int abstainedItems,
+            int truePositive,
+            int falsePositive,
+            int trueNegative,
+            int falseNegative,
+            BigDecimal precision,
+            BigDecimal recall,
+            BigDecimal f1,
+            BigDecimal accuracy,
+            Instant calculatedAt,
+            List<EvaluatorCalibration> evaluators
+    ) {
+    }
+
+    public record EvaluatorCalibration(
+            String evaluatorKey,
+            String evaluatorVersion,
+            int totalItems,
+            int evaluatedItems,
+            int skippedItems,
+            int failedItems,
+            int unannotatedItems,
+            int abstainedItems,
+            int truePositive,
+            int falsePositive,
+            int trueNegative,
+            int falseNegative,
+            BigDecimal precision,
+            BigDecimal recall,
+            BigDecimal f1,
+            BigDecimal accuracy
+    ) {
+    }
+
     public record EvaluatorSummary(
             String evaluatorKey,
             String name,

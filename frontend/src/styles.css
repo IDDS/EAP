@@ -228,6 +228,13 @@ body {
 }
 .evaluation-detail-heading { display: grid; gap: 10px; }.evaluation-detail-heading > div { display: flex; align-items: center; gap: 9px; }.evaluation-detail-heading strong { color: #213d61; font-size: 16px; }.evaluation-detail-heading p { margin: 0; color: #677b94; line-height: 1.6; }
 .evaluation-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }.evaluation-summary-grid > div { display: grid; gap: 5px; padding: 12px 14px; border-radius: 7px; background: #f7f9fc; }.evaluation-summary-grid span { color: #7b8ba0; font-size: 11px; }.evaluation-summary-grid strong { color: #294464; font-size: 20px; }.evaluation-summary-table { border-top: 1px solid #edf1f6; }
+.evaluation-calibration-overview { margin-top: 2px; }
+.evaluation-calibration-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 18px; }
+.evaluation-calibration-metrics > div { display: grid; gap: 5px; padding: 13px 14px; border: 1px solid #dfe8f2; border-radius: 7px; background: linear-gradient(135deg, #fbfdff, #f2f7fc); }
+.evaluation-calibration-metrics span { color: #71849b; font-size: 11px; }
+.evaluation-calibration-metrics strong { color: #1d527f; font-size: 22px; }
+.evaluation-calibration-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px; }
+.calibration-section-title { margin: 0 0 9px; color: #294464; font-size: 12px; font-weight: 700; }
 .evaluation-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }.evaluation-detail-grid > div { display: grid; gap: 5px; padding: 12px; border: 1px solid #e1e8f1; border-radius: 7px; background: #fbfcfe; }.evaluation-detail-grid span { color: #7b8ba0; font-size: 11px; }.evaluation-detail-grid strong { color: #294464; font-size: 14px; }
 .evaluation-detail-identifiers { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px 10px; align-items: center; margin-top: 15px; color: #7b8ba0; font-size: 11px; }.evaluation-detail-identifiers code { overflow: auto; padding: 5px 7px; border-radius: 4px; background: #f2f5f9; color: #315d9d; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }.evaluation-evidence-block { margin-top: 18px; }.evaluation-trace-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 22px 0 10px; color: #294464; }
 
@@ -5243,6 +5250,8 @@ body,
   .toolbar .button-row, .toolbar-actions, .agent-catalog-heading .button-row { width: 100%; }
   .metric-strip, .physical-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .evaluation-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-calibration-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluation-calibration-content { grid-template-columns: 1fr; }
   .dataset-annotation-toolbar { width: 100%; flex-wrap: wrap; }
   .dataset-annotation-toolbar .el-select,
   .dataset-annotation-toolbar .el-input { flex: 1 1 150px; }

@@ -80,6 +80,7 @@ import type {
   EvaluatorDefinition,
   EvaluationDataset,
   EvaluationDatasetItem,
+  EvaluationDatasetCalibration,
   EvaluationResult,
   EvaluationJob,
   EvaluationSummary,
@@ -117,6 +118,10 @@ export const EapApi = {
   }) => postData<EvaluationDataset, typeof payload>('/evaluations/datasets', payload),
   listEvaluationDatasetItems: (datasetKey: string, limit = 200) =>
     getData<EvaluationDatasetItem[]>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/items?limit=${limit}`),
+  runEvaluationDataset: (datasetKey: string, limit = 200) =>
+    postData<EvaluationDatasetCalibration, Record<string, never>>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/run?limit=${limit}`, {}),
+  getEvaluationDatasetCalibration: (datasetKey: string, limit = 200) =>
+    getData<EvaluationDatasetCalibration>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/calibration?limit=${limit}`),
   createEvaluationDatasetItem: (datasetKey: string, payload: {
     itemKey: string
     evaluatorKey: string
