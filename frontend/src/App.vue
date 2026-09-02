@@ -215,7 +215,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowRight, Connection, Cpu, DataAnalysis, DataBoard, Expand, Fold, Money, ScaleToOriginal, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -280,8 +280,21 @@ const navOpenGroups = computed(() => {
 })
 const currentFontScaleLabel = computed(() => fontScaleOptions.find(option => option.value === fontScale.value)?.label || '舒适')
 
+function syncOpenNavigationGroup() {
+  const groups = navOpenGroups.value
+  if (!groups.length) return
+  void nextTick(() => {
+    groups.forEach(index => navMenuRef.value?.open(index))
+  })
+}
+
+watch(navOpenGroups, syncOpenNavigationGroup, { flush: 'post' })
+
 function openWorkspace(index: string, path: string) {
-  void router.push(path).then(() => navMenuRef.value?.open(index))
+  void router.push(path).then(() => {
+    navMenuRef.value?.open(index)
+    syncOpenNavigationGroup()
+  })
 }
 
 function setFontScale(value: FontScale) {
@@ -442,6 +455,7 @@ function reloadForUpdate() {
 
 onMounted(() => {
   setFontScale(fontScale.value)
+  syncOpenNavigationGroup()
   window.addEventListener('eap-auth-required', requireAuthentication)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   void checkForBuildUpdate()
