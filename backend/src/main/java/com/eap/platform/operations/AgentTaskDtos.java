@@ -15,11 +15,23 @@ public final class AgentTaskDtos {
             @NotNull Long agentId,
             Long agentVersionId,
             @NotBlank @Size(max = 64) String taskType,
-            @Size(max = 1024) String inputSummary
+            @Size(max = 1024) String inputSummary,
+            @Size(max = 128) String requester
     ) {
+        public TaskRequest(Long agentId, Long agentVersionId, String taskType, String inputSummary) {
+            this(agentId, agentVersionId, taskType, inputSummary, null);
+        }
     }
 
-    public record StatusRequest(@NotNull AgentTaskStatus status, @Size(max = 1024) String resultSummary) {
+    public record StatusRequest(
+            @NotNull AgentTaskStatus status,
+            @Size(max = 1024) String resultSummary,
+            Boolean problemResolved,
+            @Size(max = 1024) String resolutionSummary
+    ) {
+        public StatusRequest(AgentTaskStatus status, String resultSummary) {
+            this(status, resultSummary, null, null);
+        }
     }
 
     public record TaskResponse(
@@ -28,6 +40,7 @@ public final class AgentTaskDtos {
             Long agentVersionId,
             String taskType,
             String inputSummary,
+            String requester,
             AgentTaskStatus status,
             Instant startedAt,
             Instant finishedAt,
@@ -35,9 +48,19 @@ public final class AgentTaskDtos {
             Long tokenCost,
             BigDecimal moneyCost,
             String resultSummary,
+            Boolean problemResolved,
+            String resolutionSummary,
             Instant createdAt,
             Instant updatedAt
     ) {
+        public TaskResponse(
+                Long id, Long agentId, Long agentVersionId, String taskType, String inputSummary,
+                AgentTaskStatus status, Instant startedAt, Instant finishedAt, Long latencyMs,
+                Long tokenCost, BigDecimal moneyCost, String resultSummary, Instant createdAt, Instant updatedAt
+        ) {
+            this(id, agentId, agentVersionId, taskType, inputSummary, null, status, startedAt, finishedAt,
+                    latencyMs, tokenCost, moneyCost, resultSummary, null, null, createdAt, updatedAt);
+        }
     }
 
     static TaskResponse from(AgentTask task) {
@@ -47,6 +70,7 @@ public final class AgentTaskDtos {
                 task.agentVersionId,
                 task.taskType,
                 task.inputSummary,
+                task.requester,
                 task.status,
                 task.startedAt,
                 task.finishedAt,
@@ -54,9 +78,10 @@ public final class AgentTaskDtos {
                 task.tokenCost,
                 task.moneyCost,
                 task.resultSummary,
+                task.problemResolved,
+                task.resolutionSummary,
                 task.createdAt,
                 task.updatedAt
         );
     }
 }
-

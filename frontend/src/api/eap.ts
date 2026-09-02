@@ -261,10 +261,10 @@ export const EapApi = {
   rejectGovernanceDecision: (decisionKey: string, payload: { approver: string; reason?: string }) =>
     postData<GovernancePreflightDecision, { approver: string; reason?: string }>(`/governance/preflight-decisions/${encodeURIComponent(decisionKey)}/reject`, payload),
   listTasks: () => getData<AgentTask[]>('/tasks'),
-  createTask: (payload: { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string }) =>
-    postData<AgentTask, { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string }>('/tasks', payload),
-  updateTaskStatus: (id: number, status: AgentTaskStatus, resultSummary?: string) =>
-    postData<AgentTask, { status: AgentTaskStatus; resultSummary?: string }>(`/tasks/${id}/status`, { status, resultSummary }),
+  createTask: (payload: { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string; requester?: string }) =>
+    postData<AgentTask, { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string; requester?: string }>('/tasks', payload),
+  updateTaskStatus: (id: number, status: AgentTaskStatus, resultSummary?: string, problemResolved?: boolean, resolutionSummary?: string) =>
+    postData<AgentTask, { status: AgentTaskStatus; resultSummary?: string; problemResolved?: boolean; resolutionSummary?: string }>(`/tasks/${id}/status`, { status, resultSummary, problemResolved, resolutionSummary }),
   listLearningFeedbacks: () => getData<LearningFeedback[]>('/learning-feedbacks'),
   createLearningFeedback: (payload: { agentId: number; feedbackType: string; rating: number; summary: string; improvementAction?: string }) =>
     postData<LearningFeedback, { agentId: number; feedbackType: string; rating: number; summary: string; improvementAction?: string }>('/learning-feedbacks', payload),

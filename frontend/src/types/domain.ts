@@ -300,6 +300,7 @@ export interface AgentTask {
   agentVersionId?: number
   taskType: string
   inputSummary?: string
+  requester?: string
   status: AgentTaskStatus
   startedAt?: string
   finishedAt?: string
@@ -307,6 +308,8 @@ export interface AgentTask {
   tokenCost?: number
   moneyCost?: number
   resultSummary?: string
+  problemResolved?: boolean
+  resolutionSummary?: string
   createdAt: string
   updatedAt: string
 }

@@ -33,6 +33,9 @@ public class AgentTask {
     @Column(name = "input_summary", length = 1024)
     String inputSummary;
 
+    @Column(name = "requester", length = 128)
+    String requester;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     AgentTaskStatus status = AgentTaskStatus.PENDING;
@@ -54,6 +57,12 @@ public class AgentTask {
 
     @Column(name = "result_summary", length = 1024)
     String resultSummary;
+
+    @Column(name = "problem_resolved")
+    Boolean problemResolved;
+
+    @Column(name = "resolution_summary", length = 1024)
+    String resolutionSummary;
 
     @Column(name = "created_at", nullable = false)
     Instant createdAt;

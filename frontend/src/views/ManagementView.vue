@@ -60,6 +60,46 @@
       </div>
     </div>
 
+    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-usage-panel">
+      <template #header>
+        <div class="panel-header">
+          <div><span>员工使用与业务效果</span><div class="muted">把“有人使用”“任务完成”和“问题解决”分开统计，避免把调用量误当成业务价值。</div></div>
+          <el-tag size="small" :type="usageIdentityCaptured ? 'success' : 'warning'" effect="plain">{{ usageIdentityCaptured ? '已采集调用方' : '待接入员工身份' }}</el-tag>
+        </div>
+      </template>
+      <div class="management-usage-metrics">
+        <div><span>活跃员工 / 调用方</span><strong>{{ activeEmployeeCount }}</strong><small>窗口内有任务记录</small></div>
+        <div><span>任务使用次数</span><strong>{{ formatNumber(windowTasks.length) }}</strong><small>日均 {{ averageDailyUses }} 次</small></div>
+        <div><span>问题已解决</span><strong>{{ resolvedTaskCount }}</strong><small>明确标记为已解决</small></div>
+        <div><span>问题解决率</span><strong>{{ resolutionRateLabel }}</strong><small>{{ resolutionObservedCount ? `基于 ${resolutionObservedCount} 条明确判断` : '尚未采集解决判断' }}</small></div>
+      </div>
+      <div class="management-usage-grid">
+        <div>
+          <div class="management-section-heading"><strong>员工使用频率</strong><span>按任务请求方统计</span></div>
+          <el-table :data="employeeUsage" size="small">
+            <el-table-column prop="requester" label="员工 / 调用方" min-width="160" />
+            <el-table-column prop="uses" label="使用次数" width="90" />
+            <el-table-column prop="succeeded" label="任务成功" width="90" />
+            <el-table-column label="解决问题" width="100"><template #default="{ row }">{{ row.resolved }} / {{ row.judged }}</template></el-table-column>
+            <el-table-column label="最近使用" width="165"><template #default="{ row }">{{ formatTime(row.lastUsedAt) }}</template></el-table-column>
+          </el-table>
+          <el-empty v-if="!employeeUsage.length" description="当前窗口没有任务使用记录" :image-size="56" />
+        </div>
+        <div>
+          <div class="management-section-heading"><strong>应用场景与效果</strong><span>按任务类型聚合</span></div>
+          <el-table :data="applicationUsage" size="small">
+            <el-table-column label="应用场景" min-width="170"><template #default="{ row }"><strong>{{ applicationLabel(row.taskType) }}</strong><div class="muted">{{ row.taskType }}</div></template></el-table-column>
+            <el-table-column prop="uses" label="使用次数" width="90" />
+            <el-table-column label="完成率" width="105"><template #default="{ row }">{{ row.successRate }}%</template></el-table-column>
+            <el-table-column label="解决率" width="105"><template #default="{ row }">{{ row.resolutionRate }}</template></el-table-column>
+            <el-table-column label="确认价值" width="110"><template #default="{ row }">{{ row.validatedValue > 0 ? formatMoney(row.validatedValue) : '—' }}</template></el-table-column>
+          </el-table>
+          <el-empty v-if="!applicationUsage.length" description="当前窗口没有可识别应用场景" :image-size="56" />
+        </div>
+      </div>
+      <div class="management-usage-note">员工身份来自任务请求的 <code>requester</code> 字段；问题解决来自任务完成后的明确判断，不会用模型调用次数或任务成功状态替代业务确认。</div>
+    </el-card>
+
     <div v-if="drilldownLabel" class="drilldown-context">
       <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
@@ -522,6 +562,7 @@ import TrendChart from '@/components/TrendChart.vue'
 import type { EChartsOption } from 'echarts'
 import type {
   Agent,
+  AgentTask,
   ManagementConnectorRequest,
   ManagementConnectorStatus,
   ManagementSummary,
@@ -564,6 +605,7 @@ const syncingConnectorId = ref<number>()
 const editingConnectorId = ref<number>()
 const summary = ref<ManagementSummary>({ ...emptySummary })
 const valueEvents = ref<ManagementValueEvent[]>([])
+const tasks = ref<AgentTask[]>([])
 const agents = ref<Agent[]>([])
 const connectors = ref<ManagementValueConnector[]>([])
 type ContributionDraft = {
@@ -647,6 +689,68 @@ const drilldownLabel = computed(() => {
   if (contextEndpointKey.value) parts.push(`端点 ${contextEndpointKey.value}`)
   return parts.join(' · ')
 })
+
+const windowTasks = computed(() => {
+  const since = Date.now() - windowHours.value * 60 * 60 * 1000
+  return tasks.value.filter(task => new Date(task.createdAt).getTime() >= since && (!contextAgentId.value || task.agentId === contextAgentId.value))
+})
+const employeeUsage = computed(() => {
+  const grouped = new Map<string, { requester: string; uses: number; succeeded: number; resolved: number; judged: number; lastUsedAt: string }>()
+  windowTasks.value.forEach(task => {
+    const requester = task.requester?.trim() || '未采集调用方'
+    const current = grouped.get(requester) || { requester, uses: 0, succeeded: 0, resolved: 0, judged: 0, lastUsedAt: task.createdAt }
+    current.uses += 1
+    current.succeeded += task.status === 'SUCCEEDED' ? 1 : 0
+    current.resolved += task.problemResolved === true ? 1 : 0
+    current.judged += task.problemResolved === undefined ? 0 : 1
+    if (new Date(task.createdAt).getTime() > new Date(current.lastUsedAt).getTime()) current.lastUsedAt = task.createdAt
+    grouped.set(requester, current)
+  })
+  return [...grouped.values()].sort((left, right) => right.uses - left.uses)
+})
+const applicationUsage = computed(() => {
+  const since = Date.now() - windowHours.value * 60 * 60 * 1000
+  const valueByTask = new Map<number, number>()
+  visibleValueEvents.value.forEach(event => {
+    if (event.taskId && new Date(event.observedAt).getTime() >= since) {
+      valueByTask.set(event.taskId, (valueByTask.get(event.taskId) || 0) + event.benefitMoney)
+    }
+  })
+  const grouped = new Map<string, { taskType: string; uses: number; succeeded: number; resolved: number; judged: number; validatedValue: number }>()
+  windowTasks.value.forEach(task => {
+    const current = grouped.get(task.taskType) || { taskType: task.taskType, uses: 0, succeeded: 0, resolved: 0, judged: 0, validatedValue: 0 }
+    current.uses += 1
+    current.succeeded += task.status === 'SUCCEEDED' ? 1 : 0
+    current.resolved += task.problemResolved === true ? 1 : 0
+    current.judged += task.problemResolved === undefined ? 0 : 1
+    current.validatedValue += valueByTask.get(task.id) || 0
+    grouped.set(task.taskType, current)
+  })
+  return [...grouped.values()].map(item => ({
+    ...item,
+    successRate: item.uses ? Math.round(item.succeeded / item.uses * 100) : 0,
+    resolutionRate: item.judged ? `${Math.round(item.resolved / item.judged * 100)}%` : '未采集',
+  })).sort((left, right) => right.uses - left.uses)
+})
+const activeEmployeeCount = computed(() => employeeUsage.value.filter(item => item.requester !== '未采集调用方').length)
+const usageIdentityCaptured = computed(() => activeEmployeeCount.value > 0)
+const resolvedTaskCount = computed(() => windowTasks.value.filter(task => task.problemResolved === true).length)
+const resolutionObservedCount = computed(() => windowTasks.value.filter(task => task.problemResolved !== undefined).length)
+const resolutionRateLabel = computed(() => resolutionObservedCount.value ? `${Math.round(resolvedTaskCount.value / resolutionObservedCount.value * 100)}%` : '未采集')
+const averageDailyUses = computed(() => {
+  const days = Math.max(1, windowHours.value / 24)
+  return (windowTasks.value.length / days).toFixed(1)
+})
+
+function applicationLabel(taskType: string) {
+  const labels: Record<string, string> = {
+    FINANCE_ANALYSIS: '经营分析与异常解释',
+    HR_POLICY_QA: '员工制度与流程问答',
+    INCIDENT_TRIAGE: '运维告警与事件研判',
+    GOVERNED_ANALYSIS: '治理约束下的分析',
+  }
+  return labels[taskType] || taskType.replaceAll('_', ' ')
+}
 
 const successPercent = computed(() => Math.round(summary.value.taskSuccessRate * 100))
 const adoptionPercent = computed(() => Math.round(summary.value.knowledgeAdoptionRate * 100))
@@ -753,16 +857,18 @@ function clearDrilldown() {
 async function load() {
   loading.value = true
   try {
-    const [nextSummary, nextEvents, nextAgents, nextConnectors] = await Promise.all([
+    const [nextSummary, nextEvents, nextAgents, nextConnectors, nextTasks] = await Promise.all([
       EapApi.getManagementSummary(windowHours.value),
       EapApi.listManagementValueEvents(100),
       EapApi.listAgents(),
       EapApi.listManagementConnectors(),
+      EapApi.listTasks().catch(() => [] as AgentTask[]),
     ])
     summary.value = nextSummary
     valueEvents.value = nextEvents
     agents.value = nextAgents
     connectors.value = nextConnectors
+    tasks.value = nextTasks
   } finally {
     loading.value = false
   }

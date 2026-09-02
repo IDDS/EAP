@@ -35,6 +35,7 @@ public class AgentTaskService {
         task.agentVersionId = request.agentVersionId();
         task.taskType = request.taskType();
         task.inputSummary = request.inputSummary();
+        task.requester = request.requester() == null || request.requester().isBlank() ? null : request.requester().trim();
         task.status = AgentTaskStatus.PENDING;
         return AgentTaskDtos.from(taskRepository.save(task));
     }
@@ -54,6 +55,12 @@ public class AgentTaskService {
             task.latencyMs = Duration.between(task.startedAt, task.finishedAt).toMillis();
         }
         task.resultSummary = request.resultSummary();
+        if (request.problemResolved() != null) {
+            task.problemResolved = request.problemResolved();
+        }
+        if (request.resolutionSummary() != null) {
+            task.resolutionSummary = request.resolutionSummary().isBlank() ? null : request.resolutionSummary().trim();
+        }
         return AgentTaskDtos.from(task);
     }
 
