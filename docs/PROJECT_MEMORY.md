@@ -159,6 +159,25 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 前端新增构建版本 `version.json`、每 60 秒和页面重新可见时的版本探测，以及“检测到 EAP 前端有新版本 / 立即刷新”提示；Nginx 对 `index.html`、`version.json` 禁止缓存，对带 hash 的静态资源启用长期缓存。
 - 用户可见品牌统一为 EAP（顶部“EAP · 企业智能体控制台”、首页/目录/详情 EAP 文案）；`AgentOps` 仅保留为内部 API、类型和实现模块名称，不作为产品名称展示。
 
+### 2.23 Galileo 方法借鉴与 Evaluation Foundation（2026-09-02）
+
+- 已完成 Galileo / Splunk Agent Observability 借鉴研究，结论是吸收其“评估工程 → 生产评估 → Signals → 运行时护栏 → 人工反馈”闭环，不把 Galileo/Splunk 作为 EAP 核心依赖；完整 memo 见 `docs/GALILEO_RESEARCH.md`。
+- 新增 EAP 原生 `evaluation` 后端模块和 Flyway V31：评估器定义/版本、评估数据集、评估结果、确定性执行器和查询 API。
+- 新增接口：`GET/POST /api/evaluations/evaluators`、`GET/POST /api/evaluations/datasets`、`GET/POST /api/evaluations/results`。
+- 预置 6 个确定性评估器：`ACTION_COMPLETION`、`TOOL_ARGUMENT_VALIDITY`、`TOOL_STATUS`、`PII_POLICY`、`SENSITIVE_APPROVAL`、`COST_BUDGET`；另支持 `EXACT_MATCH` 实现用于回归测试。
+- 评估请求支持 `agentId`、`traceId`、`spanId`、数据集标识、输入/期望/实际 JSON；结果保存分数、通过状态、置信度、理由和证据 JSON。评估执行所需的 JSON 单字段默认限制 64KB，持久化遵循现有 `OFF/HASH_ONLY/REDACTED` 观测模式，避免把原始内容无边界写入评估库。
+- 当前实现是 observe/evaluate 基础，不会自动改变现有 `ALLOW/ASK/DENY` 控制；后续仍应增加异步 worker、Session/Trace 聚合、LLM Judge/本地 SLM，以及 evaluator-to-policy 编译器。
+- 前端新增 `/evaluation`“评估与可靠性”工作台，可查看评估器/数据集/最近结果，创建示例数据集并显式运行一次确定性评估；明确标注当前不会自动改变控制决策。
+- 新增 `EvaluationProjectionService` 和可选 `EvaluationProjectionScheduler`：扫描近期终态 Tool Invocation，自动生成 `TOOL_STATUS`，当 OTLP attributes 提供 `requiredArguments` 时同时生成 `TOOL_ARGUMENT_VALIDITY`；结果键按工具事件幂等，默认不会自动启用定时扫描。
+- Evaluation 投影进一步覆盖 Trace：按 Trace 聚合近期 Span，优先读取 `eap.task.completed` 等显式任务信号；缺少显式信号时采用“存在模型/Agent 步骤且无失败 Span”的保守启发式，生成 `TRACE_ACTION_COMPLETION`，同时记录 Span、Tool、失败数、耗时和推断模式等证据；启发式结果置信度固定为 0.6，避免把推断结果伪装成业务确认。
+- 新增 RAG 投影：复用知识交互的检索源、输出源、引用重合、采用结果和质量分，生成 `RAG_CONTEXT_COVERAGE`；当前只衡量“是否形成可追踪上下文证据”，不宣称语义相关性或事实正确性，输入/输出正文仍受现有观测模式约束。
+- 新增 `POST /api/evaluations/synchronize?limit=200`，用于手动投影近期 Tool、Trace 和 RAG 观测；通过 `EAP_EVALUATION_AUTO_SYNC_ENABLED=true` 才启用每分钟自动投影。该投影只写评估结果，不派发控制命令。
+- 新增异步投影任务表 `eap_evaluation_jobs`（Flyway V34）和 Worker：`POST /api/evaluations/jobs?limit=200` 提交任务，`GET /api/evaluations/jobs` 查看最近任务，`GET /api/evaluations/jobs/{id}` 查询状态；原同步接口保留兼容，自动同步调度器改为入队而不是占用调度线程执行。
+- 前端评估工作台已同步升级：结果表支持点击查看评估证据、分数/置信度/版本/Trace 标识，自动加载关联 Span，并可跳转 Physical Trace 工作台；投影任务区展示队列状态和扫描统计。
+- 新增 `GET /api/evaluations/summary?hours=24` 汇总接口，按完整时间窗口返回评估总数、通过率、平均分、平均置信度和各评估器失败分布；前端增加“评估窗口摘要”，避免仅根据最近 100 条结果判断整体质量。
+- AgentOps 信号同步现已消费未通过评估结果，生成 `EVALUATION_FAILURE` 运营事项，携带评估器、版本、分数、置信度、Trace/Span 和理由；安全相关评估器默认为 P1，其他评估器默认为 P2。该信号只创建/更新运营事项，不改变模型或工具调用决策。
+- 新增 Flyway V32，预置 `TRACE_ACTION_COMPLETION`；新增 V33，预置 `RAG_CONTEXT_COVERAGE`；新增 V34，持久化异步投影任务。验证基线：`mvn -q -DskipTests compile` 通过；`mvn -q test` 共 96 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+
 ### 2.15 功能与界面专项审查（2026-08-24）
 
 - 本地审查与 DeepSeek 脱敏第二意见结论一致：当前版本适合演示，不适合直接试点或生产；主要阻断项为 DEVELOPMENT + HTTP、控制命令仍为 outbox 模拟派发、核心长列表缺少服务端分页，以及模拟/已启用能力在拓扑和控制界面上需要更醒目标识。
