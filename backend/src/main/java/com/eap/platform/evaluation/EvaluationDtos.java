@@ -92,7 +92,7 @@ public final class EvaluationDtos {
     public record DatasetItemAnnotationRequest(
             @NotBlank @Size(max = 16) String groundTruthLabel,
             @DecimalMin("0.0") @DecimalMax("1.0") @Digits(integer = 1, fraction = 6) BigDecimal groundTruthScore,
-            @NotBlank @Size(max = 128) String annotatedBy,
+            @Size(max = 128) String annotatedBy,
             @Size(max = 2048) String rationale
     ) {
     }

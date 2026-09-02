@@ -26,6 +26,12 @@ public class EvaluationResult {
     @Column(name = "evaluator_id", nullable = false)
     Long evaluatorId;
 
+    @Column(name = "evaluator_version", nullable = false, length = 64)
+    String evaluatorVersion;
+
+    @Column(name = "request_fingerprint", length = 64)
+    String requestFingerprint;
+
     @Column(name = "dataset_id")
     Long datasetId;
 
@@ -85,6 +91,7 @@ public class EvaluationResult {
 
     public Long getId() { return id; }
     public Long getEvaluatorId() { return evaluatorId; }
+    public String getEvaluatorVersion() { return evaluatorVersion; }
     public Long getAgentId() { return agentId; }
     public String getResultKey() { return resultKey; }
     public String getTraceId() { return traceId; }

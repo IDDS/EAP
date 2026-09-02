@@ -4,6 +4,8 @@ import com.eap.platform.common.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -77,9 +79,12 @@ public class EvaluationController {
     public ApiResponse<EvaluationDtos.DatasetItemResponse> annotateDatasetItem(
             @PathVariable String datasetKey,
             @PathVariable String itemKey,
-            @Valid @RequestBody EvaluationDtos.DatasetItemAnnotationRequest request
+            @Valid @RequestBody EvaluationDtos.DatasetItemAnnotationRequest request,
+            Authentication authentication
     ) {
-        return ApiResponse.ok(datasetItemService.annotate(datasetKey, itemKey, request));
+        String actor = authentication != null && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken) ? authentication.getName() : null;
+        return ApiResponse.ok(datasetItemService.annotate(datasetKey, itemKey, request, actor));
     }
 
     @PostMapping("/results")

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -32,11 +33,13 @@ class EvaluationServiceTests {
     private AgentRepository agentRepository;
 
     private EvaluationService service;
+    private ObservationProperties observationProperties;
 
     @BeforeEach
     void setUp() {
+        observationProperties = new ObservationProperties();
         service = new EvaluationService(evaluatorRepository, datasetRepository, resultRepository,
-                agentRepository, new ObjectMapper(), new ObservationProperties(), new SensitiveContentSanitizer());
+                agentRepository, new ObjectMapper(), observationProperties, new SensitiveContentSanitizer());
     }
 
     @Test
@@ -101,6 +104,47 @@ class EvaluationServiceTests {
     }
 
     @Test
+    void returnsSameResultOnlyForTheSameRequestFingerprint() throws Exception {
+        EvaluatorDefinition evaluator = evaluator("ACTION_COMPLETION", "ACTION_COMPLETION", EvaluationLevel.SESSION,
+                new BigDecimal("0.500000"));
+        when(evaluatorRepository.findByEvaluatorKey("ACTION_COMPLETION")).thenReturn(Optional.of(evaluator));
+        when(resultRepository.findByResultKey("stable-result")).thenReturn(Optional.empty());
+        when(resultRepository.save(any())).thenAnswer(invocation -> {
+            EvaluationResult result = invocation.getArgument(0);
+            result.id = 42L;
+            result.createdAt = result.evaluatedAt;
+            return result;
+        });
+
+        EvaluationDtos.EvaluationRequest request = new EvaluationDtos.EvaluationRequest(
+                "stable-result", "ACTION_COMPLETION", "v1", null, null, null, null,
+                new ObjectMapper().readTree("{}"), null,
+                new ObjectMapper().readTree("{\"completed\":true}"), null);
+        EvaluationDtos.EvaluationResultResponse first = service.evaluate(request);
+
+        EvaluationResult existing = new EvaluationResult();
+        existing.id = first.id();
+        existing.resultKey = "stable-result";
+        existing.evaluatorId = evaluator.id;
+        existing.evaluatorVersion = evaluator.version;
+        existing.requestFingerprint = "different";
+        existing.score = BigDecimal.ONE.setScale(6);
+        existing.confidence = BigDecimal.ONE.setScale(6);
+        existing.passed = true;
+        existing.level = evaluator.level;
+        existing.status = EvaluationStatus.COMPLETED;
+        existing.evaluatedAt = Instant.now();
+        when(resultRepository.findByResultKey("stable-result")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.evaluate(new EvaluationDtos.EvaluationRequest(
+                "stable-result", "ACTION_COMPLETION", "v1", null, null, null, null,
+                new ObjectMapper().readTree("{}"), null,
+                new ObjectMapper().readTree("{\"completed\":false}"), null)))
+                .isInstanceOf(com.eap.platform.common.BusinessException.class)
+                .hasMessageContaining("不同的评估请求");
+    }
+
+    @Test
     void persistsOnlyHashWhenDefaultObservationModeIsHashOnly() throws Exception {
         EvaluatorDefinition evaluator = evaluator("PII_POLICY", "PII_POLICY", EvaluationLevel.SPAN, BigDecimal.ONE);
         when(evaluatorRepository.findByEvaluatorKey("PII_POLICY")).thenReturn(Optional.of(evaluator));
@@ -115,6 +159,34 @@ class EvaluationServiceTests {
 
         assertThat(captor.getValue().actualJson).contains("HASH_ONLY").doesNotContain("containsPii");
         assertThat(captor.getValue().inputJson).contains("HASH_ONLY").doesNotContain("internal employee data");
+    }
+
+    @Test
+    void fingerprintsDifferentRequestsEvenWhenObservationIsOff() throws Exception {
+        observationProperties.setCaptureMode(com.eap.platform.observability.ContentCaptureMode.OFF);
+        EvaluatorDefinition evaluator = evaluator("ACTION_COMPLETION", "ACTION_COMPLETION", EvaluationLevel.SESSION,
+                new BigDecimal("0.500000"));
+        when(evaluatorRepository.findByEvaluatorKey("ACTION_COMPLETION")).thenReturn(Optional.of(evaluator));
+        when(resultRepository.findByResultKey("off-result")).thenReturn(Optional.empty());
+        when(resultRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.evaluate(new EvaluationDtos.EvaluationRequest(
+                "off-result", "ACTION_COMPLETION", "v1", null, null, null, null,
+                new ObjectMapper().readTree("{\"task\":\"first\"}"), null,
+                new ObjectMapper().readTree("{\"completed\":true}"), null));
+
+        EvaluationResult existing = new EvaluationResult();
+        existing.evaluatorId = evaluator.id;
+        existing.evaluatorVersion = evaluator.version;
+        existing.requestFingerprint = "fingerprint-from-first-request";
+        when(resultRepository.findByResultKey("off-result")).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.evaluate(new EvaluationDtos.EvaluationRequest(
+                "off-result", "ACTION_COMPLETION", "v1", null, null, null, null,
+                new ObjectMapper().readTree("{\"task\":\"second\"}"), null,
+                new ObjectMapper().readTree("{\"completed\":true}"), null)))
+                .isInstanceOf(com.eap.platform.common.BusinessException.class)
+                .hasMessageContaining("不同的评估请求");
     }
 
     @Test

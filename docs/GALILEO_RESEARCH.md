@@ -193,7 +193,7 @@ GET  /api/evaluations/results?agentId=&traceId=&limit=
 POST /api/evaluations/results
 ```
 
-数据集样本接口用于把脱敏 Trace/评估输入、期望和实际结果固化为可回归条目，并记录 SME 的 `PASS`、`FAIL` 或 `ABSTAIN` 标注、分数与理由。它是人工反馈回流评估工程的最小闭环；`OFF` 模式下正文列允许为空，`HASH_ONLY/REDACTED` 仍由服务端统一处理。
+数据集样本接口用于把脱敏 Trace/评估输入、期望和实际结果固化为可回归条目，并记录 SME 的 `PASS`、`FAIL` 或 `ABSTAIN` 标注、分数与理由。它是人工反馈回流评估工程的最小闭环；`OFF` 模式下正文列允许为空，`HASH_ONLY/REDACTED` 仍由服务端统一处理。评估结果另保存执行时 evaluator 版本和请求指纹，避免评估器升级后历史结果被重新解释。
 
 示例：对一次工具调用做参数完整性评分。`input.requiredArguments` 是工具契约，`actual.arguments` 是实际参数：
 

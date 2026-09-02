@@ -178,7 +178,10 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - AgentOps 信号同步现已消费未通过评估结果，生成 `EVALUATION_FAILURE` 运营事项，携带评估器、版本、分数、置信度、Trace/Span 和理由；安全相关评估器默认为 P1，其他评估器默认为 P2。该信号只创建/更新运营事项，不改变模型或工具调用决策。
 - 新增 Flyway V32，预置 `TRACE_ACTION_COMPLETION`；新增 V33，预置 `RAG_CONTEXT_COVERAGE`；新增 V34，持久化异步投影任务；新增 V35，持久化数据集样本和 SME ground-truth 标注。新增 `POST/GET /api/evaluations/datasets/{datasetKey}/items` 与 `PATCH /api/evaluations/datasets/{datasetKey}/items/{itemKey}/annotation`，支持 `PASS/FAIL/ABSTAIN`、分数、理由和标注人；样本正文继续遵循 `OFF/HASH_ONLY/REDACTED` 脱敏策略。
 - 前端评估工作台已同步增加“SME 标注样本”入口，可按数据集查看样本、选择标注结果、填写理由并回写服务端；创建示例数据集时会同时生成一个可标注样本，形成“采集 → 评估 → 人工反馈 → 回归集”的最小闭环。
-- 当前验证基线：Flyway 迁移至 V35；`mvn -q test` 共 99 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+- V35 阶段验证基线为 `mvn -q test` 共 99 项测试，0 failures、0 errors、0 skipped；前端 `npm run build` 通过。
+- 新增 Flyway V36：评估结果保存执行时 `evaluatorVersion` 与请求指纹，历史结果不再随评估器当前版本变化；相同 `resultKey` 只有请求指纹一致才幂等返回，避免不同输入静默复用旧结果。
+- JWT 模式新增评估样本创建与标注权限：创建限制 `OPERATOR/PLATFORM_ADMIN`，标注限制 `OPERATOR/GOVERNANCE_ADMIN/PLATFORM_ADMIN`；标注接口优先使用认证主体作为操作者，并写入 `ANNOTATE_EVALUATION_DATASET_ITEM` 审计事件。
+- 当前验证基线更新为：Flyway 迁移至 V36；`mvn -q test` 共 101 项测试，0 failures、0 errors、0 skipped；前端既有构建基线保持通过。
 
 ### 2.15 功能与界面专项审查（2026-08-24）
 
@@ -281,8 +284,9 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 2. 完成端到端演示链路：自动发现 Agent → 采集 Trace → 查看模型与工具调用 → 触发治理策略 → 统计 Token、成本和 ROI。
 3. 扩展发行包：Kubernetes Helm Chart、Tetragon/eBPF 适配器、Windows/macOS 服务安装器和服务网格接入说明。
 4. 强化无侵入观测：透明代理、OpenTelemetry Collector 处理器、常见 Agent 框架自动探针和网关旁路元数据采集；为实际使用的模型供应商增加 Usage/Billing 只读适配器。
-5. 增加前端端到端自动化测试，覆盖分页、筛选、Trace 钻取、治理审批、控制命令和错误状态。
-6. 在生产部署中启用 MySQL、JWT、机器凭证、保密信息 fail-closed、审计留存和数据生命周期策略。
+5. 完成评估数据集批量运行和混淆矩阵，比较 evaluator 与 SME ground truth 的 Precision、Recall、F1，并支持已发布版本只读。
+6. 增加前端端到端自动化测试，覆盖分页、筛选、Trace 钻取、治理审批、控制命令、评估标注和错误状态。
+7. 在生产部署中启用 MySQL、JWT、机器凭证、保密信息 fail-closed、审计留存和数据生命周期策略。
 
 ## 6. 开发与交付约定
 

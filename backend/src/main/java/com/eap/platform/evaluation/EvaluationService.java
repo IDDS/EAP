@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -123,33 +124,47 @@ public class EvaluationService {
             dataset = datasetRepository.findByDatasetKey(normalizeKey(request.datasetKey(), 128))
                     .orElseThrow(() -> new BusinessException("评估数据集不存在"));
         }
-        if (request.resultKey() != null && !request.resultKey().isBlank()) {
-            EvaluationResult existing = resultRepository.findByResultKey(request.resultKey().trim()).orElse(null);
-            if (existing != null) {
-                return toResponse(existing, evaluator, dataset);
-            }
-        }
         validateJson(request.input(), "评估输入");
         validateJson(request.actual(), "评估实际结果");
         if (request.expected() != null) validateJson(request.expected(), "评估期望结果");
+
+        String traceId = normalize(request.traceId(), 128);
+        String spanId = normalize(request.spanId(), 128);
+        String persistedInput = persistObservation(request.input());
+        String persistedExpected = request.expected() == null ? null : persistObservation(request.expected());
+        String persistedActual = persistObservation(request.actual());
+        String requestFingerprint = requestFingerprint(evaluator.id, evaluator.version,
+                dataset == null ? null : dataset.id, request.agentId(), traceId, spanId,
+                contentFingerprint(request.input()), contentFingerprint(request.expected()), contentFingerprint(request.actual()));
+        if (request.resultKey() != null && !request.resultKey().isBlank()) {
+            EvaluationResult existing = resultRepository.findByResultKey(request.resultKey().trim()).orElse(null);
+            if (existing != null) {
+                if (!sameRequest(existing, requestFingerprint, evaluator, dataset, request.agentId(), traceId, spanId)) {
+                    throw new BusinessException("resultKey 已用于不同的评估请求");
+                }
+                return toResponse(existing, evaluator, dataset);
+            }
+        }
 
         Score score = score(evaluator.implementationKey, request.input(), request.expected(), request.actual());
         EvaluationResult result = new EvaluationResult();
         result.resultKey = firstNonBlank(normalize(request.resultKey(), 128), UUID.randomUUID().toString());
         result.evaluatorId = evaluator.id;
+        result.evaluatorVersion = evaluator.version;
+        result.requestFingerprint = requestFingerprint;
         result.datasetId = dataset == null ? null : dataset.id;
         result.agentId = request.agentId();
-        result.traceId = normalize(request.traceId(), 128);
-        result.spanId = normalize(request.spanId(), 128);
+        result.traceId = traceId;
+        result.spanId = spanId;
         result.level = evaluator.level;
         result.status = EvaluationStatus.COMPLETED;
         result.score = score.score();
         result.passed = score.score().compareTo(evaluator.threshold) >= 0;
         result.confidence = confidence(request.actual());
         result.rationale = score.rationale();
-        result.inputJson = persistObservation(request.input());
-        result.expectedJson = request.expected() == null ? null : persistObservation(request.expected());
-        result.actualJson = persistObservation(request.actual());
+        result.inputJson = persistedInput;
+        result.expectedJson = persistedExpected;
+        result.actualJson = persistedActual;
         result.evidenceJson = score.evidence().toString();
         result.evaluatedAt = request.evaluatedAt() == null ? Instant.now() : request.evaluatedAt();
         EvaluationResult saved = resultRepository.save(result);
@@ -229,7 +244,7 @@ public class EvaluationService {
         return new EvaluationDtos.EvaluationResultResponse(
                 result.id, result.resultKey,
                 evaluator == null ? null : evaluator.evaluatorKey,
-                evaluator == null ? null : evaluator.version,
+                result.evaluatorVersion == null ? (evaluator == null ? null : evaluator.version) : result.evaluatorVersion,
                 dataset == null ? null : dataset.datasetKey,
                 result.agentId, result.traceId, result.spanId, result.level, result.status,
                 result.score, result.passed, result.confidence, result.rationale, evidence,
@@ -439,6 +454,48 @@ public class EvaluationService {
 
     private String firstNonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private boolean sameRequest(
+            EvaluationResult existing, String fingerprint, EvaluatorDefinition evaluator, EvaluationDataset dataset,
+            Long agentId, String traceId, String spanId
+    ) {
+        String existingFingerprint = existing.requestFingerprint;
+        if (existingFingerprint == null) return false;
+        return Objects.equals(existingFingerprint, fingerprint)
+                && Objects.equals(existing.evaluatorId, evaluator.id)
+                && Objects.equals(existing.evaluatorVersion, evaluator.version)
+                && Objects.equals(existing.datasetId, dataset == null ? null : dataset.id)
+                && Objects.equals(existing.agentId, agentId)
+                && Objects.equals(existing.traceId, traceId)
+                && Objects.equals(existing.spanId, spanId);
+    }
+
+    private String requestFingerprint(
+            Long evaluatorId, String evaluatorVersion, Long datasetId, Long agentId,
+            String traceId, String spanId, String inputFingerprint, String expectedFingerprint, String actualFingerprint
+    ) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        putNullable(payload, "evaluatorId", evaluatorId);
+        putNullable(payload, "evaluatorVersion", evaluatorVersion);
+        putNullable(payload, "datasetId", datasetId);
+        putNullable(payload, "agentId", agentId);
+        putNullable(payload, "traceId", traceId);
+        putNullable(payload, "spanId", spanId);
+        putNullable(payload, "inputFingerprint", inputFingerprint);
+        putNullable(payload, "expectedFingerprint", expectedFingerprint);
+        putNullable(payload, "actualFingerprint", actualFingerprint);
+        return sha256(payload.toString());
+    }
+
+    private String contentFingerprint(JsonNode value) {
+        return value == null ? null : sha256(value.toString());
+    }
+
+    private void putNullable(ObjectNode payload, String key, Object value) {
+        if (value == null) payload.putNull(key);
+        else if (value instanceof Number number) payload.put(key, number.longValue());
+        else payload.put(key, String.valueOf(value));
     }
 
     private record Score(BigDecimal score, String rationale, ObjectNode evidence) {

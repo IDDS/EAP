@@ -1,7 +1,10 @@
 package com.eap.platform.evaluation;
 
 import com.eap.platform.agent.AgentRepository;
+import com.eap.platform.audit.AuditLog;
+import com.eap.platform.audit.AuditLogRepository;
 import com.eap.platform.common.BusinessException;
+import com.eap.platform.common.TraceContext;
 import com.eap.platform.observability.ContentCaptureMode;
 import com.eap.platform.observability.ObservationProperties;
 import com.eap.platform.observability.SensitiveContentSanitizer;
@@ -31,6 +34,7 @@ public class EvaluationDatasetItemService {
     private final EvaluationDatasetItemRepository itemRepository;
     private final EvaluatorDefinitionRepository evaluatorRepository;
     private final AgentRepository agentRepository;
+    private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
     private final ObservationProperties observationProperties;
     private final SensitiveContentSanitizer sensitiveContentSanitizer;
@@ -40,6 +44,7 @@ public class EvaluationDatasetItemService {
             EvaluationDatasetItemRepository itemRepository,
             EvaluatorDefinitionRepository evaluatorRepository,
             AgentRepository agentRepository,
+            AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper,
             ObservationProperties observationProperties,
             SensitiveContentSanitizer sensitiveContentSanitizer
@@ -48,6 +53,7 @@ public class EvaluationDatasetItemService {
         this.itemRepository = itemRepository;
         this.evaluatorRepository = evaluatorRepository;
         this.agentRepository = agentRepository;
+        this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
         this.observationProperties = observationProperties;
         this.sensitiveContentSanitizer = sensitiveContentSanitizer;
@@ -99,9 +105,18 @@ public class EvaluationDatasetItemService {
     public EvaluationDtos.DatasetItemResponse annotate(
             String datasetKey, String itemKey, EvaluationDtos.DatasetItemAnnotationRequest request
     ) {
+        return annotate(datasetKey, itemKey, request, null);
+    }
+
+    @Transactional
+    public EvaluationDtos.DatasetItemResponse annotate(
+            String datasetKey, String itemKey, EvaluationDtos.DatasetItemAnnotationRequest request, String authenticatedActor
+    ) {
         EvaluationDataset dataset = dataset(datasetKey);
         EvaluationDatasetItem item = itemRepository.findByDatasetIdAndItemKey(dataset.id, normalize(itemKey, 128))
                 .orElseThrow(() -> new BusinessException("数据集样本不存在"));
+        String beforeLabel = item.groundTruthLabel;
+        BigDecimal beforeScore = item.groundTruthScore;
         String label = normalizeKey(request.groundTruthLabel(), 16);
         if (!LABELS.contains(label)) {
             throw new BusinessException("标注结果必须为 PASS、FAIL 或 ABSTAIN");
@@ -117,9 +132,11 @@ public class EvaluationDatasetItemService {
         item.groundTruthLabel = label;
         item.groundTruthScore = score;
         item.annotationRationale = normalize(request.rationale(), 2048);
-        item.annotatedBy = normalize(request.annotatedBy(), 128);
+        item.annotatedBy = normalize(firstNonBlank(authenticatedActor, request.annotatedBy(), "控制台用户"), 128);
         item.annotatedAt = Instant.now();
-        return toResponse(itemRepository.save(item));
+        EvaluationDatasetItem saved = itemRepository.save(item);
+        writeAnnotationAudit(saved, beforeLabel, beforeScore);
+        return toResponse(saved);
     }
 
     private EvaluationDataset dataset(String datasetKey) {
@@ -199,5 +216,29 @@ public class EvaluationDatasetItemService {
 
     private String firstNonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String firstNonBlank(String first, String second, String fallback) {
+        return first != null && !first.isBlank() ? first : firstNonBlank(second, fallback);
+    }
+
+    private void writeAnnotationAudit(EvaluationDatasetItem item, String beforeLabel, BigDecimal beforeScore) {
+        AuditLog audit = new AuditLog();
+        audit.setActor(firstNonBlank(item.annotatedBy, "system"));
+        audit.setAction("ANNOTATE_EVALUATION_DATASET_ITEM");
+        audit.setResourceType("EVALUATION_DATASET_ITEM");
+        audit.setResourceId(String.valueOf(item.id));
+        ObjectNode before = objectMapper.createObjectNode();
+        if (beforeLabel == null) before.putNull("groundTruthLabel"); else before.put("groundTruthLabel", beforeLabel);
+        if (beforeScore == null) before.putNull("groundTruthScore"); else before.put("groundTruthScore", beforeScore);
+        ObjectNode after = objectMapper.createObjectNode();
+        after.put("groundTruthLabel", item.groundTruthLabel);
+        after.put("groundTruthScore", item.groundTruthScore);
+        audit.setBeforeJson(before.toString());
+        audit.setAfterJson(after.toString());
+        audit.setResult("SUCCESS");
+        audit.setTraceId(TraceContext.traceId());
+        audit.setCreatedAt(Instant.now());
+        auditLogRepository.save(audit);
     }
 }

@@ -16,6 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,6 +49,21 @@ class JwtSecurityIntegrationTests {
     @Test
     void viewerCannotIssueControlCommands() throws Exception {
         mockMvc.perform(post("/api/control/commands")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void viewerCannotWriteEvaluationSamplesOrAnnotations() throws Exception {
+        mockMvc.perform(post("/api/evaluations/datasets/REGRESSION/items")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(patch("/api/evaluations/datasets/REGRESSION/items/case-1/annotation")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))

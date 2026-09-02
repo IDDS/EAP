@@ -1,6 +1,7 @@
 package com.eap.platform.evaluation;
 
 import com.eap.platform.agent.AgentRepository;
+import com.eap.platform.audit.AuditLogRepository;
 import com.eap.platform.observability.ObservationProperties;
 import com.eap.platform.observability.SensitiveContentSanitizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +29,8 @@ class EvaluationDatasetItemServiceTests {
     private EvaluatorDefinitionRepository evaluatorRepository;
     @Mock
     private AgentRepository agentRepository;
+    @Mock
+    private AuditLogRepository auditLogRepository;
 
     private EvaluationDatasetItemService service;
     private EvaluationDataset dataset;
@@ -36,7 +39,7 @@ class EvaluationDatasetItemServiceTests {
     @BeforeEach
     void setUp() {
         service = new EvaluationDatasetItemService(datasetRepository, itemRepository, evaluatorRepository,
-                agentRepository, new ObjectMapper(), new ObservationProperties(), new SensitiveContentSanitizer());
+                agentRepository, auditLogRepository, new ObjectMapper(), new ObservationProperties(), new SensitiveContentSanitizer());
         dataset = new EvaluationDataset();
         dataset.id = 9L;
         dataset.datasetKey = "REGRESSION_V1";
@@ -80,13 +83,14 @@ class EvaluationDatasetItemServiceTests {
         item.actualJson = "{}";
         when(itemRepository.findByDatasetIdAndItemKey(9L, "case-1")).thenReturn(Optional.of(item));
         when(itemRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(auditLogRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         EvaluationDtos.DatasetItemResponse response = service.annotate("regression_v1", "case-1",
-                new EvaluationDtos.DatasetItemAnnotationRequest("fail", null, "SME-1", "未完成目标"));
+                new EvaluationDtos.DatasetItemAnnotationRequest("fail", null, "spoofed-user", "未完成目标"), "jwt-user");
 
         assertThat(response.groundTruthLabel()).isEqualTo("FAIL");
         assertThat(response.groundTruthScore()).isEqualByComparingTo(BigDecimal.ZERO.setScale(6));
-        assertThat(response.annotatedBy()).isEqualTo("SME-1");
+        assertThat(response.annotatedBy()).isEqualTo("jwt-user");
     }
 
     @Test
