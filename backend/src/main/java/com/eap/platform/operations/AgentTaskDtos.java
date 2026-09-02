@@ -21,6 +21,10 @@ public final class AgentTaskDtos {
         public TaskRequest(Long agentId, Long agentVersionId, String taskType, String inputSummary) {
             this(agentId, agentVersionId, taskType, inputSummary, null);
         }
+
+        public TaskRequest withRequester(String value) {
+            return new TaskRequest(agentId, agentVersionId, taskType, inputSummary, value);
+        }
     }
 
     public record StatusRequest(

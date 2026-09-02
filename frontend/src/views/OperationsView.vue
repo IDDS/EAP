@@ -6,7 +6,7 @@
         <span>跟踪智能体任务状态、员工使用频率、问题解决和执行结果</span>
       </div>
       <div class="button-row">
-        <el-input v-model="requester" placeholder="员工 / 调用方" clearable style="width: 170px" />
+        <el-input v-model="requester" placeholder="员工 / 调用方（开发模式）" clearable style="width: 205px" />
         <el-button type="primary" :icon="Plus" @click="createDemoTask">创建模拟任务</el-button>
       </div>
     </div>

@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @SpringBootTest(properties = {
         "eap.security.mode=JWT",
@@ -44,6 +45,17 @@ class JwtSecurityIntegrationTests {
         mockMvc.perform(get("/api/gateway/status")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER"))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void taskCreationUsesAuthenticatedSubjectWhenRequesterIsMissing() throws Exception {
+        mockMvc.perform(post("/api/tasks")
+                        .with(jwt().jwt(token -> token.subject("employee@example.com"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"agentId\":1,\"taskType\":\"GOVERNED_ANALYSIS\",\"inputSummary\":\"业务异常解释\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requester").value("employee@example.com"));
     }
 
     @Test

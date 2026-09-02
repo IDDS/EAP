@@ -64,7 +64,10 @@
       <template #header>
         <div class="panel-header">
           <div><span>员工使用与业务效果</span><div class="muted">把“有人使用”“任务完成”和“问题解决”分开统计，避免把调用量误当成业务价值。</div></div>
-          <el-tag size="small" :type="usageIdentityCaptured ? 'success' : 'warning'" effect="plain">{{ usageIdentityCaptured ? '已采集调用方' : '待接入员工身份' }}</el-tag>
+          <div class="button-row">
+            <el-tag size="small" :type="usageIdentityCaptured ? 'success' : 'warning'" effect="plain">{{ usageIdentityCaptured ? '已采集调用方' : '待接入员工身份' }}</el-tag>
+            <el-tag size="small" :type="outcomeCoverageLabel === '未采集' ? 'warning' : 'info'" effect="plain">结果判断覆盖 {{ outcomeCoverageLabel }}</el-tag>
+          </div>
         </div>
       </template>
       <div class="management-usage-metrics">
@@ -97,7 +100,7 @@
           <el-empty v-if="!applicationUsage.length" description="当前窗口没有可识别应用场景" :image-size="56" />
         </div>
       </div>
-      <div class="management-usage-note">员工身份来自任务请求的 <code>requester</code> 字段；问题解决来自任务完成后的明确判断，不会用模型调用次数或任务成功状态替代业务确认。</div>
+      <div class="management-usage-note">JWT 模式会自动使用登录主体作为员工 / 调用方；开发模式或机器调用可显式传入 <code>requester</code>。问题解决来自任务完成后的明确判断，不会用模型调用次数或任务成功状态替代业务确认。</div>
     </el-card>
 
     <div v-if="drilldownLabel" class="drilldown-context">
@@ -737,6 +740,7 @@ const usageIdentityCaptured = computed(() => activeEmployeeCount.value > 0)
 const resolvedTaskCount = computed(() => windowTasks.value.filter(task => task.problemResolved === true).length)
 const resolutionObservedCount = computed(() => windowTasks.value.filter(task => task.problemResolved !== undefined).length)
 const resolutionRateLabel = computed(() => resolutionObservedCount.value ? `${Math.round(resolvedTaskCount.value / resolutionObservedCount.value * 100)}%` : '未采集')
+const outcomeCoverageLabel = computed(() => windowTasks.value.length ? `${Math.round(resolutionObservedCount.value / windowTasks.value.length * 100)}%` : '未采集')
 const averageDailyUses = computed(() => {
   const days = Math.max(1, windowHours.value / 24)
   return (windowTasks.value.length / days).toFixed(1)
