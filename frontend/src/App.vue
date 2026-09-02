@@ -70,6 +70,10 @@
             <el-menu-item index="/workflow-builder">工作流自动化</el-menu-item>
             <el-menu-item index="/learning">自适应学习</el-menu-item>
           </el-sub-menu>
+          <el-menu-item index="/evaluation">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>评估与可靠性</span>
+          </el-menu-item>
         </el-menu>
       </div>
       <div class="sidebar-status">

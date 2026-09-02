@@ -14,6 +14,7 @@ import PhysicalView from '@/views/PhysicalView.vue'
 import KnowledgeView from '@/views/KnowledgeView.vue'
 import ManagementView from '@/views/ManagementView.vue'
 import AgentDetailView from '@/views/AgentDetailView.vue'
+import EvaluationView from '@/views/EvaluationView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -29,6 +30,7 @@ const router = createRouter({
     { path: '/orchestration', component: OrchestrationView, meta: { title: 'Agent 团队' } },
     { path: '/workflow-builder', component: WorkflowBuilderView, meta: { title: '工作流自动化' } },
     { path: '/learning', component: LearningView, meta: { title: '自适应学习' } },
+    { path: '/evaluation', component: EvaluationView, meta: { title: '评估与可靠性' } },
     { path: '/governance', component: GovernanceView, meta: { title: '策略与审批' } },
     { path: '/safety', component: SafetyView, meta: { title: '安全响应' } },
     { path: '/ethics', component: EthicsView, meta: { title: '责任与伦理' } },

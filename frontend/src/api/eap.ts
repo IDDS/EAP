@@ -77,6 +77,11 @@ import type {
   RiskPosture,
   WorkItemSeverity,
   WorkItemStatus,
+  EvaluatorDefinition,
+  EvaluationDataset,
+  EvaluationResult,
+  EvaluationJob,
+  EvaluationSummary,
 } from '@/types/domain'
 
 function queryString(params: Record<string, string | number | boolean | undefined>) {
@@ -89,6 +94,48 @@ function queryString(params: Record<string, string | number | boolean | undefine
 }
 
 export const EapApi = {
+  listEvaluators: () => getData<EvaluatorDefinition[]>('/evaluations/evaluators'),
+  createEvaluator: (payload: {
+    evaluatorKey: string
+    name: string
+    description?: string
+    evaluatorType: 'RULE' | 'CODE' | 'LLM_JUDGE' | 'LOCAL_SLM'
+    level: 'SPAN' | 'TRACE' | 'SESSION' | 'AGENT' | 'WORKFLOW'
+    implementationKey: string
+    version: string
+    threshold?: number
+  }) => postData<EvaluatorDefinition, typeof payload>('/evaluations/evaluators', payload),
+  listEvaluationDatasets: () => getData<EvaluationDataset[]>('/evaluations/datasets'),
+  createEvaluationDataset: (payload: {
+    datasetKey: string
+    name: string
+    description?: string
+    sourceType?: string
+    version?: string
+    itemCount?: number
+  }) => postData<EvaluationDataset, typeof payload>('/evaluations/datasets', payload),
+  listEvaluationResults: (params: { agentId?: number; traceId?: string; limit?: number } = {}) =>
+    getData<EvaluationResult[]>(`/evaluations/results${queryString(params)}`),
+  getEvaluationSummary: (hours = 24) => getData<EvaluationSummary>(`/evaluations/summary?hours=${hours}`),
+  runEvaluation: (payload: {
+    resultKey?: string
+    evaluatorKey: string
+    evaluatorVersion?: string
+    datasetKey?: string
+    agentId?: number
+    traceId?: string
+    spanId?: string
+    input: Record<string, unknown>
+    expected?: unknown
+    actual: Record<string, unknown>
+    evaluatedAt?: string
+  }) => postData<EvaluationResult, typeof payload>('/evaluations/results', payload),
+  synchronizeEvaluations: (limit = 200) =>
+    postData<{ scanned: number; evaluated: number; skipped: number; failed: number }, Record<string, never>>(`/evaluations/synchronize?limit=${limit}`, {}),
+  submitEvaluationJob: (limit = 200) =>
+    postData<EvaluationJob, Record<string, never>>(`/evaluations/jobs?limit=${limit}`, {}),
+  listEvaluationJobs: () => getData<EvaluationJob[]>('/evaluations/jobs'),
+  getEvaluationJob: (id: number) => getData<EvaluationJob>(`/evaluations/jobs/${id}`),
   getAgentOpsDashboard: (params: { hours?: number; organizationScope?: string } = {}) =>
     getData<AgentOpsDashboard>(`/agentops/dashboard${queryString(params)}`),
   listAgentOpsAgents: (params: {

@@ -42,6 +42,7 @@ export type WorkItemType =
   | 'GOVERNANCE_APPROVAL'
   | 'CONNECTOR_FAILURE'
   | 'OBSERVABILITY_GAP'
+  | 'EVALUATION_FAILURE'
   | 'USAGE_RECONCILIATION'
   | 'GENERAL'
 export type EvidenceBasis = 'MEASURED' | 'EXTERNAL_RECONCILED' | 'HUMAN_CONFIRMED' | 'DERIVED' | 'ESTIMATED' | 'DEMO'
@@ -1221,4 +1222,93 @@ export interface WorkflowRun {
   status: string
   objective: string
   steps: WorkflowRunStep[]
+}
+
+export type EvaluatorType = 'RULE' | 'CODE' | 'LLM_JUDGE' | 'LOCAL_SLM'
+export type EvaluationLevel = 'SPAN' | 'TRACE' | 'SESSION' | 'AGENT' | 'WORKFLOW'
+export type EvaluationStatus = 'COMPLETED' | 'FAILED'
+export type EvaluationJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+
+export interface EvaluatorDefinition {
+  id: number
+  evaluatorKey: string
+  name: string
+  description?: string
+  evaluatorType: EvaluatorType
+  level: EvaluationLevel
+  implementationKey: string
+  version: string
+  threshold: number
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EvaluationDataset {
+  id: number
+  datasetKey: string
+  name: string
+  description?: string
+  sourceType: string
+  version: string
+  itemCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EvaluationResult {
+  id: number
+  resultKey: string
+  evaluatorKey: string
+  evaluatorVersion: string
+  datasetKey?: string
+  agentId?: number
+  traceId?: string
+  spanId?: string
+  level: EvaluationLevel
+  status: EvaluationStatus
+  score: number
+  passed: boolean
+  confidence: number
+  rationale?: string
+  evidence?: Record<string, unknown>
+  evaluatedAt: string
+  createdAt: string
+}
+
+export interface EvaluationJob {
+  id: number
+  jobKey: string
+  requestedLimit: number
+  status: EvaluationJobStatus
+  scanned: number
+  evaluated: number
+  skipped: number
+  failed: number
+  errorMessage?: string
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
+  updatedAt: string
+}
+
+export interface EvaluationSummary {
+  windowHours: number
+  total: number
+  passed: number
+  failed: number
+  passRate: number
+  averageScore: number
+  averageConfidence: number
+  evaluators: EvaluationEvaluatorSummary[]
+}
+
+export interface EvaluationEvaluatorSummary {
+  evaluatorKey: string
+  name: string
+  total: number
+  passed: number
+  failed: number
+  passRate: number
+  averageScore: number
 }

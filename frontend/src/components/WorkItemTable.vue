@@ -51,7 +51,7 @@ defineEmits<{
 const types: Record<WorkItemType, string> = {
   DISCOVERY_REVIEW: '发现复核', OWNER_ASSIGNMENT: '责任认领', IDENTITY_REVIEW: '身份复核',
   PROBE_OFFLINE: '探针离线', RUNTIME_DEGRADED: '运行降级', RUNTIME_OFFLINE: '运行离线', SECURITY_RISK: '安全风险',
-  GOVERNANCE_APPROVAL: '治理审批', CONNECTOR_FAILURE: '连接器故障', OBSERVABILITY_GAP: '观测缺失',
+  GOVERNANCE_APPROVAL: '治理审批', CONNECTOR_FAILURE: '连接器故障', OBSERVABILITY_GAP: '观测缺失', EVALUATION_FAILURE: '评估未通过',
   USAGE_RECONCILIATION: '用量对账', GENERAL: '一般事项',
 }
 const statuses: Record<WorkItemStatus, string> = {
