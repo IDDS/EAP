@@ -455,7 +455,8 @@ function reloadForUpdate() {
 }
 
 function syncSidebarForViewport(event?: MediaQueryListEvent) {
-  if (event?.matches || compactViewportQuery?.matches) sidebarCollapsed.value = true
+  if (compactViewportQuery?.matches) sidebarCollapsed.value = true
+  else if (event && !event.matches) sidebarCollapsed.value = false
 }
 
 onMounted(() => {
