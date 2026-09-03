@@ -103,6 +103,27 @@
       <div class="management-usage-note">JWT 模式会自动使用登录主体作为员工 / 调用方；开发模式或机器调用可显式传入 <code>requester</code>。问题解决来自任务完成后的明确判断，不会用模型调用次数或任务成功状态替代业务确认。</div>
     </el-card>
 
+    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-funnel-panel">
+      <template #header>
+        <div class="panel-header">
+          <div><span>业务价值漏斗</span><div class="muted">沿着“使用 → 执行 → 解决 → 证据 → 价值”定位业务价值流失点。</div></div>
+          <span class="muted">当前窗口 · 最近 {{ windowHours }} 小时</span>
+        </div>
+      </template>
+      <div class="management-funnel-list">
+        <div v-for="(stage, index) in businessValueFunnel" :key="stage.key" class="management-funnel-stage" :class="{ 'is-dropoff': stage.dropoff }">
+          <div class="management-funnel-stage-head">
+            <span class="management-funnel-index">{{ String(index + 1).padStart(2, '0') }}</span>
+            <div class="management-funnel-stage-copy"><strong>{{ stage.label }}</strong><small>{{ stage.description }}</small></div>
+            <b>{{ formatNumber(stage.count) }}</b>
+            <em>{{ stage.rateLabel }}</em>
+          </div>
+          <div class="management-funnel-track"><i :style="{ width: `${stage.percent}%` }"></i></div>
+        </div>
+      </div>
+      <div class="management-funnel-note">转化率按相邻漏斗层计算；“已关联业务证据”只统计外部系统或带来源记录的价值事件，“已确认价值”只统计已关联任务的价值事件，不会用模型调用次数替代业务结果。</div>
+    </el-card>
+
     <div v-if="drilldownLabel" class="drilldown-context">
       <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
@@ -782,6 +803,37 @@ const visibleValueEvents = computed(() => valueEvents.value.filter(event => {
   if (contextEndpointKey.value && event.endpointKey !== contextEndpointKey.value) return false
   return true
 }))
+const valueEventsInWindow = computed(() => {
+  const since = Date.now() - windowHours.value * 60 * 60 * 1000
+  return visibleValueEvents.value.filter(event => new Date(event.observedAt).getTime() >= since)
+})
+const businessValueFunnel = computed(() => {
+  const tasksInWindow = windowTasks.value
+  const evidenceTaskIds = new Set<number>()
+  const confirmedValueTaskIds = new Set<number>()
+  valueEventsInWindow.value.forEach(event => {
+    if (!event.taskId) return
+    if (event.sourceType !== 'MANUAL' || Boolean(event.sourceSystem) || Boolean(event.sourceRecordKey)) evidenceTaskIds.add(event.taskId)
+    if (event.benefitMoney > 0) confirmedValueTaskIds.add(event.taskId)
+  })
+  const counts = [
+    { key: 'used', label: '使用任务', description: '窗口内有任务记录', count: tasksInWindow.length },
+    { key: 'succeeded', label: '执行成功', description: '任务状态为 SUCCEEDED', count: tasksInWindow.filter(task => task.status === 'SUCCEEDED').length },
+    { key: 'judged', label: '结果已判断', description: '业务方明确记录已解决或未解决', count: tasksInWindow.filter(task => task.problemResolved !== undefined).length },
+    { key: 'resolved', label: '问题已解决', description: '明确标记为 problemResolved=true', count: tasksInWindow.filter(task => task.problemResolved === true).length },
+    { key: 'evidenced', label: '已关联业务证据', description: '外部系统或来源记录已回链', count: tasksInWindow.filter(task => evidenceTaskIds.has(task.id)).length },
+    { key: 'valued', label: '已确认价值', description: '关联价值事件且金额大于 0', count: tasksInWindow.filter(task => confirmedValueTaskIds.has(task.id)).length },
+  ]
+  return counts.map((stage, index) => {
+    const previous = index === 0 ? stage.count : counts[index - 1].count
+    return {
+      ...stage,
+      percent: counts[0].count ? Math.round(stage.count / counts[0].count * 100) : 0,
+      rateLabel: index === 0 ? (stage.count ? '100%' : '—') : previous ? `${Math.round(stage.count / previous * 100)}% 转化` : '—',
+      dropoff: index > 0 && previous > 0 && stage.count < previous,
+    }
+  })
+})
 const topAgentUsage = computed(() => [...visibleAgentUsage.value]
   .sort((left, right) => right.validatedValue - left.validatedValue || right.totalCost - left.totalCost)
   .slice(0, 3))

@@ -5325,6 +5325,103 @@ body,
   color: var(--soc-ink);
 }
 
+.management-funnel-panel {
+  overflow: hidden;
+}
+
+.management-funnel-list {
+  display: grid;
+  gap: 13px;
+}
+
+.management-funnel-stage {
+  padding: 11px 13px 12px;
+  border: 1px solid var(--soc-line);
+  border-radius: 8px;
+  background: #f8fafd;
+}
+
+.management-funnel-stage.is-dropoff {
+  border-color: #ead7b4;
+  background: #fffaf1;
+}
+
+.management-funnel-stage-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.management-funnel-index {
+  color: var(--soc-blue);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.management-funnel-stage-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.management-funnel-stage-copy strong {
+  color: var(--soc-ink);
+  font-size: 13px;
+}
+
+.management-funnel-stage-copy small {
+  overflow: hidden;
+  color: var(--soc-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.management-funnel-stage-head b {
+  color: var(--soc-ink);
+  font-size: 18px;
+}
+
+.management-funnel-stage-head em {
+  min-width: 72px;
+  color: var(--soc-muted);
+  font-size: 11px;
+  font-style: normal;
+  text-align: right;
+}
+
+.management-funnel-track {
+  height: 6px;
+  margin: 10px 0 0 44px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6edf6;
+}
+
+.management-funnel-track i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--soc-blue), var(--soc-cyan));
+  transition: width .25s ease;
+}
+
+.management-funnel-stage.is-dropoff .management-funnel-track i {
+  background: linear-gradient(90deg, var(--soc-amber), #e0aa49);
+}
+
+.management-funnel-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--soc-blue);
+  color: var(--soc-muted);
+  background: #f8fafd;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 @media (max-width: 1100px) {
   .management-usage-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5332,6 +5429,22 @@ body,
 
   .management-usage-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .management-funnel-stage-head {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .management-funnel-stage-head em {
+    grid-column: 2 / -1;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .management-funnel-track {
+    margin-left: 38px;
   }
 }
 
