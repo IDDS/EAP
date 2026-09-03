@@ -244,6 +244,7 @@ const route = useRoute()
 const agentOpsContext = useAgentOpsContextStore()
 const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
 const sidebarCollapsed = ref(false)
+let compactViewportQuery: MediaQueryList | undefined
 const authDialogVisible = ref(false)
 const authTokenDraft = ref('')
 const hasAccessToken = ref(Boolean(getAccessToken()))
@@ -453,8 +454,15 @@ function reloadForUpdate() {
   window.location.reload()
 }
 
+function syncSidebarForViewport(event?: MediaQueryListEvent) {
+  if (event?.matches || compactViewportQuery?.matches) sidebarCollapsed.value = true
+}
+
 onMounted(() => {
   setFontScale(fontScale.value)
+  compactViewportQuery = window.matchMedia('(max-width: 760px)')
+  syncSidebarForViewport()
+  compactViewportQuery.addEventListener('change', syncSidebarForViewport)
   syncOpenNavigationGroup()
   window.addEventListener('eap-auth-required', requireAuthentication)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -466,6 +474,7 @@ onBeforeUnmount(() => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   window.removeEventListener('eap-auth-required', requireAuthentication)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  compactViewportQuery?.removeEventListener('change', syncSidebarForViewport)
   if (versionCheckTimer) window.clearInterval(versionCheckTimer)
 })
 </script>

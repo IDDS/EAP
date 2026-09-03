@@ -5627,8 +5627,8 @@ body,
 .app-environment-banner {
   position: fixed;
   z-index: 2999;
-  top: 12px;
-  left: 50%;
+  right: 24px;
+  bottom: 18px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -5640,7 +5640,7 @@ body,
   box-shadow: 0 8px 20px rgba(113, 75, 14, .12);
   color: #825916;
   font-size: 12px;
-  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .app-environment-banner-muted {
@@ -6291,6 +6291,99 @@ body,
 }
 
 @media (max-width: 760px) {
+  .app-shell {
+    min-width: 0;
+  }
+
+  .sidebar {
+    width: 64px !important;
+    min-width: 64px !important;
+    flex: 0 0 64px !important;
+  }
+
+  .sidebar .brand {
+    height: 72px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .sidebar .brand-copy,
+  .sidebar .sidebar-toggle,
+  .sidebar .nav-section,
+  .sidebar .nav-menu span,
+  .sidebar .sidebar-status {
+    display: none !important;
+  }
+
+  .sidebar-nav {
+    padding: 10px 7px 18px;
+  }
+
+  .sidebar .nav-menu .el-menu-item,
+  .sidebar .nav-menu-workspaces .el-sub-menu__title {
+    justify-content: center;
+    padding-right: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  .sidebar .nav-menu .el-menu-item .el-icon,
+  .sidebar .nav-menu-workspaces .el-sub-menu__title .el-icon {
+    margin-right: 0;
+  }
+
+  .sidebar .nav-menu-workspaces .workspace-menu-title-hit {
+    min-width: 100%;
+    justify-content: center;
+  }
+
+  .sidebar .nav-menu-workspaces .el-sub-menu__icon-arrow,
+  .sidebar .nav-menu-workspaces .el-sub-menu .el-menu {
+    display: none;
+  }
+
+  .main {
+    min-width: 0;
+    width: auto;
+    padding: 16px 12px 28px;
+  }
+
+  .topbar {
+    min-width: 0;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .topbar-title {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .topbar-title .breadcrumb-line {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-compact-control {
+    display: none;
+  }
+
+  .session-button {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .app-environment-banner {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 76px;
+    justify-content: center;
+    max-width: none;
+    border-radius: 8px;
+    text-align: center;
+  }
+
   .agentops-workbench .priority-cell,
   .agentops-workbench .evidence-metric-card {
     border-right: 0;
@@ -6301,4 +6394,17 @@ body,
   .agentops-workbench .evidence-metric-card:last-child {
     border-bottom: 0;
   }
+}
+
+@media (min-width: 1101px) {
+  .management-funnel-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+}
+
+.management-usage-grid .el-empty,
+.management-page > .panel .el-empty {
+  padding-top: 24px;
+  padding-bottom: 24px;
 }
