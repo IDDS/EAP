@@ -32,3 +32,15 @@ V43 增加持久化处理状态并注册第 9 个评估器。默认启动 15 秒
 后端 192 项测试、前端 36 项测试通过。新增集成测试覆盖并发幂等、错误 HTTP 优先级、未知或无效元数据、无 Trace、INPUT 排除、事务回滚、敏感信息隔离和三次重试；另有混合 Trace 不误判任务完成的回归测试。V1–V43 在 H2 MySQL 模式完整迁移通过。最终补充原 Span ID 关联匹配后，重跑 5 项内容集成测试以及前端全量测试/构建，确保旧备用模型记录不会与派生 Span 重复展示。
 
 这一步实现模型调用的结构化分析。多智能体 A2A 消息、工具调用父子关系需要对应协议或 SDK 上报；回答质量、指令遵循和任务语义完成度尚未接入通用语义评估。已有固定测试的 ACTION_COMPLETION 结果可与自动调用状态并列展示：调用成功与测试任务失败可以同时成立。
+
+## 腾讯云验收（2026-09-08 22:57–23:00，北京时间）
+
+- 0.2.1.0 / `b79b7fd` 已推送 Gitee `feat/galileo-evaluation-foundation`，EAP 前后端镜像均为 `b79b7fd`，未合并 main。
+- 备份 `/home/ubuntu/eap-backups/20260908T145015Z` 保留数据库、旧产物和回滚镜像；数据库压缩备份验证通过。发布目录 `/home/ubuntu/eap-releases/b79b7fd`。
+- 后端 JAR SHA-256：`620f0e8e60bbf58a620d58dcf2e4f541750e4b44c257c4f80de3700844695b2a`，替换前已校验；发布清单记录代码、版本、测试及 schema。
+- 目标 MySQL V43 success=1，失败迁移 0，health=UP。仅更新 EAP 前后端；HelloBoss 后端启动时间仍为 `2026-09-08T13:03:49.322230645Z`，探针未改动。
+- 自动处理从 PENDING=33 变为 DONE=33，失败与重试次数均 0；自动生成 33 份模型调用状态评估。此数是历史输出记录数，不是完整会话数。
+- 固定 Trace `eap-capture-check-82cb93247f4248fe9b1cfaab036da32b` 现有 1 个派生 MODEL Span（id=33，spanId=eap-content-35，耗时 1593 ms），与 33 条批量处理完成后的数据库查询一致。
+- 固定测试保留原 ACTION_COMPLETION id=1（score=0），自动新增 MODEL_CALL_STATUS id=34（score=1，taskCompletion=UNKNOWN）。没有把调用成功覆盖为业务任务成功。
+- 浏览器已验证自动分析计数、评估详情关联 Span，以及“打开 Trace 工作台”钻取；固定 Trace 只显示一个模型节点，页面无控制台错误。
+- 固定测试的 2 条输入/输出通过公共 API 查询时 contentJson 均被隐藏。未读取历史业务正文，未新增付费模型调用，未新增演示采集数据。
