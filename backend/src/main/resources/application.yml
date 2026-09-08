@@ -145,6 +145,10 @@ eap:
       allow-private-networks: ${EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS:false}
   observability:
     enabled: ${EAP_OBSERVABILITY_ENABLED:true}
+    # Metadata-only model-call projection; independent from heuristic task evaluation.
+    content-analysis-enabled: ${EAP_CONTENT_ANALYSIS_ENABLED:true}
+    content-analysis-initial-delay-ms: ${EAP_CONTENT_ANALYSIS_INITIAL_DELAY_MS:15000}
+    content-analysis-interval-ms: ${EAP_CONTENT_ANALYSIS_INTERVAL_MS:5000}
     capture-mode: ${EAP_OBSERVABILITY_CAPTURE_MODE:HASH_ONLY}
     max-content-bytes: ${EAP_OBSERVABILITY_MAX_CONTENT_BYTES:65536}
     max-list-items: ${EAP_OBSERVABILITY_MAX_LIST_ITEMS:200}

@@ -151,6 +151,7 @@ export const EapApi = {
   listEvaluationResults: (params: { agentId?: number; traceId?: string; limit?: number } = {}) =>
     getData<EvaluationResult[]>(`/evaluations/results${queryString(params)}`),
   getEvaluationSummary: (hours = 24) => getData<EvaluationSummary>(`/evaluations/summary?hours=${hours}`),
+  getContentAnalysisStatus: () => getData<{ enabled: boolean; counts: Record<string, number> }>('/observability/content-analysis'),
   runEvaluation: (payload: {
     resultKey?: string
     evaluatorKey: string

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1.0] - 2026-09-08
+
+- Automatically project captured model outputs into derived MODEL spans and metadata-only MODEL_CALL_STATUS evaluations (Flyway V43).
+- Keep analysis independent from ingestion, serialize concurrent projection, and persist up to three failed attempts with aggregate status in the evaluation console.
+- Skip scoring unknown outcomes and prevent content-derived spans from implying business task completion without explicit evidence.
+- Copy only whitelisted numeric usage/status metadata into trace evidence; keep existing body access controls.
+
 ## [Discovery Agent 1.5.1 / instrumentation 1.2.2] - 2026-09-08
 
 - Fixed missing LiteLLM input capture by implementing synchronous and asynchronous callbacks.

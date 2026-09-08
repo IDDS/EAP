@@ -112,6 +112,30 @@ class EvaluationProjectionServiceTests {
                         && request.actual().path("referenceOverlapCount").asInt() == 1));
     }
 
+    @Test
+    void contentDerivedModelAndSuccessfulToolsDoNotImplyTaskCompletion() {
+        var model = span("content-trace", "content-span", TraceSpanKind.MODEL, "SUCCEEDED",
+                "{\"eap.projection.source\":\"CONTENT_PROXY\"}", 100L);
+        var tool = span("content-trace", "tool-span", TraceSpanKind.TOOL, "SUCCEEDED", "{}", 10L);
+        when(traceRepository.findTop500ByOrderByObservedAtDesc()).thenReturn(List.of(model, tool));
+        var response = service.synchronize(200);
+        assertThat(response.evaluated()).isZero();
+        assertThat(response.skipped()).isEqualTo(1);
+        verify(evaluationService, times(0)).evaluate(any());
+    }
+
+    @Test
+    void contentDerivedModelStillRespectsExplicitTaskFailure() {
+        var model = span("content-trace", "content-span", TraceSpanKind.MODEL, "SUCCEEDED",
+                "{\"eap.projection.source\":\"CONTENT_PROXY\"}", 100L);
+        var agent = span("content-trace", "agent-span", TraceSpanKind.AGENT, "OK",
+                "{\"eap.task.completed\":false}", 200L);
+        when(traceRepository.findTop500ByOrderByObservedAtDesc()).thenReturn(List.of(model, agent));
+        assertThat(service.synchronize(200).evaluated()).isEqualTo(1);
+        verify(evaluationService).evaluate(argThat(request -> !request.actual().path("completed").asBoolean()
+                && "EXPLICIT".equals(request.actual().path("inferenceMode").asText())));
+    }
+
     private ToolInvocationEvent event(Long id, ToolInvocationStatus status, String attributes) {
         ToolInvocationEvent event = new ToolInvocationEvent();
         ReflectionTestUtils.setField(event, "id", id);

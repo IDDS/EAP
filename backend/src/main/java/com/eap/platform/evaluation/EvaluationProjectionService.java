@@ -91,8 +91,8 @@ public class EvaluationProjectionService {
         for (Map.Entry<String, List<TraceSpanObservation>> entry : traces.entrySet()) {
             scanned++;
             try {
-                projectTrace(entry.getKey(), entry.getValue());
-                evaluated++;
+                if (projectTrace(entry.getKey(), entry.getValue())) evaluated++;
+                else skipped++;
             } catch (RuntimeException exception) {
                 failed++;
             }
@@ -153,8 +153,8 @@ public class EvaluationProjectionService {
         return value == null ? 0 : Math.max(0, value);
     }
 
-    private void projectTrace(String traceId, List<TraceSpanObservation> spans) {
-        if (spans.isEmpty()) return;
+    private boolean projectTrace(String traceId, List<TraceSpanObservation> spans) {
+        if (spans.isEmpty()) return false;
         List<TraceSpanObservation> ordered = spans.stream()
                 .sorted(java.util.Comparator.comparing(TraceSpanObservation::getObservedAt,
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
@@ -165,6 +165,11 @@ public class EvaluationProjectionService {
         boolean hasModel = ordered.stream().anyMatch(item -> item.getSpanKind() == TraceSpanKind.MODEL);
         boolean hasAgent = ordered.stream().anyMatch(item -> item.getSpanKind() == TraceSpanKind.AGENT);
         Boolean explicitCompletion = explicitCompletion(ordered);
+        // Content-derived responses cannot establish business task completion, including mixed traces.
+        if (explicitCompletion == null && ordered.stream().anyMatch(item ->
+                "CONTENT_PROXY".equals(parse(item.getAttributesJson()).path("eap.projection.source").asText()))) {
+            return false;
+        }
         boolean completed = explicitCompletion != null
                 ? explicitCompletion
                 : (hasModel || hasAgent) && failedSpans == 0;
@@ -188,6 +193,7 @@ public class EvaluationProjectionService {
         String fingerprint = digest(traceId + "|" + latest.getSpanId() + "|" + ordered.size()
                 + "|" + failedSpans + "|" + completed);
         evaluateTrace(traceId, latest, "trace-action-" + fingerprint, actual);
+        return true;
     }
 
     private void evaluateTrace(String traceId, TraceSpanObservation latest, String resultKey, ObjectNode actual) {

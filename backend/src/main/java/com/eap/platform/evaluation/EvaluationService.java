@@ -256,6 +256,7 @@ public class EvaluationService {
         return switch (implementationKey.toUpperCase(Locale.ROOT)) {
             case "TOOL_ARGUMENT_VALIDITY" -> toolArgumentValidity(input, actual);
             case "TOOL_STATUS" -> toolStatus(actual);
+            case "MODEL_CALL_STATUS" -> modelCallStatus(actual);
             case "PII_POLICY" -> booleanPolicy(actual, "containsPii", false, "检测到个人敏感信息");
             case "SENSITIVE_APPROVAL" -> booleanPolicy(actual, "approved", true, "敏感操作缺少审批");
             case "COST_BUDGET" -> costBudget(input, actual);
@@ -264,6 +265,17 @@ public class EvaluationService {
             case "EXACT_MATCH" -> exactMatch(expected, actual);
             default -> throw new BusinessException("不支持的确定性评估器实现：" + implementationKey);
         };
+    }
+
+    private Score modelCallStatus(JsonNode actual) {
+        String outcome = actual.path("outcome").asText("");
+        if (!"SUCCEEDED".equals(outcome) && !"FAILED".equals(outcome)) {
+            throw new BusinessException("模型调用终态未知，不能评分");
+        }
+        boolean succeeded = "SUCCEEDED".equals(outcome);
+        return new Score(succeeded ? BigDecimal.ONE : BigDecimal.ZERO,
+                (succeeded ? "模型调用成功。" : "模型调用失败。") + "仅评估调用终态，业务任务完成度和回答质量未知。",
+                evidence("outcome", outcome, "scope", "MODEL_CALL_ONLY", "taskCompletion", "UNKNOWN"));
     }
 
     private BigDecimal confidence(JsonNode actual) {

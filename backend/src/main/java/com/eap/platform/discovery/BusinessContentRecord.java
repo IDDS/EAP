@@ -68,6 +68,15 @@ public class BusinessContentRecord {
     @Column(name = "metadata_json", columnDefinition = "text")
     String metadataJson;
 
+    @Column(name = "projection_status", nullable = false, length = 16)
+    String projectionStatus = "PENDING";
+
+    @Column(name = "projection_attempts", nullable = false)
+    int projectionAttempts;
+
+    @Column(name = "projection_error", length = 128)
+    String projectionError;
+
     @Column(length = 32)
     String sensitivity;
 

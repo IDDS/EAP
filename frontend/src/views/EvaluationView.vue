@@ -11,6 +11,18 @@
       </div>
     </div>
 
+    <el-card shadow="never" class="panel">
+      <template #header><div class="panel-heading"><strong>通信自动分析</strong><span>{{ contentAnalysis ? (contentAnalysis.enabled ? '已启用' : '已暂停') : '状态暂不可用' }}</span></div></template>
+      <p class="annotation-note">已采集的模型输出会生成关联时间线，并在有明确调用终态时自动评分。调用成功不代表业务任务完成；当前规则不判断正文质量。</p>
+      <div v-if="contentAnalysis" class="evaluation-summary-grid">
+        <div><span>待处理</span><strong>{{ contentAnalysis.counts.PENDING || 0 }}</strong></div>
+        <div><span>已生成时间线</span><strong>{{ contentAnalysis.counts.DONE || 0 }}</strong></div>
+        <div><span>缺少关联标识</span><strong>{{ contentAnalysis.counts.SKIPPED || 0 }}</strong></div>
+        <div><span>处理失败</span><strong>{{ contentAnalysis.counts.FAILED || 0 }}</strong></div>
+      </div>
+      <p v-if="contentAnalysis?.counts.FAILED" class="annotation-note">部分记录重试后仍未完成分析，已采集的内容仍保留。请联系管理员排查。</p>
+    </el-card>
+
     <div class="metric-strip">
       <div class="small-box" style="background: linear-gradient(135deg, #123c66, #1b6ca8)"><strong>{{ evaluators.length }}</strong><span>已注册评估器</span></div>
       <div class="small-box" style="background: linear-gradient(135deg, #166534, #2f9e65)"><strong>{{ datasets.length }}</strong><span>评估数据集</span></div>
@@ -234,7 +246,7 @@
         <el-table v-loading="traceLoading" :data="traceSpans" size="small">
           <el-table-column label="类型" width="92"><template #default="{ row }">{{ traceKindLabel(row.spanKind) }}</template></el-table-column>
           <el-table-column label="Span" min-width="180"><template #default="{ row }"><strong>{{ row.spanName }}</strong><div class="muted">{{ row.spanId }}</div></template></el-table-column>
-          <el-table-column label="状态" width="95"><template #default="{ row }"><el-tag size="small" :type="row.status === 'SUCCEEDED' || row.status === 'OK' ? 'success' : row.status ? 'danger' : 'info'">{{ row.status || '未知' }}</el-tag></template></el-table-column>
+          <el-table-column label="状态" width="95"><template #default="{ row }"><el-tag size="small" :type="row.status === 'SUCCEEDED' || row.status === 'OK' ? 'success' : !row.status || row.status === 'UNKNOWN' ? 'info' : 'danger'">{{ row.status || '未知' }}</el-tag></template></el-table-column>
           <el-table-column prop="durationMs" label="耗时" width="80"><template #default="{ row }">{{ row.durationMs }} ms</template></el-table-column>
         </el-table>
         <el-empty v-if="selectedResult.traceId && !traceSpans.length && !traceLoading" description="该 Trace 暂无 Span 观测" />
@@ -270,6 +282,7 @@ let calibrationRequestId = 0
 let traceRequestId = 0
 const calibrating = ref(false)
 const summary = ref<EvaluationSummary>({ windowHours: 24, total: 0, passed: 0, failed: 0, passRate: 0, averageScore: 0, averageConfidence: 0, evaluators: [] })
+const contentAnalysis = ref<{ enabled: boolean; counts: Record<string, number> } | null>(null)
 const selectedResult = ref<EvaluationResult>()
 const detailVisible = ref(false)
 const traceSpans = ref<TraceSpanObservation[]>([])
@@ -301,14 +314,16 @@ const confusionRows = computed(() => [
 async function load() {
   loading.value = true
   try {
-    const [evaluatorItems, datasetItems, resultItems, jobItems, summaryItem] = await Promise.all([
+    const [evaluatorItems, datasetItems, resultItems, jobItems, summaryItem, analysisStatus] = await Promise.all([
       EapApi.listEvaluators(), EapApi.listEvaluationDatasets(), EapApi.listEvaluationResults({ limit: 100 }), EapApi.listEvaluationJobs(), EapApi.getEvaluationSummary(24),
+      EapApi.getContentAnalysisStatus().catch(() => null),
     ])
     evaluators.value = evaluatorItems
     datasets.value = datasetItems
     results.value = resultItems
     jobs.value = jobItems
     summary.value = summaryItem
+    contentAnalysis.value = analysisStatus
     if (!selectedDatasetKey.value || !datasetItems.some(item => item.datasetKey === selectedDatasetKey.value)) {
       selectedDatasetKey.value = datasetItems[0]?.datasetKey || ''
       selectedCalibrationRunId.value = ''
@@ -327,6 +342,9 @@ function applyExample() {
   if (form.evaluatorKey === 'TOOL_ARGUMENT_VALIDITY') {
     form.inputJson = '{"requiredArguments":["accountId","region"]}'
     form.actualJson = '{"arguments":{"accountId":"a-1"}}'
+  } else if (form.evaluatorKey === 'MODEL_CALL_STATUS') {
+    form.inputJson = '{}'
+    form.actualJson = '{"outcome":"SUCCEEDED"}'
   } else if (form.evaluatorKey === 'TOOL_STATUS') {
     form.inputJson = '{}'
     form.actualJson = '{"status":"SUCCEEDED"}'

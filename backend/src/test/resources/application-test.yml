@@ -52,6 +52,7 @@ eap:
     dispatch:
       enabled: false
   observability:
+    content-analysis-enabled: false
     otlp:
       grpc:
         enabled: false
