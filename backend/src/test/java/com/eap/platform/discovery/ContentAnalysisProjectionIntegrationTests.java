@@ -37,6 +37,7 @@ class ContentAnalysisProjectionIntegrationTests {
         var span = spans.findByTraceIdAndSpanId(record.traceId, "eap-content-" + record.id).orElseThrow();
         assertThat(span.getDurationMs()).isEqualTo(123);
         assertThat(span.getAttributesJson()).contains("CONTENT_PROXY", "prompt_tokens").doesNotContain("PRIVATE_MARKER");
+        assertThat(span.getAttributesJson()).contains("eap.projection.original_span_id", "original-span");
         var evaluations = results.findTop500ByTraceIdOrderByEvaluatedAtDesc(record.traceId);
         assertThat(evaluations).hasSize(1);
         assertThat(evaluations.getFirst().isPassed()).isTrue();
@@ -98,6 +99,7 @@ class ContentAnalysisProjectionIntegrationTests {
         BusinessContentRecord record = new BusinessContentRecord();
         record.observationKey = "projection-test-" + UUID.randomUUID();
         record.traceId = record.observationKey;
+        record.spanId = "original-span";
         record.tenantId = "test";
         record.endpointKey = "test-projection-endpoint";
         record.direction = direction;

@@ -41,6 +41,9 @@ public class ContentAnalysisProjectionService {
         ObjectNode attributes = mapper.createObjectNode();
         attributes.put("eap.projection.source", "CONTENT_PROXY");
         attributes.put("eap.projection.content_record_id", record.id);
+        if (record.spanId != null && !record.spanId.isBlank()) {
+            attributes.put("eap.projection.original_span_id", record.spanId);
+        }
         attributes.put("eap.evaluation.scope", "MODEL_CALL_ONLY");
         attributes.put("eap.task.completion_evidence", "UNKNOWN");
         attributes.put("eap.model.outcome", outcome);

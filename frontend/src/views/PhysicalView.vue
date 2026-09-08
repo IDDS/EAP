@@ -735,9 +735,7 @@ const visibleTraceSpans = computed<TraceSpanObservation[]>(() => {
   })
   const fallbackSpans = visibleEvents.value
     .filter(event => Boolean(event.traceId))
-    .filter(event => !spans.some(span => span.spanKind === 'MODEL'
-      && span.traceId === event.traceId
-      && (!event.spanId || span.spanId === event.spanId)))
+    .filter(event => !spans.some(span => representsModelEvent(span, event)))
     .map(event => ({
       id: -event.id,
       traceId: event.traceId as string,
@@ -760,6 +758,18 @@ const visibleTraceSpans = computed<TraceSpanObservation[]>(() => {
   return [...spans, ...fallbackSpans].sort((left, right) =>
     new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime())
 })
+function representsModelEvent(span: TraceSpanObservation, event: ModelInvocationEvent): boolean {
+  if (span.spanKind !== 'MODEL' || span.traceId !== event.traceId) return false
+  if (!event.spanId || span.spanId === event.spanId) return true
+  try {
+    const attributes = JSON.parse(span.attributesJson || '{}')
+    return attributes?.['eap.projection.source'] === 'CONTENT_PROXY'
+      && attributes?.['eap.projection.original_span_id'] === event.spanId
+  } catch {
+    return false
+  }
+}
+
 const visibleToolInvocations = computed(() => toolInvocations.value.filter(tool => {
   if (contextAgentId.value && tool.agentId !== contextAgentId.value) return false
   if (contextEndpointKey.value && tool.endpointKey !== contextEndpointKey.value) return false
