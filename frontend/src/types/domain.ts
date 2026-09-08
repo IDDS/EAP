@@ -196,6 +196,8 @@ export interface AgentOpsMetricEvidence {
 }
 
 export interface AgentOpsDashboard {
+  lastSignalSyncAt: string | null
+  signalSyncFreshness: 'NO_DATA' | 'FRESH' | 'AGING' | 'STALE'
   windowHours: number
   windowStart: string
   windowEnd: string
@@ -892,10 +894,10 @@ export interface AgentManagementUsage {
   modelCalls: number
   knowledgeInteractions: number
   totalTokens: number
-  totalCost: number
-  validatedValue: number
-  netBenefit: number
-  roi: number
+  totalCost: number | null
+  validatedValue: number | null
+  netBenefit: number | null
+  roi: number | null
   knowledgeAdoptionRate: number
   knowledgeReuseRate: number
   measuredImpactEvents: number
@@ -904,15 +906,18 @@ export interface AgentManagementUsage {
 
 export interface ManagementSummary {
   windowHours: number
+  currency: string | null
+  availableCurrencies: string[]
+  mixedCurrencies: boolean
   totalTasks: number
   succeededTasks: number
   taskSuccessRate: number
   totalModelCalls: number
   totalTokens: number
-  totalCost: number
-  validatedBusinessValue: number
-  netBenefit: number
-  roi: number
+  totalCost: number | null
+  validatedBusinessValue: number | null
+  netBenefit: number | null
+  roi: number | null
   adoptedKnowledgeInteractions: number
   reusedKnowledgeInteractions: number
   knowledgeAdoptionRate: number
@@ -1181,6 +1186,7 @@ export interface WorkflowDefinition {
 }
 
 export interface WorkflowNode {
+  version: number
   id: number
   workflowId: number
   nodeKey: string
@@ -1226,6 +1232,23 @@ export interface WorkflowRun {
   status: string
   objective: string
   steps: WorkflowRunStep[]
+  executionMode: 'SAFETY_PREVIEW'
+  agentsInvoked: boolean
+}
+
+export interface WorkflowExecution {
+  runKey: string
+  workflowId: number
+  status: string
+  executionMode: 'EAP_HTTP_TASK_V1'
+  objective: string
+  requester: string
+  steps: { sequence: number; nodeKey: string; label: string; agentId?: number; taskKey?: string;
+    runtimeInstanceKey?: string; status: string; safetyDecision: string; reason: string; httpStatus?: number }[]
+  reason?: string
+  createdAt: string
+  startedAt?: string
+  completedAt?: string
 }
 
 export type EvaluatorType = 'RULE' | 'CODE' | 'LLM_JUDGE' | 'LOCAL_SLM'
@@ -1330,6 +1353,7 @@ export interface EvaluationSummary {
 }
 
 export interface EvaluationDatasetCalibration {
+  runId?: string | null
   datasetKey: string
   datasetVersion: string
   requestedLimit: number
@@ -1349,6 +1373,43 @@ export interface EvaluationDatasetCalibration {
   accuracy: number
   calculatedAt: string
   evaluators: EvaluationEvaluatorCalibration[]
+}
+
+export interface EvaluationCalibrationRunSummary {
+  runId: string
+  datasetKey: string
+  datasetVersion: string
+  requestedLimit: number
+  totalItems: number
+  evaluatedItems: number
+  failedItems: number
+  calculatedAt: string
+}
+
+export interface EvaluationCalibrationRunDetail {
+  calibration: EvaluationDatasetCalibration
+  evaluatorDefinitions: Array<{
+    evaluatorKey: string
+    evaluatorVersion: string
+    evaluatorType: string
+    implementationKey: string
+    level: string
+    threshold: number
+    enabled: boolean
+  }>
+  samples: Array<{
+    itemKey: string
+    evaluatorKey: string
+    evaluatorVersion: string
+    groundTruthLabel?: EvaluationGroundTruthLabel
+    groundTruthScore?: number
+    annotatedAt?: string
+    outcome: 'EVALUATED' | 'SKIPPED' | 'FAILED'
+    reason?: string
+    resultKey?: string
+    score?: number
+    passed?: boolean | null
+  }>
 }
 
 export interface EvaluationEvaluatorCalibration {

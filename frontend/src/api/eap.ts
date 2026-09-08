@@ -1,3 +1,4 @@
+import { submitWorkflowOnce } from './workflowSubmission'
 import { getData, patchData, postData, putData } from './http'
 import type {
   Agent,
@@ -81,6 +82,8 @@ import type {
   EvaluationDataset,
   EvaluationDatasetItem,
   EvaluationDatasetCalibration,
+  EvaluationCalibrationRunSummary,
+  EvaluationCalibrationRunDetail,
   EvaluationResult,
   EvaluationJob,
   EvaluationSummary,
@@ -120,6 +123,10 @@ export const EapApi = {
     getData<EvaluationDatasetItem[]>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/items?limit=${limit}`),
   runEvaluationDataset: (datasetKey: string, limit = 200) =>
     postData<EvaluationDatasetCalibration, Record<string, never>>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/run?limit=${limit}`, {}),
+  listEvaluationCalibrationRuns: (datasetKey: string, limit = 50) =>
+    getData<EvaluationCalibrationRunSummary[]>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/runs?limit=${limit}`),
+  getEvaluationCalibrationRun: (datasetKey: string, runId: string) =>
+    getData<EvaluationCalibrationRunDetail>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/runs/${encodeURIComponent(runId)}`),
   getEvaluationDatasetCalibration: (datasetKey: string, limit = 200) =>
     getData<EvaluationDatasetCalibration>(`/evaluations/datasets/${encodeURIComponent(datasetKey)}/calibration?limit=${limit}`),
   createEvaluationDatasetItem: (datasetKey: string, payload: {
@@ -216,7 +223,8 @@ export const EapApi = {
   updatePolicy: (id: number, payload: Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>) =>
     putData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>>(`/policies/${id}`, payload),
   getGovernanceDataSummary: (hours = 24) => getData<GovernanceDataSummary>(`/governance/data-summary?hours=${hours}`),
-  listGovernanceDataEvents: (limit = 100) => getData<GovernanceDataEvent[]>(`/governance/data-events?limit=${limit}`),
+  listGovernanceDataEvents: (limit = 100, params: { agentId?: number; page?: number } = {}) =>
+    getData<GovernanceDataEvent[]>(`/governance/data-events${queryString({ limit, ...params })}`),
   recordGovernanceDataEvent: (payload: {
     eventKey: string
     agentId?: number
@@ -338,7 +346,7 @@ export const EapApi = {
     source: ProviderUsageSource
     observedAt?: string
   }) => postData<ProviderUsageSnapshot, typeof payload>('/telemetry/provider-usage-snapshots', payload),
-  listModelInvocationEvents: (params: { limit?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; status?: ModelInvocationStatus; from?: string; to?: string } = {}) => {
+  listModelInvocationEvents: (params: { limit?: number; page?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; status?: ModelInvocationStatus; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 100))
     Object.entries(params).forEach(([key, value]) => {
@@ -347,7 +355,7 @@ export const EapApi = {
     return getData<ModelInvocationEvent[]>(`/telemetry/model-invocations?${query.toString()}`)
   },
   getContentObservationStatus: () => getData<{ enabled: boolean; captureMode: string; maxContentBytes: number; totalObservations: number; inputObservations: number; outputObservations: number; lastObservedAt?: string }>('/observability/status'),
-  listContentObservations: (params: { limit?: number; agentId?: number; endpointKey?: string; traceId?: string; direction?: string; from?: string; to?: string } = {}) => {
+  listContentObservations: (params: { limit?: number; page?: number; agentId?: number; endpointKey?: string; traceId?: string; direction?: string; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 100))
     Object.entries(params).forEach(([key, value]) => {
@@ -355,7 +363,7 @@ export const EapApi = {
     })
     return getData<ContentObservation[]>(`/observability/content?${query.toString()}`)
   },
-  listTraceSpanObservations: (params: { limit?: number; agentId?: number; endpointKey?: string; traceId?: string; spanKind?: string; from?: string; to?: string } = {}) => {
+  listTraceSpanObservations: (params: { limit?: number; page?: number; agentId?: number; endpointKey?: string; traceId?: string; spanKind?: string; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 100))
     Object.entries(params).forEach(([key, value]) => {
@@ -363,7 +371,7 @@ export const EapApi = {
     })
     return getData<TraceSpanObservation[]>(`/observability/otlp/spans?${query.toString()}`)
   },
-  listToolInvocationEvents: (params: { limit?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; toolKind?: string; status?: string; toolName?: string; from?: string; to?: string } = {}) => {
+  listToolInvocationEvents: (params: { limit?: number; page?: number; agentId?: number; endpointKey?: string; runtimeInstanceKey?: string; traceId?: string; toolKind?: string; status?: string; toolName?: string; from?: string; to?: string } = {}) => {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 100))
     Object.entries(params).forEach(([key, value]) => {
@@ -397,7 +405,8 @@ export const EapApi = {
     observedAt?: string
   }) => postData<ModelInvocationEvent, typeof payload>('/telemetry/model-invocations', payload),
   getKnowledgeSummary: (hours = 24) => getData<KnowledgeSummary>(`/knowledge/summary?hours=${hours}`),
-  listKnowledgeInteractions: (limit = 100) => getData<KnowledgeInteraction[]>(`/knowledge/interactions?limit=${limit}`),
+  listKnowledgeInteractions: (limit = 100, params: { agentId?: number; page?: number } = {}) =>
+    getData<KnowledgeInteraction[]>(`/knowledge/interactions${queryString({ limit, ...params })}`),
   recordKnowledgeInteraction: (payload: {
     interactionKey: string
     traceId?: string
@@ -435,7 +444,7 @@ export const EapApi = {
   }) => postData<KnowledgeInteraction, typeof payload>('/knowledge/interactions', payload),
   updateKnowledgeOutcome: (id: number, payload: { adopted: boolean; reused: boolean; qualityScore?: number }) =>
     postData<KnowledgeInteraction, typeof payload>(`/knowledge/interactions/${id}/outcome`, payload),
-  getManagementSummary: (hours = 24) => getData<ManagementSummary>(`/management/summary?hours=${hours}`),
+  getManagementSummary: (hours = 24, currency?: string) => getData<ManagementSummary>(`/management/summary?hours=${hours}${currency ? `&currency=${encodeURIComponent(currency)}` : ''}`),
   listManagementValueEvents: (limit = 100) => getData<ManagementValueEvent[]>(`/management/value-events?limit=${limit}`),
   recordManagementValueEvent: (payload: {
     eventKey: string
@@ -499,6 +508,7 @@ export const EapApi = {
     postData<WorkflowDefinition, { code: string; name: string; description?: string }>('/workflows', payload),
   getWorkflow: (workflowId: number) => getData<WorkflowDetail>(`/workflows/${workflowId}`),
   upsertWorkflowNode: (workflowId: number, payload: {
+    expectedVersion?: number
     nodeKey: string
     label: string
     nodeType: string
@@ -510,6 +520,12 @@ export const EapApi = {
   }) => postData<WorkflowNode, typeof payload>(`/workflows/${workflowId}/nodes`, payload),
   addWorkflowEdge: (workflowId: number, payload: { sourceNodeKey: string; targetNodeKey: string; conditionExpression?: string }) =>
     postData<WorkflowEdge, { sourceNodeKey: string; targetNodeKey: string; conditionExpression?: string }>(`/workflows/${workflowId}/edges`, payload),
-  runWorkflow: (workflowId: number, payload: { objective?: string }) =>
-    postData<WorkflowRun, { objective?: string }>(`/workflows/${workflowId}/runs`, payload),
+  runWorkflow: (workflowId: number, payload: { objective?: string; context?: { severity: string; approved: boolean } }) =>
+    postData<WorkflowRun, typeof payload>(`/workflows/${workflowId}/runs`, payload),
+  workflowExecutionStatus: () => getData<{ enabled: boolean; protocol: string; message: string }>('/workflows/execution-status'),
+  executeWorkflow: (workflowId: number, payload: { objective?: string; context?: { severity: string; approved: boolean } }) =>
+    submitWorkflowOnce(workflowId, payload, request =>
+      postData<import('@/types/domain').WorkflowExecution, typeof request>(`/workflows/${workflowId}/executions`, request)),
+  listWorkflowExecutions: (workflowId: number) =>
+    getData<import('@/types/domain').WorkflowExecution[]>(`/workflows/${workflowId}/executions`),
 }

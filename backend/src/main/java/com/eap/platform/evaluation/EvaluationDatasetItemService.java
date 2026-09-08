@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -87,7 +88,7 @@ public class EvaluationDatasetItemService {
         item.expectedJson = request.expected() == null ? null : persistObservation(request.expected());
         item.actualJson = persistObservation(request.actual());
         EvaluationDatasetItem saved = itemRepository.save(item);
-        dataset.itemCount = Math.max(dataset.itemCount + 1, itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(dataset.id).size());
+        dataset.itemCount = Math.max(dataset.itemCount + 1, Math.toIntExact(itemRepository.countByDatasetId(dataset.id)));
         return toResponse(saved);
     }
 
@@ -95,8 +96,7 @@ public class EvaluationDatasetItemService {
     public List<EvaluationDtos.DatasetItemResponse> list(String datasetKey, int requestedLimit) {
         EvaluationDataset dataset = dataset(datasetKey);
         int limit = Math.max(1, Math.min(requestedLimit, 500));
-        return itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(dataset.id).stream()
-                .limit(limit)
+        return itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(dataset.id, PageRequest.of(0, limit)).stream()
                 .map(this::toResponse)
                 .toList();
     }

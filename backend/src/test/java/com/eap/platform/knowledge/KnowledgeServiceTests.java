@@ -5,6 +5,7 @@ import com.eap.platform.discovery.DiscoveryEndpointRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,6 +18,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class KnowledgeServiceTests {
@@ -37,6 +39,22 @@ class KnowledgeServiceTests {
                 interactionRepository, stepRepository, agentRepository, endpointRepository,
                 new KnowledgeProperties(), new ObjectMapper()
         );
+    }
+
+    @Test
+    void filtersAgentInRepositoryBeforeApplyingPage() {
+        when(interactionRepository.findByAgentIdOrderByCreatedAtDescIdDesc(7L, PageRequest.of(2, 20)))
+                .thenReturn(List.of());
+        assertThat(service.list(20, 7L, 2)).isEmpty();
+        verify(interactionRepository).findByAgentIdOrderByCreatedAtDescIdDesc(7L, PageRequest.of(2, 20));
+    }
+
+    @Test
+    void keepsLegacyListCallOnFirstGlobalPage() {
+        when(interactionRepository.findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(0, 100)))
+                .thenReturn(List.of());
+        assertThat(service.list(100)).isEmpty();
+        verify(interactionRepository).findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(0, 100));
     }
 
     @Test

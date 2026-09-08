@@ -49,10 +49,11 @@ public class ContentObservationController {
             @RequestParam(required = false) String traceId,
             @RequestParam(required = false) ContentDirection direction,
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "0") @jakarta.validation.constraints.Min(0) int page
     ) {
         List<ContentObservationDtos.ContentObservationResponse> observations =
-                service.list(limit, agentId, endpointKey, traceId, direction, from, to);
+                service.list(limit, agentId, endpointKey, traceId, direction, from, to, page);
         if (securityProperties.isDevelopmentMode()) {
             observations = observations.stream()
                     .map(ContentObservationDtos.ContentObservationResponse::withoutContent)

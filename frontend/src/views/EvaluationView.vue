@@ -147,6 +147,14 @@
 
     <el-card v-if="selectedDatasetKey" shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>评估器校准</strong><span>{{ selectedDatasetKey }} · 对比 SME ground truth 与评估器预测，弃权样本不进入混淆矩阵</span></div></template>
+      <div class="button-row">
+        <el-select v-model="selectedCalibrationRunId" aria-label="校准历史" style="width: 440px; max-width: 100%" @change="selectCalibrationRun">
+          <el-option label="当前标注预览（随标注与评估器变化）" value="" />
+          <el-option v-for="run in calibrationRuns" :key="run.runId" :value="run.runId" :label="`${formatTime(run.calculatedAt)} · ${run.datasetVersion} · ${run.evaluatedItems}/${run.totalItems} 条 · ${run.runId.slice(-8)}`" />
+        </el-select>
+        <el-tag v-if="calibration.runId" type="success" effect="plain">已保存的历史快照</el-tag>
+      </div>
+      <p class="annotation-note">数据集版本 {{ calibration.datasetVersion || '—' }} · {{ formatTime(calibration.calculatedAt) }}<template v-if="calibration.runId"> · {{ calibration.runId }}；后续标注与评估器变更不会修改本次结果。</template></p>
       <div class="evaluation-summary-grid evaluation-calibration-overview">
         <div><span>样本总数</span><strong>{{ calibration.totalItems }}</strong></div>
         <div><span>已运行 / 跳过</span><strong>{{ calibration.evaluatedItems }} / {{ calibration.skippedItems }}</strong></div>
@@ -172,12 +180,31 @@
           <div class="calibration-section-title">按评估器</div>
           <el-table :data="calibration.evaluators" size="small">
             <el-table-column prop="evaluatorKey" label="评估器" min-width="190" />
+            <el-table-column prop="evaluatorVersion" label="版本" width="90" />
             <el-table-column label="P / R / F1" width="150"><template #default="{ row }">{{ percent(row.precision) }} / {{ percent(row.recall) }} / {{ percent(row.f1) }}</template></el-table-column>
             <el-table-column prop="evaluatedItems" label="已运行" width="80" />
           </el-table>
         </div>
       </div>
-      <div class="annotation-note">如果样本正文已经按 OFF、HASH_ONLY 或 REDACTED 保存，平台会安全跳过该样本，不会为了校准重新暴露原文。</div>
+      <el-collapse v-if="calibrationDetail">
+        <el-collapse-item title="本次评估器定义与样本证据" name="snapshot">
+          <el-table :data="calibrationDetail.evaluatorDefinitions" size="small">
+            <el-table-column prop="evaluatorKey" label="评估器" min-width="180" />
+            <el-table-column prop="evaluatorVersion" label="版本" width="90" />
+            <el-table-column prop="implementationKey" label="实现" min-width="180" />
+            <el-table-column prop="threshold" label="阈值" width="90" />
+          </el-table>
+          <el-table :data="calibrationDetail.samples" size="small">
+            <el-table-column prop="itemKey" label="样本" min-width="150" />
+            <el-table-column prop="evaluatorVersion" label="评估器版本" width="110" />
+            <el-table-column prop="groundTruthLabel" label="当时 SME 标注" width="130" />
+            <el-table-column label="当时预测" width="100"><template #default="{ row }">{{ row.passed == null ? '—' : row.passed ? 'PASS' : 'FAIL' }}</template></el-table-column>
+            <el-table-column prop="outcome" label="执行结果" width="110" />
+            <el-table-column prop="reason" label="跳过 / 失败原因" min-width="180" />
+          </el-table>
+        </el-collapse-item>
+      </el-collapse>
+      <div class="annotation-note">正文未采集、仅保存哈希或内容已隐藏时会跳过样本；可解析的脱敏 JSON 可用于运行。历史快照仅保存指标、定义和标注预测证据，不保存输入输出正文。</div>
     </el-card>
 
     <el-drawer v-model="detailVisible" title="评估证据详情" size="620px">
@@ -218,11 +245,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
-import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
+import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationCalibrationRunSummary, EvaluationCalibrationRunDetail, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
 const evaluators = ref<EvaluatorDefinition[]>([])
 const datasets = ref<EvaluationDataset[]>([])
@@ -231,8 +258,16 @@ const jobs = ref<EvaluationJob[]>([])
 const datasetItems = ref<EvaluationDatasetItem[]>([])
 const selectedDatasetKey = ref('')
 const annotationActor = ref('控制台用户')
+const calibrationRuns = ref<EvaluationCalibrationRunSummary[]>([])
+const selectedCalibrationRunId = ref('')
+const calibrationDetail = ref<EvaluationCalibrationRunDetail>()
+let calibrationHistoryRequestId = 0
 const datasetItemsLoading = ref(false)
 const calibration = ref<EvaluationDatasetCalibration>({ datasetKey: '', datasetVersion: '', requestedLimit: 200, totalItems: 0, evaluatedItems: 0, skippedItems: 0, failedItems: 0, unannotatedItems: 0, abstainedItems: 0, truePositive: 0, falsePositive: 0, trueNegative: 0, falseNegative: 0, precision: 0, recall: 0, f1: 0, accuracy: 0, calculatedAt: '', evaluators: [] })
+const emptyCalibration = { ...calibration.value }
+let datasetItemsRequestId = 0
+let calibrationRequestId = 0
+let traceRequestId = 0
 const calibrating = ref(false)
 const summary = ref<EvaluationSummary>({ windowHours: 24, total: 0, passed: 0, failed: 0, passRate: 0, averageScore: 0, averageConfidence: 0, evaluators: [] })
 const selectedResult = ref<EvaluationResult>()
@@ -276,8 +311,9 @@ async function load() {
     summary.value = summaryItem
     if (!selectedDatasetKey.value || !datasetItems.some(item => item.datasetKey === selectedDatasetKey.value)) {
       selectedDatasetKey.value = datasetItems[0]?.datasetKey || ''
+      selectedCalibrationRunId.value = ''
     }
-    if (selectedDatasetKey.value) await Promise.all([loadDatasetItems(selectedDatasetKey.value), loadDatasetCalibration(selectedDatasetKey.value)])
+    if (selectedDatasetKey.value) await Promise.all([loadDatasetItems(selectedDatasetKey.value), loadDatasetCalibration(selectedDatasetKey.value), loadCalibrationHistory(selectedDatasetKey.value)])
     if (evaluatorItems.length && !evaluatorItems.some(item => item.evaluatorKey === form.evaluatorKey)) {
       form.evaluatorKey = evaluatorItems[0].evaluatorKey
       applyExample()
@@ -338,13 +374,26 @@ async function run() {
   }
 }
 
+let pollingDisposed = false
+let pollTimer: number | undefined
+let finishPollDelay: (() => void) | undefined
+
+function stopPolling() {
+  pollingDisposed = true
+  if (pollTimer !== undefined) window.clearTimeout(pollTimer)
+  finishPollDelay?.()
+  pollTimer = undefined
+  finishPollDelay = undefined
+}
+
 async function synchronize() {
   syncing.value = true
   try {
     const job = await EapApi.submitEvaluationJob(200)
+    if (pollingDisposed) return
     ElMessage.success(`评估投影任务已入队：${job.jobKey}`)
     await waitForJob(job.id)
-    await load()
+    if (!pollingDisposed) await load()
   } finally {
     syncing.value = false
   }
@@ -352,8 +401,16 @@ async function synchronize() {
 
 async function waitForJob(id: number) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    await new Promise(resolve => window.setTimeout(resolve, 1000))
+    if (pollingDisposed) return
+    await new Promise<void>(resolve => {
+      finishPollDelay = resolve
+      pollTimer = window.setTimeout(resolve, 1000)
+    })
+    pollTimer = undefined
+    finishPollDelay = undefined
+    if (pollingDisposed) return
     const job = await EapApi.getEvaluationJob(id)
+    if (pollingDisposed) return
     if (job.status === 'SUCCEEDED') {
       ElMessage.success(`后台评估完成：扫描 ${job.scanned} 条观测，生成 ${job.evaluated} 条结果`)
       return
@@ -387,24 +444,26 @@ async function createDemoDataset() {
 
 async function selectDataset(datasetKey: string) {
   selectedDatasetKey.value = datasetKey
-  await Promise.all([loadDatasetItems(datasetKey), loadDatasetCalibration(datasetKey)])
+  selectedCalibrationRunId.value = ''
+  await Promise.all([loadDatasetItems(datasetKey), loadDatasetCalibration(datasetKey), loadCalibrationHistory(datasetKey)])
 }
 
 async function loadDatasetItems(datasetKey = selectedDatasetKey.value) {
-  if (!datasetKey) {
-    datasetItems.value = []
-    return
-  }
+  const requestId = ++datasetItemsRequestId
+  datasetItems.value = []
+  datasetItemsLoading.value = false
+  if (!datasetKey) return
   datasetItemsLoading.value = true
   try {
-    datasetItems.value = await EapApi.listEvaluationDatasetItems(datasetKey)
+    const items = await EapApi.listEvaluationDatasetItems(datasetKey)
+    if (requestId === datasetItemsRequestId && datasetKey === selectedDatasetKey.value) datasetItems.value = items
   } finally {
-    datasetItemsLoading.value = false
+    if (requestId === datasetItemsRequestId) datasetItemsLoading.value = false
   }
 }
 
 async function annotateItem(item: EvaluationDatasetItem, label: EvaluationGroundTruthLabel) {
-  if (!selectedDatasetKey.value) return
+  if (!selectedDatasetKey.value || datasetItemsLoading.value || !datasetItems.value.includes(item)) return
   await EapApi.annotateEvaluationDatasetItem(selectedDatasetKey.value, item.itemKey, {
     groundTruthLabel: label,
     annotatedBy: annotationActor.value.trim() || '控制台用户',
@@ -414,20 +473,49 @@ async function annotateItem(item: EvaluationDatasetItem, label: EvaluationGround
   await Promise.all([loadDatasetItems(), loadDatasetCalibration()])
 }
 
+async function loadCalibrationHistory(datasetKey = selectedDatasetKey.value) {
+  const requestId = ++calibrationHistoryRequestId
+  calibrationRuns.value = []
+  if (!datasetKey) return
+  const runs = await EapApi.listEvaluationCalibrationRuns(datasetKey)
+  if (requestId === calibrationHistoryRequestId && datasetKey === selectedDatasetKey.value) calibrationRuns.value = runs
+}
+
+async function selectCalibrationRun(runId: string) {
+  selectedCalibrationRunId.value = runId
+  await loadDatasetCalibration()
+}
+
 async function loadDatasetCalibration(datasetKey = selectedDatasetKey.value) {
-  if (!datasetKey) {
-    calibration.value = { ...calibration.value, datasetKey: '', evaluators: [] }
-    return
+  const requestId = ++calibrationRequestId
+  const runId = selectedCalibrationRunId.value
+  calibration.value = { ...emptyCalibration, evaluators: [] }
+  calibrationDetail.value = undefined
+  if (!datasetKey) return
+  if (runId) {
+    const detail = await EapApi.getEvaluationCalibrationRun(datasetKey, runId)
+    if (requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && runId === selectedCalibrationRunId.value) {
+      calibration.value = detail.calibration
+      calibrationDetail.value = detail
+    }
+  } else {
+    const result = await EapApi.getEvaluationDatasetCalibration(datasetKey)
+    if (requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && !selectedCalibrationRunId.value) calibration.value = result
   }
-  calibration.value = await EapApi.getEvaluationDatasetCalibration(datasetKey)
 }
 
 async function runDatasetCalibration() {
   if (!selectedDatasetKey.value) return
   calibrating.value = true
   try {
-    calibration.value = await EapApi.runEvaluationDataset(selectedDatasetKey.value, 200)
-    ElMessage.success(`数据集校准完成：运行 ${calibration.value.evaluatedItems} 条，F1 ${percent(calibration.value.f1)}`)
+    const datasetKey = selectedDatasetKey.value
+    const requestId = ++calibrationRequestId
+    const result = await EapApi.runEvaluationDataset(datasetKey, 200)
+    if (datasetKey === selectedDatasetKey.value && requestId === calibrationRequestId) {
+      selectedCalibrationRunId.value = result.runId || ''
+      calibration.value = result
+    }
+    ElMessage.success(`数据集校准完成：运行 ${result.evaluatedItems} 条，F1 ${percent(result.f1)}`)
     await load()
   } finally {
     calibrating.value = false
@@ -443,15 +531,18 @@ function annotationTagType(label?: EvaluationGroundTruthLabel) {
 }
 
 async function openResult(result: EvaluationResult) {
+  const requestId = ++traceRequestId
+  traceLoading.value = false
   selectedResult.value = result
   detailVisible.value = true
   traceSpans.value = []
   if (!result.traceId) return
   traceLoading.value = true
   try {
-    traceSpans.value = await EapApi.listTraceSpanObservations({ traceId: result.traceId, limit: 100 })
+    const spans = await EapApi.listTraceSpanObservations({ traceId: result.traceId, limit: 100 })
+    if (requestId === traceRequestId) traceSpans.value = spans
   } finally {
-    traceLoading.value = false
+    if (requestId === traceRequestId) traceLoading.value = false
   }
 }
 
@@ -478,5 +569,6 @@ function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 }
 
+onBeforeUnmount(stopPolling)
 onMounted(load)
 </script>

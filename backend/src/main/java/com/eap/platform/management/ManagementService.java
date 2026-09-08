@@ -78,7 +78,7 @@ public class ManagementService {
         event.description = sanitizeDescription(request.description());
         event.validatedBy = request.validatedBy();
         event.benefitMoney = request.benefitMoney() == null ? BigDecimal.ZERO : request.benefitMoney();
-        event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().toUpperCase();
+        event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().trim().toUpperCase(java.util.Locale.ROOT);
         event.metricName = normalize(request.metricName(), 128);
         event.metricUnit = normalize(request.metricUnit(), 32);
         event.baselineValue = request.baselineValue();
@@ -129,13 +129,25 @@ public class ManagementService {
 
     @Transactional(readOnly = true)
     public ManagementDtos.ManagementSummary summary(int windowHours) {
+        return summary(windowHours, null);
+    }
+
+    @Transactional(readOnly = true)
+    public ManagementDtos.ManagementSummary summary(int windowHours, String requestedCurrency) {
         Instant since = Instant.now().minus(windowHours, ChronoUnit.HOURS);
-        ModelTelemetryDtos.PhysicalTelemetrySummary telemetry = telemetryService.summary(windowHours);
+        List<ManagementValueEvent> allValues = valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since);
+        java.util.SortedSet<String> currencies = new java.util.TreeSet<>(telemetryService.currencies(windowHours));
+        allValues.forEach(value -> currencies.add(currencyCode(value.currency)));
+        String currency = requestedCurrency != null && !requestedCurrency.isBlank() ? currencyCode(requestedCurrency)
+                : currencies.size() == 1 ? currencies.first() : currencies.isEmpty() ? "USD" : null;
+        boolean mixedCurrencies = currency == null;
+        ModelTelemetryDtos.PhysicalTelemetrySummary telemetry = telemetryService.summary(windowHours, currency);
         KnowledgeDtos.KnowledgeSummary knowledge = knowledgeService.summary(windowHours);
         List<AgentTaskDtos.TaskResponse> tasks = taskService.list().stream()
                 .filter(task -> task.createdAt() != null && !task.createdAt().isBefore(since))
                 .toList();
-        List<ManagementValueEvent> values = valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since);
+        List<ManagementValueEvent> values = allValues.stream()
+                .filter(value -> currency == null || currency.equals(currencyCode(value.currency))).toList();
         Map<Long, List<ManagementValueAttribution>> attributions = attributionsByEvent(values);
 
         Map<Long, String> agentNames = new LinkedHashMap<>();
@@ -186,16 +198,16 @@ public class ManagementService {
                 .map(value -> value.confidence == null ? BigDecimal.ONE : value.confidence)
                 .mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
         return new ManagementDtos.ManagementSummary(
-                windowHours,
+                windowHours, currency, List.copyOf(currencies), mixedCurrencies,
                 tasks.size(),
                 tasks.stream().filter(task -> task.status() == AgentTaskStatus.SUCCEEDED).count(),
                 taskSuccessRate(tasks),
                 telemetry.totalCalls(),
                 telemetry.totalTokens(),
-                totalCost,
-                valueAmount,
-                netBenefit,
-                roi(valueAmount, totalCost),
+                mixedCurrencies ? null : totalCost,
+                mixedCurrencies ? null : valueAmount,
+                mixedCurrencies ? null : netBenefit,
+                mixedCurrencies ? null : roi(valueAmount, totalCost),
                 knowledge.adoptedInteractions(),
                 knowledge.reusedInteractions(),
                 knowledge.adoptionRate(),
@@ -209,7 +221,7 @@ public class ManagementService {
                 averageConfidence,
                 !values.isEmpty(),
                 values.isEmpty() ? null : values.get(0).observedAt,
-                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(ManagementUsageAccumulator::toResponse).toList()
+                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(item -> item.toResponse(!mixedCurrencies)).toList()
         );
     }
 
@@ -271,6 +283,10 @@ public class ManagementService {
             return BigDecimal.ZERO.setScale(4);
         }
         return value.subtract(cost).divide(cost, 4, RoundingMode.HALF_UP);
+    }
+
+    private String currencyCode(String value) {
+        return value == null || value.isBlank() ? "USD" : value.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     private String blankToNull(String value) {
@@ -370,12 +386,13 @@ public class ManagementService {
             return totalTokens;
         }
 
-        ManagementDtos.AgentManagementUsage toResponse() {
+        ManagementDtos.AgentManagementUsage toResponse(boolean monetaryComparable) {
             BigDecimal netBenefit = validatedValue.subtract(totalCost);
             BigDecimal roi = totalCost.signum() == 0 ? BigDecimal.ZERO.setScale(4) : netBenefit.divide(totalCost, 4, RoundingMode.HALF_UP);
             return new ManagementDtos.AgentManagementUsage(
                     key, name, agentId, endpointKey, tasks, succeededTasks, modelCalls, knowledgeInteractions,
-                    totalTokens, totalCost, validatedValue, netBenefit, roi,
+                    totalTokens, monetaryComparable ? totalCost : null, monetaryComparable ? validatedValue : null,
+                    monetaryComparable ? netBenefit : null, monetaryComparable ? roi : null,
                     knowledgeInteractions == 0 ? 0.0 : (double) adopted / knowledgeInteractions,
                     knowledgeInteractions == 0 ? 0.0 : (double) reused / knowledgeInteractions,
                     measuredImpactEvents,

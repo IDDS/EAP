@@ -1,6 +1,7 @@
 package com.eap.platform.knowledge;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +11,10 @@ public interface KnowledgeInteractionRepository extends JpaRepository<KnowledgeI
     Optional<KnowledgeInteraction> findByInteractionKey(String interactionKey);
 
     List<KnowledgeInteraction> findTop500ByOrderByCreatedAtDesc();
+
+    List<KnowledgeInteraction> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);
+
+    List<KnowledgeInteraction> findByAgentIdOrderByCreatedAtDescIdDesc(Long agentId, Pageable pageable);
 
     List<KnowledgeInteraction> findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(Instant createdAt);
 }

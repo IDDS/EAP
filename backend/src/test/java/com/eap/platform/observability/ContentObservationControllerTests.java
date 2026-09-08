@@ -18,10 +18,10 @@ class ContentObservationControllerTests {
         MachineTokenValidator validator = mock(MachineTokenValidator.class);
         SecurityProperties security = new SecurityProperties();
         ContentObservationDtos.ContentObservationResponse observation = observation("sanitized business content");
-        when(service.list(100, 4L, null, null, null, null, null)).thenReturn(List.of(observation));
+        when(service.list(100, 4L, null, null, null, null, null, 0)).thenReturn(List.of(observation));
 
         ContentObservationController controller = new ContentObservationController(service, validator, security);
-        var response = controller.list(100, 4L, null, null, null, null, null);
+        var response = controller.list(100, 4L, null, null, null, null, null, 0);
 
         assertThat(response.data()).hasSize(1);
         assertThat(response.data().getFirst().contentJson()).isNull();
@@ -35,10 +35,10 @@ class ContentObservationControllerTests {
         SecurityProperties security = new SecurityProperties();
         security.setMode(SecurityProperties.Mode.JWT);
         ContentObservationDtos.ContentObservationResponse observation = observation("sanitized business content");
-        when(service.list(100, 4L, null, null, null, null, null)).thenReturn(List.of(observation));
+        when(service.list(100, 4L, null, null, null, null, null, 0)).thenReturn(List.of(observation));
 
         ContentObservationController controller = new ContentObservationController(service, validator, security);
-        var response = controller.list(100, 4L, null, null, null, null, null);
+        var response = controller.list(100, 4L, null, null, null, null, null, 0);
 
         assertThat(response.data().getFirst().contentJson()).isEqualTo("sanitized business content");
     }

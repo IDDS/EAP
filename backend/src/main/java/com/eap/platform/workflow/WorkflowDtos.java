@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public final class WorkflowDtos {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -26,8 +27,13 @@ public final class WorkflowDtos {
             @Size(max = 128) String capability,
             @NotNull Integer positionX,
             @NotNull Integer positionY,
-            String configJson
+            String configJson,
+            @jakarta.validation.constraints.Min(0) Long expectedVersion
     ) {
+        public NodeRequest(String nodeKey, String label, String nodeType, Long agentId, String capability,
+                           Integer positionX, Integer positionY, String configJson) {
+            this(nodeKey, label, nodeType, agentId, capability, positionX, positionY, configJson, null);
+        }
     }
 
     public record EdgeRequest(
@@ -37,13 +43,16 @@ public final class WorkflowDtos {
     ) {
     }
 
-    public record RunRequest(@Size(max = 128) String objective) {
+    public record RunRequest(@Size(max = 128) String objective, Map<String, Object> context,
+                             @Size(max = 64) String requestKey) {
+        public RunRequest(String objective) { this(objective, Map.of(), null); }
+        public RunRequest(String objective, Map<String, Object> context) { this(objective, context, null); }
     }
 
     public record WorkflowResponse(Long id, String code, String name, String description, WorkflowStatus status, Instant createdAt, Instant updatedAt) {
     }
 
-    public record NodeResponse(Long id, Long workflowId, String nodeKey, String label, String nodeType, Long agentId, String capability, Integer positionX, Integer positionY, String configJson, Instant createdAt, Instant updatedAt) {
+    public record NodeResponse(Long id, Long workflowId, String nodeKey, String label, String nodeType, Long agentId, String capability, Integer positionX, Integer positionY, String configJson, Instant createdAt, Instant updatedAt, Long version) {
     }
 
     public record EdgeResponse(Long id, Long workflowId, String sourceNodeKey, String targetNodeKey, String conditionExpression, Instant createdAt, Instant updatedAt) {
@@ -55,7 +64,8 @@ public final class WorkflowDtos {
     public record RunStepResponse(String nodeKey, String label, String nodeType, Long agentId, String status, String safetyDecision, String reason) {
     }
 
-    public record RunResponse(String runKey, String status, String objective, List<RunStepResponse> steps) {
+    public record RunResponse(String runKey, String status, String objective, List<RunStepResponse> steps,
+                              String executionMode, boolean agentsInvoked) {
     }
 
     static WorkflowResponse from(WorkflowDefinition workflow) {
@@ -63,7 +73,7 @@ public final class WorkflowDtos {
     }
 
     static NodeResponse from(WorkflowNode node) {
-        return new NodeResponse(node.id, node.workflowId, node.nodeKey, node.label, node.nodeType, node.agentId, node.capability, node.positionX, node.positionY, normalizeJson(node.configJson), node.createdAt, node.updatedAt);
+        return new NodeResponse(node.id, node.workflowId, node.nodeKey, node.label, node.nodeType, node.agentId, node.capability, node.positionX, node.positionY, normalizeJson(node.configJson), node.createdAt, node.updatedAt, node.version);
     }
 
     static EdgeResponse from(WorkflowEdge edge) {

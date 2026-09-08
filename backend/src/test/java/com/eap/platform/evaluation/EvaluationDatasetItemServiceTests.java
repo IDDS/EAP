@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.springframework.data.domain.PageRequest;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -107,7 +108,7 @@ class EvaluationDatasetItemServiceTests {
         second.evaluatorKey = "ACTION_COMPLETION";
         second.inputJson = "{}";
         second.actualJson = "{}";
-        when(itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(9L)).thenReturn(List.of(first, second));
+        when(itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(9L, PageRequest.of(0, 1))).thenReturn(List.of(first));
 
         assertThat(service.list("regression_v1", 1)).extracting(EvaluationDtos.DatasetItemResponse::itemKey)
                 .containsExactly("case-1");

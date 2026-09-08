@@ -1,6 +1,9 @@
 package com.eap.platform.workflow;
 
 import com.eap.platform.agent.AgentRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import java.nio.charset.StandardCharsets;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.safety.GenseeSafetyService;
 import com.eap.platform.safety.SafetyDecision;
@@ -13,13 +16,17 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 public class WorkflowService {
+    private static final ObjectMapper CONFIG_MAPPER = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final Set<String> NODE_TYPES = Set.of("START", "END", "AGENT", "ARTIFACT", "DECISION");
     private final WorkflowDefinitionRepository workflowRepository;
     private final WorkflowNodeRepository nodeRepository;
     private final WorkflowEdgeRepository edgeRepository;
@@ -68,11 +75,16 @@ public class WorkflowService {
 
     @Transactional
     public WorkflowDtos.NodeResponse upsertNode(Long workflowId, WorkflowDtos.NodeRequest request) {
-        findWorkflow(workflowId);
+        validateConfig(request.configJson());
+        lockWorkflow(workflowId);
+        validateNodeType(request.nodeType());
         if (request.agentId() != null && !agentRepository.existsById(request.agentId())) {
             throw new BusinessException("智能体不存在");
         }
         WorkflowNode node = nodeRepository.findByWorkflowIdAndNodeKey(workflowId, request.nodeKey()).orElseGet(WorkflowNode::new);
+        if (request.expectedVersion() != null && !request.expectedVersion().equals(node.version)) {
+            throw new com.eap.platform.common.ConflictException("节点已被其他编辑修改，请重新加载流程后再编辑；本次修改未保存");
+        }
         node.workflowId = workflowId;
         node.nodeKey = request.nodeKey();
         node.label = request.label();
@@ -82,21 +94,29 @@ public class WorkflowService {
         node.positionX = request.positionX();
         node.positionY = request.positionY();
         node.configJson = request.configJson();
-        return WorkflowDtos.from(nodeRepository.save(node));
+        return WorkflowDtos.from(nodeRepository.saveAndFlush(node));
     }
 
     @Transactional
     public WorkflowDtos.EdgeResponse addEdge(Long workflowId, WorkflowDtos.EdgeRequest request) {
-        findWorkflow(workflowId);
+        lockWorkflow(workflowId);
+        WorkflowPreviewCondition.validate(request.conditionExpression());
         nodeRepository.findByWorkflowIdAndNodeKey(workflowId, request.sourceNodeKey())
                 .orElseThrow(() -> new BusinessException("源节点不存在"));
         nodeRepository.findByWorkflowIdAndNodeKey(workflowId, request.targetNodeKey())
                 .orElseThrow(() -> new BusinessException("目标节点不存在"));
+        String condition = request.conditionExpression() == null || request.conditionExpression().isBlank()
+                ? "always" : request.conditionExpression().trim();
+        var existing = edgeRepository.findByWorkflowId(workflowId).stream()
+                .filter(edge -> edge.sourceNodeKey.equals(request.sourceNodeKey()) && edge.targetNodeKey.equals(request.targetNodeKey()))
+                .filter(edge -> condition.equals(edge.conditionExpression == null || edge.conditionExpression.isBlank()
+                        ? "always" : edge.conditionExpression.trim())).findFirst();
+        if (existing.isPresent()) return WorkflowDtos.from(existing.get());
         WorkflowEdge edge = new WorkflowEdge();
         edge.workflowId = workflowId;
         edge.sourceNodeKey = request.sourceNodeKey();
         edge.targetNodeKey = request.targetNodeKey();
-        edge.conditionExpression = request.conditionExpression();
+        edge.conditionExpression = condition;
         return WorkflowDtos.from(edgeRepository.save(edge));
     }
 
@@ -108,6 +128,8 @@ public class WorkflowService {
         if (nodes.isEmpty()) {
             throw new BusinessException("工作流没有可执行节点");
         }
+        nodes.forEach(node -> validateNodeType(node.nodeType));
+        edges.forEach(edge -> WorkflowPreviewCondition.validate(edge.conditionExpression));
 
         Map<String, WorkflowNode> nodeMap = nodes.stream().collect(Collectors.toMap(node -> node.nodeKey, Function.identity()));
         Map<String, List<WorkflowEdge>> outgoingEdges = edges.stream()
@@ -125,7 +147,7 @@ public class WorkflowService {
         safetyService.createSession(new SafetyDtos.SessionRequest(runKey, rootAgentId, objective));
 
         List<WorkflowDtos.RunStepResponse> steps = new ArrayList<>();
-        String status = "SUCCEEDED";
+        String status = "PREVIEW_COMPLETED";
         for (int count = 0; count < 64 && current != null; count++) {
             WorkflowDtos.RunStepResponse step = executeNode(runKey, current, objective);
             steps.add(step);
@@ -140,15 +162,49 @@ public class WorkflowService {
             if ("END".equalsIgnoreCase(current.nodeType)) {
                 break;
             }
-            Optional<WorkflowEdge> nextEdge = outgoingEdges.getOrDefault(current.nodeKey, List.of()).stream()
-                    .sorted(Comparator.comparing(edge -> edge.id))
-                    .findFirst();
-            current = nextEdge.map(edge -> nodeMap.get(edge.targetNodeKey)).orElse(null);
+            List<WorkflowEdge> outgoing = outgoingEdges.getOrDefault(current.nodeKey, List.of());
+            List<WorkflowEdge> matching = outgoing.stream()
+                    .filter(edge -> !WorkflowPreviewCondition.isFallback(edge.conditionExpression))
+                    .filter(edge -> WorkflowPreviewCondition.matches(edge.conditionExpression, request.context()))
+                    .toList();
+            if (matching.isEmpty()) matching = outgoing.stream()
+                    .filter(edge -> WorkflowPreviewCondition.isFallback(edge.conditionExpression)).toList();
+            if (matching.size() > 1) throw new BusinessException("预演分支存在多个匹配条件，请消除歧义：" + current.nodeKey);
+            if (matching.isEmpty()) {
+                if (!outgoing.isEmpty()) status = "PREVIEW_NO_MATCH";
+                current = null;
+            } else {
+                current = nodeMap.get(matching.get(0).targetNodeKey);
+                if (current == null) throw new BusinessException("工作流连线指向不存在的节点");
+            }
         }
-        if (steps.size() >= 64) {
+        if (steps.size() >= 64 && "PREVIEW_COMPLETED".equals(status) && current != null && !"END".equalsIgnoreCase(current.nodeType)) {
             status = "FAILED_LOOP_GUARD";
         }
-        return new WorkflowDtos.RunResponse(runKey, status, objective, steps);
+        return new WorkflowDtos.RunResponse(runKey, status, objective, steps, "SAFETY_PREVIEW", false);
+    }
+
+    private void lockWorkflow(Long id) {
+        workflowRepository.findForUpdate(id).orElseThrow(() -> new BusinessException("工作流不存在"));
+    }
+
+    private void validateConfig(String config) {
+        if (config == null) return;
+        if (config.getBytes(StandardCharsets.UTF_8).length > 60000) {
+            throw new BusinessException("节点配置超过 60KB，请精简配置");
+        }
+        try {
+            var parsed = CONFIG_MAPPER.readTree(config);
+            if (parsed == null || !parsed.isObject()) throw new IllegalArgumentException();
+        } catch (Exception exception) {
+            throw new BusinessException("节点配置必须是有效的 JSON 对象");
+        }
+    }
+
+    private void validateNodeType(String type) {
+        if (type == null || !NODE_TYPES.contains(type.toUpperCase(Locale.ROOT))) {
+            throw new BusinessException("不支持的工作流节点类型：" + type);
+        }
     }
 
     private WorkflowDefinition findWorkflow(Long workflowId) {
@@ -179,7 +235,7 @@ public class WorkflowService {
         String status = switch (decision) {
             case DENY -> "BLOCKED";
             case ASK -> "APPROVAL_REQUIRED";
-            case ALLOW -> "DONE";
+            case ALLOW -> "CHECK_PASSED";
         };
         return new WorkflowDtos.RunStepResponse(
                 node.nodeKey,

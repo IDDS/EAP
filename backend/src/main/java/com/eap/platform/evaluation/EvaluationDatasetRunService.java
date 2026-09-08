@@ -4,6 +4,8 @@ import com.eap.platform.common.BusinessException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -28,6 +30,7 @@ public class EvaluationDatasetRunService {
     private final EvaluationResultRepository resultRepository;
     private final EvaluationService evaluationService;
     private final ObjectMapper objectMapper;
+    private final EvaluationCalibrationHistoryService historyService;
 
     public EvaluationDatasetRunService(
             EvaluationDatasetRepository datasetRepository,
@@ -35,7 +38,8 @@ public class EvaluationDatasetRunService {
             EvaluatorDefinitionRepository evaluatorRepository,
             EvaluationResultRepository resultRepository,
             EvaluationService evaluationService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            EvaluationCalibrationHistoryService historyService
     ) {
         this.datasetRepository = datasetRepository;
         this.itemRepository = itemRepository;
@@ -43,9 +47,11 @@ public class EvaluationDatasetRunService {
         this.resultRepository = resultRepository;
         this.evaluationService = evaluationService;
         this.objectMapper = objectMapper;
+        this.historyService = historyService;
     }
 
-    @Transactional
+    // Each evaluate call owns its transaction so one invalid sample cannot roll back the batch.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public EvaluationDtos.EvaluationDatasetCalibrationResponse run(String datasetKey, int requestedLimit) {
         EvaluationDataset dataset = dataset(datasetKey);
         List<EvaluationDatasetItem> items = items(dataset, requestedLimit);
@@ -64,10 +70,21 @@ public class EvaluationDatasetRunService {
     ) {
         Metrics overall = new Metrics();
         Map<String, Metrics> byEvaluator = new LinkedHashMap<>();
+        Map<String, java.util.Optional<EvaluatorDefinition>> definitions = new LinkedHashMap<>();
+        Map<String, EvaluationDtos.CalibrationEvaluatorSnapshot> evaluatorSnapshots = new LinkedHashMap<>();
+        List<EvaluationDtos.CalibrationSampleSnapshot> sampleSnapshots = new ArrayList<>();
         for (EvaluationDatasetItem item : items) {
             String evaluatorKey = normalizeKey(item.evaluatorKey);
+            EvaluatorDefinition evaluator = definitions.computeIfAbsent(evaluatorKey,
+                    evaluatorRepository::findByEvaluatorKey).orElse(null);
             String version = item.evaluatorVersion == null || item.evaluatorVersion.isBlank()
-                    ? "" : item.evaluatorVersion.trim();
+                    ? (evaluator == null ? "" : evaluator.version) : item.evaluatorVersion.trim();
+            if (evaluator != null) {
+                evaluatorSnapshots.putIfAbsent(evaluatorKey + "@" + evaluator.version,
+                        new EvaluationDtos.CalibrationEvaluatorSnapshot(evaluatorKey, evaluator.version,
+                                evaluator.evaluatorType, evaluator.implementationKey, evaluator.level,
+                                evaluator.threshold, evaluator.enabled));
+            }
             Metrics metrics = byEvaluator.computeIfAbsent(evaluatorKey + "@" + version,
                     ignored -> new Metrics(evaluatorKey, version));
             overall.totalItems++;
@@ -80,10 +97,10 @@ public class EvaluationDatasetRunService {
                 metrics.abstainedItems++;
             }
 
-            EvaluatorDefinition evaluator = evaluatorRepository.findByEvaluatorKey(evaluatorKey).orElse(null);
             if (evaluator == null || !evaluator.enabled || (!version.isBlank() && !version.equals(evaluator.version))) {
                 overall.skippedItems++;
                 metrics.skippedItems++;
+                sampleSnapshots.add(sample(item, version, "SKIPPED", "评估器不存在、未启用或版本不可用", null));
                 continue;
             }
             JsonNode input = parseUsableJson(item.inputJson);
@@ -92,6 +109,7 @@ public class EvaluationDatasetRunService {
             if (input == null || actual == null) {
                 overall.skippedItems++;
                 metrics.skippedItems++;
+                sampleSnapshots.add(sample(item, version, "SKIPPED", "样本正文不可用于执行", null));
                 continue;
             }
 
@@ -113,13 +131,16 @@ public class EvaluationDatasetRunService {
             } catch (BusinessException exception) {
                 overall.failedItems++;
                 metrics.failedItems++;
+                sampleSnapshots.add(sample(item, version, "FAILED", "评估请求未通过验证", null));
                 continue;
             }
             if (result == null) {
                 overall.skippedItems++;
                 metrics.skippedItems++;
+                sampleSnapshots.add(sample(item, version, "SKIPPED", "尚无评估结果", null));
                 continue;
             }
+            sampleSnapshots.add(sample(item, result.evaluatorVersion(), "EVALUATED", null, result));
             overall.evaluatedItems++;
             metrics.evaluatedItems++;
             if ("PASS".equalsIgnoreCase(item.groundTruthLabel)) {
@@ -140,12 +161,26 @@ public class EvaluationDatasetRunService {
                 }
             }
         }
-        return new EvaluationDtos.EvaluationDatasetCalibrationResponse(
+        var report = new EvaluationDtos.EvaluationDatasetCalibrationResponse(
                 dataset.datasetKey, dataset.version, Math.max(1, Math.min(requestedLimit, MAX_ITEMS)),
                 overall.totalItems, overall.evaluatedItems, overall.skippedItems, overall.failedItems,
                 overall.unannotatedItems, overall.abstainedItems, overall.truePositive, overall.falsePositive,
                 overall.trueNegative, overall.falseNegative, precision(overall), recall(overall), f1(overall),
-                accuracy(overall), Instant.now(), byEvaluator.values().stream().map(this::toResponse).toList());
+                accuracy(overall), Instant.now(), byEvaluator.values().stream().map(this::toResponse).toList(),
+                execute ? "calibration-" + java.util.UUID.randomUUID() : null);
+        if (execute) {
+            historyService.save(new EvaluationDtos.CalibrationRunDetail(report,
+                    List.copyOf(evaluatorSnapshots.values()), List.copyOf(sampleSnapshots)));
+        }
+        return report;
+    }
+
+    private EvaluationDtos.CalibrationSampleSnapshot sample(EvaluationDatasetItem item, String version,
+            String outcome, String reason, EvaluationDtos.EvaluationResultResponse result) {
+        return new EvaluationDtos.CalibrationSampleSnapshot(item.itemKey, normalizeKey(item.evaluatorKey), version,
+                item.groundTruthLabel, item.groundTruthScore, item.annotatedAt, outcome, reason,
+                result == null ? null : result.resultKey(), result == null ? null : result.score(),
+                result == null ? null : result.passed());
     }
 
     private EvaluationDtos.EvaluatorCalibration toResponse(Metrics metrics) {
@@ -190,7 +225,7 @@ public class EvaluationDatasetRunService {
 
     private List<EvaluationDatasetItem> items(EvaluationDataset dataset, int requestedLimit) {
         int limit = Math.max(1, Math.min(requestedLimit, MAX_ITEMS));
-        return itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(dataset.id).stream().limit(limit).toList();
+        return itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(dataset.id, PageRequest.of(0, limit));
     }
 
     private JsonNode parseUsableJson(String json) {

@@ -2,7 +2,7 @@
 
 Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面，覆盖智能体生命周期、运行观测、治理策略、伦理安全和审计追踪。
 
-当前主控制台已完成 AgentOps 第一阶段改造：以正式 Agent 为唯一主实体，提供行动优先工作台、五轴状态、证据分级、统一 Work Item、P0-P3 SLA、全局时间/组织上下文及生产演示数据隔离。系统逻辑和验收边界见 [`docs/AGENTOPS_PHASE1.md`](docs/AGENTOPS_PHASE1.md)。
+当前主控制台已完成 AgentOps 第一阶段改造：以正式 Agent 为唯一主实体，提供行动优先工作台、五轴状态、证据分级、统一 Work Item、P0-P3 SLA、全局时间/组织上下文及生产演示数据隔离。2026-09-08 本地第三轮完善新增首页读写分离、六类历史分页、不可变校准历史与默认关闭的真实工作流执行，验证记录见 [`docs/SYSTEM_IMPROVEMENTS_ROUND3_2026-09-08.md`](docs/SYSTEM_IMPROVEMENTS_ROUND3_2026-09-08.md)。系统逻辑和验收边界见 [`docs/AGENTOPS_PHASE1.md`](docs/AGENTOPS_PHASE1.md)。
 
 当前版本已加入 gensee-crate 风格的多智能体运行安全控制能力：
 
@@ -28,7 +28,7 @@ Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面�
 - 中间画布：支持节点拖动定位、点击节点建立连线。
 - 右侧属性面板：维护节点名称、类型、能力声明和 JSON 配置。
 - 后端持久化：工作流、节点、边统一落库，运行时仍经过安全网关决策。
-- 受控执行：工作流按边顺序遍历节点并提交安全审计；Agent 控制命令已支持可选的 HTTP Runtime 真实适配器，业务工具调用仍需按企业协议接入。
+- 安全预演：工作流按受支持的分支条件检查节点策略并提交安全审计，返回 `executionMode=SAFETY_PREVIEW`、`agentsInvoked=false`；不会把策略通过当作 Agent 执行完成。另提供默认关闭的真实工作流执行，使用 EAP 自有 `EAP_HTTP_TASK_V1` 协议、执行快照和匹配任务标识的终态证据；尚未接入真实业务 Runtime，接入与边界见 [`docs/WORKFLOW_EXECUTION.md`](docs/WORKFLOW_EXECUTION.md)。独立 Agent 控制命令保留原 HTTP Runtime 适配器。
 
 当前已将自主发现从 EAP 主程序拆分为独立 Discovery Agent：
 
@@ -156,7 +156,7 @@ npm run dev
 - `GET /api/workflows/{workflowId}`：工作流详情，包含节点和连线。
 - `POST /api/workflows/{workflowId}/nodes`：新增或更新画布节点。
 - `POST /api/workflows/{workflowId}/edges`：新增节点连线。
-- `POST /api/workflows/{workflowId}/runs`：执行一次工作流，返回节点执行状态和安全决策。
+- `POST /api/workflows/{workflowId}/runs`：安全预演，返回检查状态和安全决策；可传 `context: {"severity":"high","approved":false}`。条件支持 `always`（兜底）、`never`、`approved` 和 `severity` 与 `low/medium/high/critical` 的 `>=/<=/==/>/<` 比较；未知条件、缺失必要上下文或多个匹配分支会被拒绝。预演上下文不授予治理审批。
 - `GET /api/discovery/summary`：自主发现摘要。
 - `GET /api/discovery/agents`：候选 Agent 资产清单。
 - `GET /api/discovery/runs`：最近发现扫描记录。
@@ -199,7 +199,7 @@ EAP_CONTROL_DISPATCH_PATH=/eap/control
 EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=false
 ```
 
-适配器选择同一 Agent 负载最低的 `ONLINE` 实例，使用 `X-EAP-Control-Command-Key` 和 `Idempotency-Key` 防止重复执行；2xx 记录 `ACKED`，连接、协议或 HTTP 错误记录 `FAILED`。私网、回环和 `.local` endpoint 默认被 SSRF 防护阻断，内网部署必须由运维显式开启 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。Runtime 只需实现 `POST /eap/control`，无需嵌入 EAP SDK。
+适配器选择同一 Agent 心跳未过期、负载最低的 `ONLINE` 实例，发送 `X-EAP-Control-Command-Key` 和 `Idempotency-Key` 供 Runtime 幂等处理；2xx 记录 `ACKED`（收到请求，不代表任务完成），连接、协议或 HTTP 错误记录 `FAILED`。心跳默认有效 180 秒，可通过 `EAP_RUNTIME_HEARTBEAT_TTL_SECONDS` 配置；发现和控制即时排除过期实例，后台默认每 30 秒持久化离线状态。私网、回环和 `.local` endpoint 默认被 SSRF 防护阻断，内网部署必须由运维显式开启 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。Runtime 只需实现 `POST /eap/control`，无需嵌入 EAP SDK。
 - `GET /api/knowledge/summary?hours=24`：知识输入、过程、输出、采用率和复用率汇总。
 - `GET /api/knowledge/interactions?limit=100`：知识交互及过程步骤明细。
 - `POST /api/knowledge/interactions`：上报一次知识交互和过程步骤；生产环境使用 `X-EAP-Knowledge-Token`。

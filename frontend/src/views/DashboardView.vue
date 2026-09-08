@@ -8,9 +8,10 @@
       </div>
       <div class="button-row">
         <span class="context-summary">{{ context.scopeLabel }} · {{ context.windowLabel }}</span>
-        <el-button :icon="Refresh" :loading="loading" @click="load">刷新信号</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="load">刷新视图</el-button>
       </div>
     </header>
+    <p class="muted">信号同步：{{ dashboard.lastSignalSyncAt ? formatDate(dashboard.lastSignalSyncAt) : '尚未完成' }} · {{ ({ NO_DATA: '暂无同步记录', FRESH: '最近已同步', AGING: '待更新', STALE: '同步已过期' } as Record<string, string>)[dashboard.signalSyncFreshness] }}</p>
 
     <el-alert v-if="dashboard.demoDataIncluded" type="warning" :closable="false" show-icon title="当前为开发模式：页面包含明确标记的演示 Agent；JWT 生产模式会从 EAP 主视图排除这些记录。" />
 
@@ -307,6 +308,7 @@ const selectedWorkItem = ref<AgentOpsWorkItem>()
 const targetStatus = ref<WorkItemStatus>()
 const transitionForm = reactive({ assignee: '当前操作员', reason: '', resolutionEvidenceJson: '' })
 const dashboard = ref<AgentOpsDashboard>({
+  lastSignalSyncAt: null, signalSyncFreshness: 'NO_DATA',
   windowHours: 24, windowStart: '', windowEnd: '', timeZone: 'Asia/Shanghai', organizationScope: '企业全局',
   agentCount: 0, healthyAgentCount: 0, degradedAgentCount: 0, offlineAgentCount: 0,
   missingObservationCount: 0, highRiskAgentCount: 0,
@@ -376,16 +378,19 @@ const formattedEvidence = computed(() => {
 const transitionTitle = computed(() => targetStatus.value === 'CLAIMED' ? '认领运营事项' : targetStatus.value === 'IN_PROGRESS' ? '开始处理' : '提交解决结果')
 const controlDispatchEnabled = computed(() => platformStatus.value?.controlDispatchEnabled === true)
 
+let dashboardRequestId = 0
 async function load() {
+  const requestId = ++dashboardRequestId
   loading.value = true
   try {
-    dashboard.value = await EapApi.getAgentOpsDashboard({
+    const result = await EapApi.getAgentOpsDashboard({
       hours: context.windowHours,
       organizationScope: context.organizationScope || undefined,
     })
+    if (requestId === dashboardRequestId) dashboard.value = result
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '运营工作台加载失败')
-  } finally { loading.value = false }
+  } finally { if (requestId === dashboardRequestId) loading.value = false }
 }
 
 async function loadNetwork() {

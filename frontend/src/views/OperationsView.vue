@@ -35,8 +35,8 @@
         <el-table-column prop="resultSummary" label="结果" min-width="240" show-overflow-tooltip />
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
-            <el-button text @click="updateStatus(row.id, 'RUNNING')">运行</el-button>
-            <el-button text @click="updateStatus(row.id, 'SUCCEEDED')">完成</el-button>
+            <el-button v-if="row.status === 'PENDING'" text @click="updateStatus(row.id, 'RUNNING')">运行</el-button>
+            <el-button v-if="row.status === 'PENDING' || row.status === 'RUNNING'" text @click="updateStatus(row.id, 'SUCCEEDED')">完成</el-button>
             <el-button text type="success" @click="markResolution(row, true)">已解决</el-button>
             <el-button text type="warning" @click="markResolution(row, false)">未解决</el-button>
           </template>

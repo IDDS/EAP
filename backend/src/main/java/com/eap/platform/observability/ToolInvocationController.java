@@ -33,8 +33,9 @@ public class ToolInvocationController {
             @RequestParam(required = false) ToolInvocationStatus status,
             @RequestParam(required = false) String toolName,
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "0") @jakarta.validation.constraints.Min(0) int page
     ) {
-        return ApiResponse.ok(service.list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, toolKind, status, toolName, from, to));
+        return ApiResponse.ok(service.list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, toolKind, status, toolName, from, to, page));
     }
 }

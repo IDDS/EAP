@@ -75,8 +75,12 @@ public final class AgentRegistryDtos {
     }
 
     static RuntimeInstanceResponse from(AgentRuntimeInstance instance) {
+        return from(instance, instance.status);
+    }
+
+    static RuntimeInstanceResponse from(AgentRuntimeInstance instance, RuntimeStatus status) {
         return new RuntimeInstanceResponse(instance.id, instance.agentId, instance.instanceKey, instance.endpoint,
-                instance.protocol, Boolean.TRUE.equals(instance.dispatchAuthenticated), instance.status,
+                instance.protocol, Boolean.TRUE.equals(instance.dispatchAuthenticated), status,
                 instance.loadScore, instance.lastHeartbeatAt, instance.createdAt, instance.updatedAt);
     }
 }

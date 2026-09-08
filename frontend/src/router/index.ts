@@ -1,20 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import DashboardView from '@/views/DashboardView.vue'
-import AgentsView from '@/views/AgentsView.vue'
-import AgentRegistryView from '@/views/AgentRegistryView.vue'
-import AuditView from '@/views/AuditView.vue'
-import EthicsView from '@/views/EthicsView.vue'
-import GovernanceView from '@/views/GovernanceView.vue'
-import LearningView from '@/views/LearningView.vue'
-import OperationsView from '@/views/OperationsView.vue'
-import OrchestrationView from '@/views/OrchestrationView.vue'
-import SafetyView from '@/views/SafetyView.vue'
-import WorkflowBuilderView from '@/views/WorkflowBuilderView.vue'
-import PhysicalView from '@/views/PhysicalView.vue'
-import KnowledgeView from '@/views/KnowledgeView.vue'
-import ManagementView from '@/views/ManagementView.vue'
-import AgentDetailView from '@/views/AgentDetailView.vue'
-import EvaluationView from '@/views/EvaluationView.vue'
+const DashboardView = () => import('@/views/DashboardView.vue')
+const AgentsView = () => import('@/views/AgentsView.vue')
+const AgentRegistryView = () => import('@/views/AgentRegistryView.vue')
+const AuditView = () => import('@/views/AuditView.vue')
+const EthicsView = () => import('@/views/EthicsView.vue')
+const GovernanceView = () => import('@/views/GovernanceView.vue')
+const LearningView = () => import('@/views/LearningView.vue')
+const OperationsView = () => import('@/views/OperationsView.vue')
+const OrchestrationView = () => import('@/views/OrchestrationView.vue')
+const SafetyView = () => import('@/views/SafetyView.vue')
+const WorkflowBuilderView = () => import('@/views/WorkflowBuilderView.vue')
+const PhysicalView = () => import('@/views/PhysicalView.vue')
+const KnowledgeView = () => import('@/views/KnowledgeView.vue')
+const ManagementView = () => import('@/views/ManagementView.vue')
+const AgentDetailView = () => import('@/views/AgentDetailView.vue')
+const EvaluationView = () => import('@/views/EvaluationView.vue')
 
 const router = createRouter({
   history: createWebHistory(),

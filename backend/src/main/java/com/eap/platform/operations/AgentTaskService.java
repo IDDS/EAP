@@ -42,19 +42,25 @@ public class AgentTaskService {
 
     @Transactional
     public AgentTaskDtos.TaskResponse updateStatus(Long id, AgentTaskDtos.StatusRequest request) {
-        AgentTask task = taskRepository.findById(id).orElseThrow(() -> new BusinessException("运行任务不存在"));
-        task.status = request.status();
-        if (request.status() == AgentTaskStatus.RUNNING && task.startedAt == null) {
-            task.startedAt = Instant.now();
-        }
-        if (request.status() == AgentTaskStatus.SUCCEEDED || request.status() == AgentTaskStatus.FAILED || request.status() == AgentTaskStatus.CANCELLED) {
-            task.finishedAt = Instant.now();
-            if (task.startedAt == null) {
-                task.startedAt = task.createdAt;
+        AgentTask task = taskRepository.findByIdForUpdate(id).orElseThrow(() -> new BusinessException("运行任务不存在"));
+        AgentTaskStatus next = request.status();
+        if (next == null) throw new BusinessException("任务状态不能为空");
+        if (task.status != next) {
+            if (isTerminal(task.status) || next == AgentTaskStatus.PENDING) {
+                throw new BusinessException("不允许任务状态从 " + task.status + " 变更为 " + next);
             }
-            task.latencyMs = Duration.between(task.startedAt, task.finishedAt).toMillis();
+            task.status = next;
+            if (next == AgentTaskStatus.RUNNING && task.startedAt == null) {
+                task.startedAt = Instant.now();
+            }
+            if (isTerminal(next)) {
+                task.finishedAt = Instant.now();
+                if (task.startedAt == null) task.startedAt = task.createdAt;
+                task.latencyMs = Math.max(task.latencyMs == null ? 0L : task.latencyMs,
+                        Duration.between(task.startedAt, task.finishedAt).toMillis());
+            }
         }
-        task.resultSummary = request.resultSummary();
+        if (request.resultSummary() != null) task.resultSummary = request.resultSummary();
         if (request.problemResolved() != null) {
             task.problemResolved = request.problemResolved();
         }
@@ -64,12 +70,16 @@ public class AgentTaskService {
         return AgentTaskDtos.from(task);
     }
 
+    private boolean isTerminal(AgentTaskStatus status) {
+        return status == AgentTaskStatus.SUCCEEDED || status == AgentTaskStatus.FAILED || status == AgentTaskStatus.CANCELLED;
+    }
+
     @Transactional
     public void recordTelemetryUsage(Long taskId, long tokenCost, BigDecimal moneyCost, long latencyMs) {
         if (taskId == null) {
             return;
         }
-        AgentTask task = taskRepository.findById(taskId).orElseThrow(() -> new BusinessException("运行任务不存在"));
+        AgentTask task = taskRepository.findByIdForUpdate(taskId).orElseThrow(() -> new BusinessException("运行任务不存在"));
         task.tokenCost = (task.tokenCost == null ? 0L : task.tokenCost) + Math.max(0L, tokenCost);
         task.moneyCost = (task.moneyCost == null ? BigDecimal.ZERO : task.moneyCost)
                 .add(moneyCost == null ? BigDecimal.ZERO : moneyCost);

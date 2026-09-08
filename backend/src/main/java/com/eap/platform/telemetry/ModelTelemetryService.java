@@ -112,7 +112,7 @@ public class ModelTelemetryService {
         event.reasoningTokens = request.reasoningTokens();
         event.latencyMs = request.latencyMs();
         event.moneyCost = request.moneyCost() == null ? BigDecimal.ZERO : request.moneyCost();
-        event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().toUpperCase();
+        event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().trim().toUpperCase(java.util.Locale.ROOT);
         event.toolCallCount = request.toolCallCount();
         event.mcpServerCount = request.mcpServerCount();
         event.errorType = blankToNull(request.errorType());
@@ -138,12 +138,22 @@ public class ModelTelemetryService {
             Instant from,
             Instant to
     ) {
+        return list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, status, from, to, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ModelTelemetryDtos.ModelInvocationResponse> list(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String runtimeInstanceKey,
+            String traceId,
+            ModelInvocationStatus status,
+            Instant from,
+            Instant to,
+            int page
+    ) {
         int boundedLimit = Math.max(1, Math.min(limit, 500));
-        if (agentId == null && blankToNull(endpointKey) == null && blankToNull(runtimeInstanceKey) == null
-                && blankToNull(traceId) == null && status == null && from == null && to == null) {
-            return eventRepository.findTop500ByOrderByObservedAtDesc().stream()
-                    .limit(boundedLimit).map(ModelTelemetryDtos::from).toList();
-        }
         Specification<ModelInvocationEvent> specification = Specification.where(null);
         if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
         if (blankToNull(endpointKey) != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
@@ -153,14 +163,30 @@ public class ModelTelemetryService {
         if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
         if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
         return eventRepository.findAll(specification,
-                        PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt")))
+                        PageRequest.of(page, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt", "id")))
                 .map(ModelTelemetryDtos::from).getContent();
     }
 
     @Transactional(readOnly = true)
+    public List<String> currencies(int windowHours) {
+        return eventRepository.findCurrenciesSince(Instant.now().minus(windowHours, ChronoUnit.HOURS)).stream()
+                .map(this::currencyCode).distinct().sorted().toList();
+    }
+
+    private String currencyCode(String value) {
+        return value == null || value.isBlank() ? "USD" : value.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    @Transactional(readOnly = true)
     public ModelTelemetryDtos.PhysicalTelemetrySummary summary(int windowHours) {
+        return summary(windowHours, null);
+    }
+
+    @Transactional(readOnly = true)
+    public ModelTelemetryDtos.PhysicalTelemetrySummary summary(int windowHours, String currency) {
         Instant since = Instant.now().minus(windowHours, ChronoUnit.HOURS);
-        List<ModelInvocationEvent> events = eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since);
+        List<ModelInvocationEvent> events = eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since).stream()
+                .filter(event -> currency == null || currencyCode(event.currency).equals(currencyCode(currency))).toList();
         Map<Long, String> agentNames = new LinkedHashMap<>();
         agentRepository.findAll().forEach(agent -> agentNames.put(agent.getId(), agent.getName()));
 

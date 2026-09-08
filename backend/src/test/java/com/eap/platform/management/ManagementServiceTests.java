@@ -53,7 +53,7 @@ class ManagementServiceTests {
 
     @Test
     void calculatesValidatedValueAgainstModelCost() {
-        when(telemetryService.summary(24)).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+        when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 4, 3, 1, 0.75, 1000, 500, 100, 0, 1500,
                 new BigDecimal("2.000000"), 300, 600, 1, 1, 2, 0, 0, Instant.now(), List.of(), List.of()
         ));
@@ -156,7 +156,7 @@ class ManagementServiceTests {
 
     @Test
     void allocatesValidatedValueAcrossContributingAgents() {
-        when(telemetryService.summary(24)).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+        when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 BigDecimal.ZERO, 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of()
         ));
@@ -187,4 +187,101 @@ class ManagementServiceTests {
         assertThat(summary.agentUsage()).extracting(ManagementDtos.AgentManagementUsage::validatedValue)
                 .containsExactlyInAnyOrder(new BigDecimal("70.000000000000"), new BigDecimal("30.000000000000"));
     }
+    @Test
+    void suppressesMixedCurrencyTotalsAndEveryAgentFinancialMetric() {
+        var usd = financialValue(31L, 1L, "USD", "10");
+        var cny = financialValue(32L, 2L, "CNY", "100");
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(usd, cny));
+        stubFinancialContext(null, "9");
+        when(telemetryService.currencies(24)).thenReturn(List.of("USD", "CNY"));
+
+        var summary = service.summary(24);
+
+        assertThat(summary.availableCurrencies()).containsExactly("CNY", "USD");
+        assertThat(summary.currency()).isNull();
+        assertThat(summary.mixedCurrencies()).isTrue();
+        assertThat(summary.totalCost()).isNull();
+        assertThat(summary.validatedBusinessValue()).isNull();
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.agentUsage()).hasSize(2).allSatisfy(agent -> {
+            assertThat(agent.totalCost()).isNull();
+            assertThat(agent.validatedValue()).isNull();
+            assertThat(agent.netBenefit()).isNull();
+            assertThat(agent.roi()).isNull();
+        });
+    }
+
+    @Test
+    void detectsMixedCurrencyWhenCostAndBenefitUseDifferentCurrencies() {
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "CNY", "100")));
+        when(telemetryService.currencies(24)).thenReturn(List.of("USD"));
+        stubFinancialContext(null, "2");
+
+        var summary = service.summary(24);
+
+        assertThat(summary.mixedCurrencies()).isTrue();
+        assertThat(summary.roi()).isNull();
+    }
+
+    @Test
+    void filtersBenefitAndAgentAttributionToTheSelectedCostCurrency() {
+        var usd = financialValue(31L, 1L, "USD", "10");
+        var cny = financialValue(32L, 2L, " cny ", "100");
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(usd, cny));
+        when(telemetryService.currencies(24)).thenReturn(List.of("USD", "CNY"));
+        stubFinancialContext("CNY", "20");
+        var contribution = new ManagementValueAttribution();
+        contribution.valueEventId = 32L;
+        contribution.agentId = 3L;
+        contribution.contributionWeight = BigDecimal.ONE;
+        when(attributionRepository.findByValueEventIdIn(List.of(32L))).thenReturn(List.of(contribution));
+
+        var summary = service.summary(24, " cny ");
+
+        assertThat(summary.currency()).isEqualTo("CNY");
+        assertThat(summary.mixedCurrencies()).isFalse();
+        assertThat(summary.totalCost()).isEqualByComparingTo("20");
+        assertThat(summary.validatedBusinessValue()).isEqualByComparingTo("100");
+        assertThat(summary.netBenefit()).isEqualByComparingTo("80");
+        assertThat(summary.roi()).isEqualByComparingTo("4");
+        assertThat(summary.agentUsage()).singleElement().satisfies(agent -> {
+            assertThat(agent.agentId()).isEqualTo(3L);
+            assertThat(agent.validatedValue()).isEqualByComparingTo("100");
+        });
+    }
+
+    @Test
+    void automaticallyUsesTheOnlyCurrencyWithoutAssumingUsd() {
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "EUR", "15")));
+        when(telemetryService.currencies(24)).thenReturn(List.of("EUR"));
+        stubFinancialContext("EUR", "5");
+
+        var summary = service.summary(24);
+
+        assertThat(summary.currency()).isEqualTo("EUR");
+        assertThat(summary.mixedCurrencies()).isFalse();
+        assertThat(summary.roi()).isEqualByComparingTo("2");
+    }
+
+    private ManagementValueEvent financialValue(Long id, Long agentId, String currency, String amount) {
+        var event = new ManagementValueEvent();
+        event.id = id;
+        event.agentId = agentId;
+        event.currency = currency;
+        event.benefitMoney = new BigDecimal(amount);
+        event.observedAt = Instant.now();
+        return event;
+    }
+
+    private void stubFinancialContext(String currency, String cost) {
+        when(telemetryService.summary(24, currency)).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+                24, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                new BigDecimal(cost), 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of()));
+        when(knowledgeService.summary(24)).thenReturn(new KnowledgeDtos.KnowledgeSummary(
+                24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, List.of()));
+    }
+
 }

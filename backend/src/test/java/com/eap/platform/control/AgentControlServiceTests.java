@@ -31,12 +31,12 @@ class AgentControlServiceTests {
         when(agentRepository.findById(7L)).thenReturn(Optional.of(agent));
         AgentRuntimeInstance runtime = mock(AgentRuntimeInstance.class);
         when(runtime.getInstanceKey()).thenReturn("runtime-7");
-        when(runtimeRepository.findFirstByAgentIdAndStatusOrderByLoadScoreAsc(7L, RuntimeStatus.ONLINE))
+        when(runtimeRepository.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
                 .thenReturn(Optional.of(runtime));
         when(commandRepository.save(any(AgentControlCommand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter);
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.issue(new AgentControlDtos.CommandRequest(
                 7L, "pause", "{\"reason\":\"policy\"}", "operator"));
 
@@ -61,7 +61,7 @@ class AgentControlServiceTests {
         when(commandRepository.save(any(AgentControlCommand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter);
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.issue(new AgentControlDtos.CommandRequest(
                 7L, "resume", null, null));
 
@@ -92,14 +92,43 @@ class AgentControlServiceTests {
         when(runtime.getInstanceKey()).thenReturn("runtime-retry");
         when(commandRepository.findByCommandKey("CTRL-retry")).thenReturn(Optional.of(command));
         when(commandRepository.save(any(AgentControlCommand.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(runtimeRepository.findFirstByAgentIdAndStatusOrderByLoadScoreAsc(7L, RuntimeStatus.ONLINE))
+        when(runtimeRepository.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
                 .thenReturn(Optional.of(runtime));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter);
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.retry("CTRL-retry");
 
         assertThat(response.status()).isEqualTo(ControlCommandStatus.ACKED);
         assertThat(response.attemptCount()).isEqualTo(2);
     }
+    @Test
+    void offlineRuntimeRetriesStopAtConfiguredLimit() {
+        var commands = mock(AgentControlCommandRepository.class);
+        var runtimes = mock(AgentRuntimeInstanceRepository.class);
+        var properties = new ControlDispatchProperties();
+        properties.setEnabled(true);
+        properties.setMaxAttempts(3);
+        var command = new AgentControlCommand();
+        command.commandKey = "CTRL-offline";
+        command.agentId = 7L;
+        command.commandType = "PAUSE";
+        command.status = ControlCommandStatus.FAILED;
+        command.attemptCount = 1;
+        command.issuedBy = "operator";
+        when(commands.findByCommandKey(command.commandKey)).thenReturn(Optional.of(command));
+        when(commands.save(any(AgentControlCommand.class))).thenAnswer(call -> call.getArgument(0));
+        when(runtimes.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
+                .thenReturn(Optional.empty());
+        var service = new AgentControlService(commands, mock(AgentRepository.class), runtimes,
+                mock(AuditLogRepository.class), properties, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
+
+        assertThat(service.retry(command.commandKey).attemptCount()).isEqualTo(2);
+        assertThat(service.retry(command.commandKey).attemptCount()).isEqualTo(3);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.retry(command.commandKey))
+                .isInstanceOf(com.eap.platform.common.BusinessException.class)
+                .hasMessageContaining("最大重试次数");
+        assertThat(command.status).isEqualTo(ControlCommandStatus.FAILED);
+    }
+
 }

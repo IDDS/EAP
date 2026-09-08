@@ -215,9 +215,32 @@ public final class EvaluationDtos {
             BigDecimal f1,
             BigDecimal accuracy,
             Instant calculatedAt,
-            List<EvaluatorCalibration> evaluators
+            List<EvaluatorCalibration> evaluators,
+            String runId
     ) {
     }
+
+    public record CalibrationRunSummary(
+            String runId, String datasetKey, String datasetVersion, int requestedLimit,
+            int totalItems, int evaluatedItems, int failedItems, Instant calculatedAt
+    ) { }
+
+    public record CalibrationEvaluatorSnapshot(
+            String evaluatorKey, String evaluatorVersion, EvaluatorType evaluatorType,
+            String implementationKey, EvaluationLevel level, BigDecimal threshold, boolean enabled
+    ) { }
+
+    public record CalibrationSampleSnapshot(
+            String itemKey, String evaluatorKey, String evaluatorVersion,
+            String groundTruthLabel, BigDecimal groundTruthScore, Instant annotatedAt,
+            String outcome, String reason, String resultKey, BigDecimal score, Boolean passed
+    ) { }
+
+    public record CalibrationRunDetail(
+            EvaluationDatasetCalibrationResponse calibration,
+            List<CalibrationEvaluatorSnapshot> evaluatorDefinitions,
+            List<CalibrationSampleSnapshot> samples
+    ) { }
 
     public record EvaluatorCalibration(
             String evaluatorKey,

@@ -9,11 +9,39 @@
         <el-select v-model="selectedWorkflowId" class="agent-select" @change="loadWorkflow">
           <el-option v-for="workflow in workflows" :key="workflow.id" :label="`${workflow.name} · ${workflow.code}`" :value="workflow.id" />
         </el-select>
-        <el-button type="success" :icon="VideoPlay" :loading="running" @click="runWorkflow">执行工作流</el-button>
+        <el-button type="primary" :icon="VideoPlay" :loading="running" @click="runWorkflow">安全预演</el-button>
+        <el-button :disabled="!selectedWorkflowId" @click="loadWorkflow">重新加载流程</el-button>
+        <el-button type="success" :disabled="!executionAvailability.enabled || !selectedWorkflowId" :loading="submittingExecution" @click="executeWorkflow">真实执行</el-button>
         <el-button type="primary" :icon="Plus" @click="createWorkflow">新建工作流</el-button>
       </div>
     </div>
 
+    <el-alert title="安全预演：检查节点策略与分支路径，不调用 Agent、不生成制品；预演通过不代表任务执行成功。" type="info" :closable="false" show-icon />
+    <el-alert :title="executionAvailability.message" :type="executionAvailability.enabled ? 'warning' : 'info'" :closable="false" />
+    <div class="button-row">
+      <span>预演场景</span>
+      <el-select v-model="previewSeverity" aria-label="预演严重程度" style="width: 140px">
+        <el-option label="低" value="low" /><el-option label="中" value="medium" />
+        <el-option label="高" value="high" /><el-option label="严重" value="critical" />
+      </el-select>
+      <el-checkbox v-model="previewApproved">假设 approved 分支条件为真（不授予治理审批）</el-checkbox>
+    </div>
+    <el-card v-if="executions.length || executionError" shadow="never">
+      <template #header><div class="button-row"><strong>真实执行记录 · 最近 20 次</strong><el-button :loading="executionsLoading" @click="loadExecutions">刷新</el-button></div></template>
+      <el-alert v-if="executionError" :title="executionError" type="error" :closable="false" />
+      <el-table :data="executions" @row-click="selectedExecutionKey = $event.runKey" highlight-current-row>
+        <el-table-column prop="runKey" label="执行标识" min-width="210" />
+        <el-table-column prop="requester" label="发起人" width="140" />
+        <el-table-column label="状态" width="150"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
+        <el-table-column prop="reason" label="结果说明" min-width="220" />
+      </el-table>
+      <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
+        <el-table-column prop="label" label="节点" /><el-table-column prop="taskKey" label="任务标识" min-width="240" />
+        <el-table-column prop="runtimeInstanceKey" label="运行实例" />
+        <el-table-column label="状态"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
+        <el-table-column prop="reason" label="完成证据" min-width="180" />
+      </el-table>
+    </el-card>
     <div class="workflow-builder">
       <aside class="workflow-palette">
         <div class="palette-title">Agent Palette</div>
@@ -115,8 +143,8 @@
 
         <div v-if="lastRun" class="run-panel">
           <div class="run-head">
-            <strong>运行结果</strong>
-            <el-tag size="small" :type="runTagType(lastRun.status)">{{ lastRun.status }}</el-tag>
+            <strong>安全预演结果</strong>
+            <el-tag size="small" :type="runTagType(lastRun.status)">{{ runStatusLabel(lastRun.status) }}</el-tag>
           </div>
           <span class="run-key">{{ lastRun.runKey }}</span>
           <div class="run-steps">
@@ -125,7 +153,7 @@
                 <strong>{{ step.label }}</strong>
                 <span>{{ step.nodeType }} · {{ step.safetyDecision }}</span>
               </div>
-              <el-tag size="small" :type="stepTagType(step.status)">{{ step.status }}</el-tag>
+              <el-tag size="small" :type="stepTagType(step.status)">{{ runStatusLabel(step.status) }}</el-tag>
             </div>
           </div>
         </div>
@@ -135,11 +163,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
-import type { Agent, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowRun } from '@/types/domain'
+import type { Agent, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowRun, WorkflowExecution } from '@/types/domain'
 
 type DragPayload = {
   nodeType: string
@@ -162,6 +190,55 @@ const movedDuringDrag = ref(false)
 const dragPayload = ref<DragPayload>()
 const running = ref(false)
 const lastRun = ref<WorkflowRun>()
+const previewSeverity = ref('medium')
+const previewApproved = ref(false)
+const executionAvailability = ref({ enabled: false, protocol: '', message: '正在检查真实执行配置' })
+const executions = ref<WorkflowExecution[]>([])
+const selectedExecutionKey = ref('')
+const selectedExecution = computed(() => executions.value.find(row => row.runKey === selectedExecutionKey.value))
+const executionsLoading = ref(false)
+const executionError = ref('')
+const submittingExecution = ref(false)
+let executionRequestId = 0
+let disposed = false
+let executionTimer: ReturnType<typeof setInterval> | undefined
+
+async function loadExecutions() {
+  const requestId = ++executionRequestId
+  const id = selectedWorkflowId.value
+  if (!id || disposed) { executionsLoading.value = false; return }
+  executionsLoading.value = true
+  try {
+    const rows = await EapApi.listWorkflowExecutions(id)
+    if (disposed || requestId !== executionRequestId || id !== selectedWorkflowId.value) return
+    executions.value = rows
+    executionError.value = ''
+  } catch {
+    if (!disposed && requestId === executionRequestId) executionError.value = '执行记录加载失败，请重试'
+  } finally { if (requestId === executionRequestId) executionsLoading.value = false }
+}
+async function executeWorkflow() {
+  const id = selectedWorkflowId.value
+  if (!id || !executionAvailability.value.enabled || submittingExecution.value) return
+  const revision = workflowRequestId
+  submittingExecution.value = true
+  try {
+    const result = await EapApi.executeWorkflow(id, { objective: workflows.value.find(row => row.id === id)?.name,
+      context: { severity: previewSeverity.value, approved: previewApproved.value } })
+    if (disposed || id !== selectedWorkflowId.value || revision !== workflowRequestId) return
+    selectedExecutionKey.value = result.runKey
+    await loadExecutions()
+    if (!disposed && id === selectedWorkflowId.value && revision === workflowRequestId) ElMessage.success('已提交真实执行，可在执行记录查看进度')
+  } finally { submittingExecution.value = false }
+}
+function executionStatusLabel(status: string) {
+  return ({ QUEUED: '排队中', RUNNING: '执行中', DISPATCHING: '派发中', SUCCEEDED: '已确认完成', FAILED: '失败',
+    EXECUTION_UNKNOWN: '结果未知，需核对', WAITING_APPROVAL: '需要审批', BLOCKED: '策略阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
+}
+watch(selectedWorkflowId, () => {
+  ++executionRequestId; executions.value = []; selectedExecutionKey.value = ''; executionError.value = ''
+  void loadExecutions()
+})
 
 const systemNodes: DragPayload[] = [
   { nodeType: 'START', label: '开始' },
@@ -200,15 +277,31 @@ const blockedNodeKeys = computed(
 
 async function load() {
   const [nextAgents, nextWorkflows] = await Promise.all([EapApi.listAgents(), EapApi.listWorkflows()])
+  if (disposed) return
   agents.value = nextAgents
   workflows.value = nextWorkflows
   selectedWorkflowId.value = nextWorkflows[0]?.id
   await loadWorkflow()
 }
 
+let workflowRequestId = 0
+let previewRequestId = 0
+const creatingEdge = ref(false)
+const creatingNode = ref(false)
 async function loadWorkflow() {
-  if (!selectedWorkflowId.value) return
-  const detail = await EapApi.getWorkflow(selectedWorkflowId.value)
+  const requestId = ++workflowRequestId
+  ++previewRequestId
+  running.value = false
+  const workflowId = selectedWorkflowId.value
+  nodes.value = []
+  edges.value = []
+  selectedNode.value = undefined
+  movingNode.value = undefined
+  pendingSourceKey.value = undefined
+  lastRun.value = undefined
+  if (!workflowId) return
+  const detail = await EapApi.getWorkflow(workflowId)
+  if (disposed || requestId !== workflowRequestId || workflowId !== selectedWorkflowId.value) return
   nodes.value = detail.nodes
   edges.value = detail.edges
   selectedNode.value = nodes.value[0]
@@ -232,23 +325,30 @@ function onSystemDrag(node: DragPayload, event: DragEvent) {
 }
 
 async function onCanvasDrop(event: DragEvent) {
-  if (!selectedWorkflowId.value || !canvasRef.value || !dragPayload.value) return
+  if (!selectedWorkflowId.value || !canvasRef.value || !dragPayload.value || creatingNode.value) return
+  const workflowId = selectedWorkflowId.value
+  const revision = workflowRequestId
   const rect = canvasRef.value.getBoundingClientRect()
   const payload = dragPayload.value
-  const nodeKey = `${payload.nodeType.toLowerCase()}-${Date.now()}`
-  const node = await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
-    nodeKey,
-    label: payload.label,
-    nodeType: payload.nodeType,
-    agentId: payload.agentId,
-    capability: payload.capability,
-    positionX: Math.max(20, Math.round(event.clientX - rect.left - 80)),
-    positionY: Math.max(20, Math.round(event.clientY - rect.top - 36)),
-    configJson: JSON.stringify({ safety: 'required' }),
-  })
-  nodes.value.push(node)
-  selectedNode.value = node
+  const uniqueKey = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  const nodeKey = `${payload.nodeType.toLowerCase()}-${uniqueKey}`
+  creatingNode.value = true
   dragPayload.value = undefined
+  try {
+    const node = await EapApi.upsertWorkflowNode(workflowId, {
+      nodeKey,
+      label: payload.label,
+      nodeType: payload.nodeType,
+      agentId: payload.agentId,
+      capability: payload.capability,
+      positionX: Math.max(20, Math.round(event.clientX - rect.left - 80)),
+      positionY: Math.max(20, Math.round(event.clientY - rect.top - 36)),
+      configJson: JSON.stringify({ safety: 'required' }),
+    })
+    if (disposed || workflowId !== selectedWorkflowId.value || revision !== workflowRequestId) return
+    nodes.value.push(node)
+    selectedNode.value = node
+  } finally { creatingNode.value = false }
 }
 
 function startNodeMove(node: WorkflowNode, event: MouseEvent) {
@@ -272,7 +372,9 @@ async function stopNodeMove() {
   if (!selectedWorkflowId.value || !movingNode.value) return
   const node = movingNode.value
   movingNode.value = undefined
-  await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
+  if (!movedDuringDrag.value) return
+  const saved = await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
+    expectedVersion: node.version,
     nodeKey: node.nodeKey,
     label: node.label,
     nodeType: node.nodeType,
@@ -282,10 +384,11 @@ async function stopNodeMove() {
     positionY: node.positionY,
     configJson: node.configJson,
   })
+  node.version = saved.version
 }
 
 async function selectOrConnect(node: WorkflowNode) {
-  if (!selectedWorkflowId.value) return
+  if (!selectedWorkflowId.value || creatingEdge.value || !nodes.value.includes(node)) return
   if (movedDuringDrag.value) {
     movedDuringDrag.value = false
     selectedNode.value = node
@@ -301,34 +404,50 @@ async function selectOrConnect(node: WorkflowNode) {
     selectedNode.value = node
     return
   }
-  const edge = await EapApi.addWorkflowEdge(selectedWorkflowId.value, {
-    sourceNodeKey: pendingSourceKey.value,
-    targetNodeKey: node.nodeKey,
-    conditionExpression: 'always',
-  })
-  edges.value.push(edge)
-  pendingSourceKey.value = undefined
-  selectedNode.value = node
-  ElMessage.success('连线已创建')
+  const workflowId = selectedWorkflowId.value
+  const revision = workflowRequestId
+  creatingEdge.value = true
+  try {
+    const edge = await EapApi.addWorkflowEdge(workflowId, {
+      sourceNodeKey: pendingSourceKey.value,
+      targetNodeKey: node.nodeKey,
+      conditionExpression: 'always',
+    })
+    if (disposed || workflowId !== selectedWorkflowId.value || revision !== workflowRequestId) return
+    if (!edges.value.some(row => row.id === edge.id)) edges.value.push(edge)
+    pendingSourceKey.value = undefined
+    selectedNode.value = node
+    ElMessage.success('连线已创建')
+  } finally { creatingEdge.value = false }
 }
 
 async function runWorkflow() {
   if (!selectedWorkflowId.value) return
+  const workflowId = selectedWorkflowId.value
+  const revision = workflowRequestId
+  const requestId = ++previewRequestId
+  lastRun.value = undefined
   running.value = true
   try {
-    lastRun.value = await EapApi.runWorkflow(selectedWorkflowId.value, {
-      objective: workflows.value.find((workflow) => workflow.id === selectedWorkflowId.value)?.name,
+    const result = await EapApi.runWorkflow(workflowId, {
+      objective: workflows.value.find((workflow) => workflow.id === workflowId)?.name,
+      context: { severity: previewSeverity.value, approved: previewApproved.value },
     })
-    ElMessage.success(`工作流运行完成：${lastRun.value.status}`)
+    if (disposed || requestId !== previewRequestId || revision !== workflowRequestId || workflowId !== selectedWorkflowId.value) return
+    lastRun.value = result
+    ElMessage.info(`安全预演：${runStatusLabel(result.status)}`)
   } finally {
-    running.value = false
+    if (requestId === previewRequestId) running.value = false
   }
 }
 
 async function saveSelectedNode() {
-  if (!selectedWorkflowId.value || !selectedNode.value) return
+  if (!selectedWorkflowId.value || !selectedNode.value || !nodes.value.includes(selectedNode.value)) return
+  const workflowId = selectedWorkflowId.value
+  const revision = workflowRequestId
   const node = selectedNode.value
-  await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
+  const saved = await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
+    expectedVersion: node.version,
     nodeKey: node.nodeKey,
     label: node.label,
     nodeType: node.nodeType,
@@ -338,16 +457,26 @@ async function saveSelectedNode() {
     positionY: node.positionY,
     configJson: node.configJson,
   })
-  ElMessage.success('节点已保存')
+  node.version = saved.version
+  if (!disposed && workflowId === selectedWorkflowId.value && revision === workflowRequestId && selectedNode.value === node) ElMessage.success('节点已保存')
 }
 
 async function createWorkflow() {
+  const revision = workflowRequestId
   const created = await EapApi.createWorkflow({
     code: `FLOW-${Date.now()}`,
     name: '新的智能体工作流',
     description: '通过拖拽方式构建的多智能体流程',
   })
+  if (disposed) return
   workflows.value.unshift(created)
+  if (revision !== workflowRequestId) return
+  ++workflowRequestId
+  ++previewRequestId
+  running.value = false
+  lastRun.value = undefined
+  movingNode.value = undefined
+  pendingSourceKey.value = undefined
   selectedWorkflowId.value = created.id
   nodes.value = []
   edges.value = []
@@ -362,16 +491,30 @@ function inferCapability(code: string) {
 }
 
 function runTagType(status: string) {
-  if (status === 'SUCCEEDED') return 'success'
-  if (status === 'WAITING_APPROVAL') return 'warning'
+  if (status === 'PREVIEW_COMPLETED') return 'success'
+  if (['WAITING_APPROVAL', 'PREVIEW_NO_MATCH'].includes(status)) return 'warning'
   return 'danger'
 }
 
 function stepTagType(status: string) {
-  if (status === 'DONE') return 'success'
+  if (status === 'CHECK_PASSED') return 'success'
   if (status === 'APPROVAL_REQUIRED') return 'warning'
   return status === 'BLOCKED' ? 'danger' : 'info'
 }
 
-onMounted(load)
+function runStatusLabel(status: string) {
+  return ({ PREVIEW_COMPLETED: '预演通过', PREVIEW_NO_MATCH: '无匹配分支', CHECK_PASSED: '检查通过',
+    WAITING_APPROVAL: '需要治理审批', APPROVAL_REQUIRED: '需要治理审批', BLOCKED: '策略阻断',
+    FAILED_LOOP_GUARD: '超过预演步数限制' } as Record<string, string>)[status] || status
+}
+
+onMounted(() => {
+  void load()
+  EapApi.workflowExecutionStatus().then(value => { if (!disposed) executionAvailability.value = value })
+    .catch(() => { if (!disposed) executionAvailability.value.message = '真实执行配置读取失败，暂不可提交' })
+  executionTimer = setInterval(() => {
+    if (!executionsLoading.value && executions.value.some(row => ['QUEUED', 'RUNNING'].includes(row.status))) void loadExecutions()
+  }, 2000)
+})
+onUnmounted(() => { disposed = true; ++executionRequestId; ++workflowRequestId; ++previewRequestId; if (executionTimer) clearInterval(executionTimer) })
 </script>

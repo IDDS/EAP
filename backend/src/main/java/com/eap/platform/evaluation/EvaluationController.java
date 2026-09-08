@@ -27,15 +27,17 @@ public class EvaluationController {
     private final EvaluationJobService jobService;
     private final EvaluationDatasetItemService datasetItemService;
     private final EvaluationDatasetRunService datasetRunService;
+    private final EvaluationCalibrationHistoryService historyService;
 
     public EvaluationController(EvaluationService service, EvaluationProjectionService projectionService,
                                 EvaluationJobService jobService, EvaluationDatasetItemService datasetItemService,
-                                EvaluationDatasetRunService datasetRunService) {
+                                EvaluationDatasetRunService datasetRunService, EvaluationCalibrationHistoryService historyService) {
         this.service = service;
         this.projectionService = projectionService;
         this.jobService = jobService;
         this.datasetItemService = datasetItemService;
         this.datasetRunService = datasetRunService;
+        this.historyService = historyService;
     }
 
     @PostMapping("/evaluators")
@@ -104,6 +106,21 @@ public class EvaluationController {
             @RequestParam(defaultValue = "200") @Min(1) @Max(500) int limit
     ) {
         return ApiResponse.ok(datasetRunService.calibration(datasetKey, limit));
+    }
+
+    @GetMapping("/datasets/{datasetKey}/runs")
+    public ApiResponse<List<EvaluationDtos.CalibrationRunSummary>> listCalibrationRuns(
+            @PathVariable String datasetKey,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(100) int limit
+    ) {
+        return ApiResponse.ok(historyService.list(datasetKey, limit));
+    }
+
+    @GetMapping("/datasets/{datasetKey}/runs/{runId}")
+    public ApiResponse<EvaluationDtos.CalibrationRunDetail> calibrationRun(
+            @PathVariable String datasetKey, @PathVariable String runId
+    ) {
+        return ApiResponse.ok(historyService.get(datasetKey, runId));
     }
 
     @PostMapping("/results")

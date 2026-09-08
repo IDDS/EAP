@@ -29,7 +29,7 @@ class AgentRegistryDispatchTests {
 
     @BeforeEach
     void setUp() {
-        service = new AgentRegistryService(agentRepository, capabilityRepository, runtimeRepository);
+        service = new AgentRegistryService(agentRepository, capabilityRepository, runtimeRepository, new RuntimeLeaseProperties());
         Agent agent = new Agent();
         ReflectionTestUtils.setField(agent, "id", 1L);
         agent.setCode("AUTO-HERMES");
@@ -78,4 +78,12 @@ class AgentRegistryDispatchTests {
             assertThat(candidate.constraints()).contains("a2a-authenticated");
         });
     }
+    @Test
+    void excludesExpiredOnlineRuntimeBeforeSchedulerRuns() {
+        runtime.dispatchAuthenticated = true;
+        runtime.lastHeartbeatAt = Instant.now().minusSeconds(181);
+        assertThat(service.discover(new AgentRegistryDtos.DiscoveryRequest(
+                "research.assist", RiskLevel.HIGH, null, "A2A")).candidates()).isEmpty();
+    }
+
 }

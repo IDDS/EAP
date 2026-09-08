@@ -35,7 +35,7 @@ class DiscoveryAgentV1ServiceTests {
     void setUp() {
         service = new DiscoveryAgentV1Service(
                 tokenRepository, endpointRepository, batchRepository, discoveryService,
-                new DiscoveryAgentV1Properties(), auditLogRepository, new ObjectMapper().findAndRegisterModules()
+                new DiscoveryAgentV1Properties(), auditLogRepository, new ObjectMapper().findAndRegisterModules(), new com.eap.platform.config.SecurityProperties()
         );
     }
 
@@ -87,7 +87,7 @@ class DiscoveryAgentV1ServiceTests {
         properties.setContentAutoAttachProfiles("litellm, openai-sdk");
         service = new DiscoveryAgentV1Service(
                 tokenRepository, endpointRepository, batchRepository, discoveryService,
-                properties, auditLogRepository, new ObjectMapper().findAndRegisterModules()
+                properties, auditLogRepository, new ObjectMapper().findAndRegisterModules(), new com.eap.platform.config.SecurityProperties()
         );
         DiscoveryEndpoint endpoint = endpoint();
         endpoint.contentCaptureStatus = "ENABLED";
@@ -127,7 +127,7 @@ class DiscoveryAgentV1ServiceTests {
         properties.setContentAutoAttachEnabled(true);
         service = new DiscoveryAgentV1Service(
                 tokenRepository, endpointRepository, batchRepository, discoveryService,
-                properties, auditLogRepository, new ObjectMapper().findAndRegisterModules()
+                properties, auditLogRepository, new ObjectMapper().findAndRegisterModules(), new com.eap.platform.config.SecurityProperties()
         );
         DiscoveryEndpoint endpoint = endpoint();
         endpoint.capabilitiesJson = "[\"CONTENT_PROXY\",\"AUTO_ATTACH\"]";

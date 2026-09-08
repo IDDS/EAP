@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
+@SpringBootTest(properties = "spring.flyway.enabled=true")
 @ActiveProfiles("test")
 @Transactional
 class AgentOpsIntegrationTests {
@@ -42,6 +42,9 @@ class AgentOpsIntegrationTests {
         agent = agentRepository.save(agent);
         Long agentId = agent.getId();
 
+        agentOpsService.dashboard(24, null);
+        assertThat(workItemRepository.findByItemKey("OWNER:" + agentId)).isEmpty();
+        workItemService.synchronizeSignals();
         AgentOpsDtos.DashboardResponse dashboard = agentOpsService.dashboard(24, null);
 
         AgentWorkItem ownerItem = workItemRepository.findByItemKey("OWNER:" + agentId).orElseThrow();

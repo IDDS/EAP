@@ -47,9 +47,10 @@ public class ManagementController {
 
     @GetMapping("/summary")
     public ApiResponse<ManagementDtos.ManagementSummary> summary(
-            @RequestParam(defaultValue = "24") @Min(1) @Max(8760) int hours
+            @RequestParam(defaultValue = "24") @Min(1) @Max(8760) int hours,
+            @RequestParam(required = false) @jakarta.validation.constraints.Size(max = 16) String currency
     ) {
-        return ApiResponse.ok(managementService.summary(hours));
+        return ApiResponse.ok(managementService.summary(hours, currency));
     }
 
     private void requireIngestionToken(String token) {

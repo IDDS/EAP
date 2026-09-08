@@ -53,9 +53,10 @@ public class ModelTelemetryController {
             @RequestParam(required = false) String traceId,
             @RequestParam(required = false) ModelInvocationStatus status,
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "0") @jakarta.validation.constraints.Min(0) int page
     ) {
-        return ApiResponse.ok(telemetryService.list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, status, from, to));
+        return ApiResponse.ok(telemetryService.list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, status, from, to, page));
     }
 
     @GetMapping("/physical-summary")

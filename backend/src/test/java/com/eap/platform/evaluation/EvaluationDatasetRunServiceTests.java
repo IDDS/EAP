@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.springframework.data.domain.PageRequest;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -15,6 +16,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.ArgumentMatchers.anyString;
 
 @ExtendWith(MockitoExtension.class)
 class EvaluationDatasetRunServiceTests {
@@ -29,6 +34,9 @@ class EvaluationDatasetRunServiceTests {
     @Mock
     private EvaluationService evaluationService;
 
+    @Mock
+    private EvaluationCalibrationHistoryService historyService;
+
     private EvaluationDatasetRunService service;
     private EvaluationDataset dataset;
     private EvaluatorDefinition evaluator;
@@ -36,7 +44,7 @@ class EvaluationDatasetRunServiceTests {
     @BeforeEach
     void setUp() {
         service = new EvaluationDatasetRunService(datasetRepository, itemRepository, evaluatorRepository,
-                resultRepository, evaluationService, new ObjectMapper());
+                resultRepository, evaluationService, new ObjectMapper(), historyService);
         dataset = new EvaluationDataset();
         dataset.id = 9L;
         dataset.datasetKey = "REGRESSION";
@@ -56,7 +64,7 @@ class EvaluationDatasetRunServiceTests {
                 item("pass-true", "PASS"), item("pass-false", "PASS"),
                 item("fail-true", "FAIL"), item("fail-false", "FAIL")
         );
-        when(itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(9L)).thenReturn(items);
+        when(itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(9L, PageRequest.of(0, 200))).thenReturn(items);
         when(evaluationService.evaluate(any())).thenReturn(
                 result(true), result(false), result(true), result(false));
 
@@ -84,7 +92,7 @@ class EvaluationDatasetRunServiceTests {
         EvaluationDatasetItem withheld = item("withheld", "PASS");
         withheld.actualJson = "{\"captureMode\":\"HASH_ONLY\"}";
         EvaluationDatasetItem unannotated = item("unannotated", null);
-        when(itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(9L)).thenReturn(List.of(withheld, unannotated));
+        when(itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(9L, PageRequest.of(0, 2))).thenReturn(List.of(withheld, unannotated));
         when(evaluationService.evaluate(any())).thenReturn(result(true));
 
         EvaluationDtos.EvaluationDatasetCalibrationResponse response = service.run("REGRESSION", 2);
@@ -102,7 +110,7 @@ class EvaluationDatasetRunServiceTests {
         redacted.actualJson = "{\"captureMode\":\"REDACTED\",\"content\":\"{\\\"completed\\\":true}\"}";
         EvaluationDatasetItem hashOnly = item("hash", "PASS");
         hashOnly.actualJson = "{\"captureMode\":\"HASH_ONLY\",\"sha256\":\"abc\"}";
-        when(itemRepository.findAllByDatasetIdOrderByCreatedAtAsc(9L)).thenReturn(List.of(redacted, hashOnly));
+        when(itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(9L, PageRequest.of(0, 2))).thenReturn(List.of(redacted, hashOnly));
         when(evaluationService.evaluate(any())).thenReturn(result(true));
 
         EvaluationDtos.EvaluationDatasetCalibrationResponse response = service.run("REGRESSION", 2);
@@ -110,6 +118,66 @@ class EvaluationDatasetRunServiceTests {
         assertThat(response.evaluatedItems()).isEqualTo(1);
         assertThat(response.skippedItems()).isEqualTo(1);
         assertThat(response.truePositive()).isEqualTo(1);
+    }
+
+    @Test
+    void persistsIndependentHistoryAndPreservesLabelsDefinitionsAndDatasetVersion() {
+        var historyRepository = mock(EvaluationCalibrationRunRepository.class);
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var history = new EvaluationCalibrationHistoryService(historyRepository, mapper);
+        service = new EvaluationDatasetRunService(datasetRepository, itemRepository, evaluatorRepository,
+                resultRepository, evaluationService, mapper, history);
+        var stored = new java.util.HashMap<String, EvaluationCalibrationRun>();
+        when(historyRepository.save(any())).thenAnswer(invocation -> {
+            EvaluationCalibrationRun run = invocation.getArgument(0);
+            stored.put(run.runId, run);
+            return run;
+        });
+        when(historyRepository.findByRunIdAndDatasetKey(anyString(), anyString())).thenAnswer(invocation -> {
+            EvaluationCalibrationRun run = stored.get(invocation.getArgument(0));
+            return run != null && run.datasetKey.equals(invocation.getArgument(1)) ? Optional.of(run) : Optional.empty();
+        });
+        var item = item("history-item", "PASS");
+        item.evaluatorVersion = ""; // Resolve omitted versions before persisting metrics and evidence.
+        item.groundTruthScore = BigDecimal.ONE;
+        evaluator.threshold = new BigDecimal("0.5");
+        evaluator.implementationKey = "ACTION_COMPLETION";
+        when(itemRepository.findByDatasetIdOrderByCreatedAtAscIdAsc(9L, PageRequest.of(0, 1))).thenReturn(List.of(item));
+        when(evaluationService.evaluate(any())).thenReturn(result(true));
+
+        var first = service.run("REGRESSION", 1);
+        item.groundTruthLabel = "FAIL";
+        item.groundTruthScore = BigDecimal.ZERO;
+        dataset.version = "v2";
+        var second = service.run("REGRESSION", 1);
+        evaluator.enabled = false;
+        evaluator.version = "v9";
+        evaluator.threshold = new BigDecimal("0.99");
+
+        var original = history.get("regression", first.runId());
+        var changed = history.get("REGRESSION", second.runId());
+        assertThat(first.runId()).isNotEqualTo(second.runId());
+        assertThat(original.calibration().datasetVersion()).isEqualTo("v1");
+        assertThat(original.calibration().truePositive()).isEqualTo(1);
+        assertThat(original.calibration().evaluators().getFirst().evaluatorVersion()).isEqualTo("v1");
+        assertThat(original.evaluatorDefinitions()).singleElement().satisfies(definition -> {
+            assertThat(definition.evaluatorVersion()).isEqualTo("v1");
+            assertThat(definition.threshold()).isEqualByComparingTo("0.5");
+            assertThat(definition.enabled()).isTrue();
+        });
+        assertThat(original.samples()).singleElement().satisfies(sample -> {
+            assertThat(sample.groundTruthLabel()).isEqualTo("PASS");
+            assertThat(sample.passed()).isTrue();
+            assertThat(sample.resultKey()).isEqualTo("result");
+        });
+        assertThat(changed.calibration().datasetVersion()).isEqualTo("v2");
+        assertThat(changed.calibration().falsePositive()).isEqualTo(1);
+        assertThat(changed.samples().getFirst().groundTruthLabel()).isEqualTo("FAIL");
+        assertThat(stored.get(first.runId()).snapshotJson).doesNotContain("inputJson", "actualJson", "expectedJson");
+        // Reading history must never invoke the current evaluator again.
+        verify(evaluationService, times(2)).evaluate(any());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> history.get("OTHER_DATASET", first.runId()))
+                .hasMessage("校准运行记录不存在");
     }
 
     private EvaluationDatasetItem item(String key, String label) {

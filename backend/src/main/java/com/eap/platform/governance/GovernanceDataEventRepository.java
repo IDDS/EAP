@@ -1,6 +1,7 @@
 package com.eap.platform.governance;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +11,10 @@ public interface GovernanceDataEventRepository extends JpaRepository<GovernanceD
     Optional<GovernanceDataEvent> findByEventKey(String eventKey);
 
     List<GovernanceDataEvent> findTop500ByOrderByObservedAtDesc();
+
+    List<GovernanceDataEvent> findAllByOrderByObservedAtDescIdDesc(Pageable pageable);
+
+    List<GovernanceDataEvent> findByAgentIdOrderByObservedAtDescIdDesc(Long agentId, Pageable pageable);
 
     List<GovernanceDataEvent> findByObservedAtGreaterThanEqualOrderByObservedAtDesc(Instant since);
 }

@@ -11,6 +11,9 @@ spring:
     enabled: false
 
 eap:
+  agentops:
+    signal-sync:
+      enabled: false
   security:
     mode: DEVELOPMENT
   discovery:

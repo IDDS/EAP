@@ -59,6 +59,24 @@ class JwtSecurityIntegrationTests {
     }
 
     @Test
+    void viewerCanReadButCannotMutateBusinessConnectors() throws Exception {
+        var viewer = jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER"));
+        mockMvc.perform(get("/api/management/connectors").with(viewer))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/management/connectors").with(viewer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/management/connectors/1/sync").with(viewer))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/management/connectors/1/enabled").with(viewer).param("enabled", "false"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/management/connectors/1").with(viewer)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void viewerCannotIssueControlCommands() throws Exception {
         mockMvc.perform(post("/api/control/commands")
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))
@@ -169,4 +187,46 @@ class JwtSecurityIntegrationTests {
                 .findFirst().orElseThrow();
         assertThat(endpoint.agentVersion()).isEqualTo("1.3.0");
     }
+    @Test
+    void contentApprovalRequiresActualRolesAndDistinctAuthenticatedSubjects() throws Exception {
+        var token = discoveryAgentService.createEnrollmentToken(new DiscoveryAgentV1Dtos.EnrollmentTokenRequest(
+                "default", "test", "test", "test", null, 15, 1, "admin"));
+        discoveryAgentService.enroll(new DiscoveryAgentV1Dtos.EnrollRequest(
+                token.token(), "approval-installation", "approval-fingerprint", "approval-host",
+                "svc-agent", "Linux", "amd64", "1.3.0", List.of("PROCESS")));
+        var endpoint = discoveryAgentService.listAgents().stream()
+                .filter(item -> "approval-host".equals(item.hostName())).findFirst().orElseThrow();
+        String url = "/api/discovery/v1/admin/agents/" + endpoint.id() + "/content-approval";
+        String platformApproval = "{\"approvalRole\":\"PLATFORM_ADMIN\",\"approvedBy\":\"forged-admin\"}";
+        String ownerApproval = "{\"approvalRole\":\"DATA_OWNER\",\"approvedBy\":\"forged-owner\"}";
+
+        mockMvc.perform(post(url).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OPERATOR")))
+                        .contentType(MediaType.APPLICATION_JSON).content(platformApproval))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(url).with(jwt().jwt(jwt -> jwt.subject("alice"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON).content(ownerApproval))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(url).with(jwt().jwt(jwt -> jwt.subject("alice"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON).content(platformApproval))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contentPlatformApprovedBy").value("alice"))
+                .andExpect(jsonPath("$.data.contentCaptureStatus").value("PENDING_APPROVAL"));
+        mockMvc.perform(post(url).with(jwt().jwt(jwt -> jwt.subject("alice"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_DATA_OWNER")))
+                        .contentType(MediaType.APPLICATION_JSON).content(ownerApproval))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post(url).with(jwt().jwt(jwt -> jwt.subject("bob"))
+                        .authorities(new SimpleGrantedAuthority("ROLE_DATA_OWNER")))
+                        .contentType(MediaType.APPLICATION_JSON).content(ownerApproval))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.contentDataApprovedBy").value("bob"))
+                .andExpect(jsonPath("$.data.contentCaptureStatus").value("ENABLED"));
+        mockMvc.perform(post("/api/discovery/v1/admin/enrollment-tokens")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_DATA_OWNER")))
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
 }

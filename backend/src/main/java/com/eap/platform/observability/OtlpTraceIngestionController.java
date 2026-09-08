@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 
+@org.springframework.validation.annotation.Validated
 @RestController
 @RequestMapping("/api/observability/otlp")
 public class OtlpTraceIngestionController {
@@ -62,15 +63,16 @@ public class OtlpTraceIngestionController {
 
     @GetMapping("/spans")
     public ApiResponse<java.util.List<OtlpTraceIngestionDtos.TraceSpanResponse>> spans(
-            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") int limit,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(500) int limit,
             @org.springframework.web.bind.annotation.RequestParam(required = false) Long agentId,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String endpointKey,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String traceId,
             @org.springframework.web.bind.annotation.RequestParam(required = false) TraceSpanKind spanKind,
             @org.springframework.web.bind.annotation.RequestParam(required = false) Instant from,
-            @org.springframework.web.bind.annotation.RequestParam(required = false) Instant to
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Instant to,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") @jakarta.validation.constraints.Min(0) int page
     ) {
-        return ApiResponse.ok(service.listTraceSpans(limit, agentId, endpointKey, traceId, spanKind, from, to));
+        return ApiResponse.ok(service.listTraceSpans(limit, agentId, endpointKey, traceId, spanKind, from, to, page));
     }
 
     private void requireIngestionToken(String token) {

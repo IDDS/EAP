@@ -6,6 +6,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -14,6 +16,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class EvaluationJobServiceTests {
@@ -26,7 +30,9 @@ class EvaluationJobServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new EvaluationJobService(repository, projectionService);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        lenient().when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
+        service = new EvaluationJobService(repository, projectionService, transactionManager);
     }
 
     @Test
@@ -60,6 +66,7 @@ class EvaluationJobServiceTests {
         assertThat(job.getSkipped()).isEqualTo(1);
         assertThat(job.getFailed()).isEqualTo(1);
         assertThat(job.getCompletedAt()).isNotNull();
-        verify(repository, org.mockito.Mockito.atLeast(2)).save(job);
+        verify(repository).save(job);
+        verify(repository).finishRunning(job.id, EvaluationJobStatus.SUCCEEDED, 8, 6, 1, 1, null, job.completedAt);
     }
 }

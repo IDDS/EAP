@@ -348,6 +348,7 @@ async function runGlobalSearch() {
   const term = globalSearchTerm.value.trim().toLowerCase()
   const requestId = ++searchRequestId
   if (!term) {
+    globalSearchLoading.value = false
     globalSearchResults.value = []
     return
   }

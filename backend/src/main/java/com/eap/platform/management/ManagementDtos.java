@@ -133,6 +133,9 @@ public final class ManagementDtos {
 
     public record ManagementSummary(
             int windowHours,
+            String currency,
+            List<String> availableCurrencies,
+            boolean mixedCurrencies,
             long totalTasks,
             long succeededTasks,
             double taskSuccessRate,

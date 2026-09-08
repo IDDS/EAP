@@ -9,6 +9,7 @@ import com.eap.platform.common.TraceContext;
 import com.eap.platform.registry.AgentRuntimeInstance;
 import com.eap.platform.registry.AgentRuntimeInstanceRepository;
 import com.eap.platform.registry.RuntimeStatus;
+import com.eap.platform.registry.RuntimeLeaseProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +36,7 @@ public class AgentControlService {
     private final AuditLogRepository auditLogRepository;
     private final ControlDispatchProperties dispatchProperties;
     private final AgentControlAdapter httpAdapter;
+    private final RuntimeLeaseProperties leaseProperties;
 
     public AgentControlService(
             AgentControlCommandRepository commandRepository,
@@ -42,7 +44,8 @@ public class AgentControlService {
             AgentRuntimeInstanceRepository runtimeRepository,
             AuditLogRepository auditLogRepository,
             ControlDispatchProperties dispatchProperties,
-            AgentControlAdapter httpAdapter
+            AgentControlAdapter httpAdapter,
+            RuntimeLeaseProperties leaseProperties
     ) {
         this.commandRepository = commandRepository;
         this.agentRepository = agentRepository;
@@ -50,6 +53,7 @@ public class AgentControlService {
         this.auditLogRepository = auditLogRepository;
         this.dispatchProperties = dispatchProperties;
         this.httpAdapter = httpAdapter;
+        this.leaseProperties = leaseProperties;
     }
 
     @Transactional(readOnly = true)
@@ -108,20 +112,19 @@ public class AgentControlService {
     }
 
     private void dispatch(AgentControlCommand command) {
+        command.attemptCount = (command.attemptCount == null ? 0 : command.attemptCount) + 1;
         AgentRuntimeInstance runtime = runtimeRepository
-                .findFirstByAgentIdAndStatusOrderByLoadScoreAsc(command.agentId, RuntimeStatus.ONLINE)
+                .findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(command.agentId, RuntimeStatus.ONLINE, leaseProperties.cutoff())
                 .orElse(null);
         if (runtime == null) {
             command.status = ControlCommandStatus.FAILED;
             command.dispatchMode = "HTTP_RUNTIME";
             command.resultMessage = "没有可用的 ONLINE Agent Runtime。";
-            command.attemptCount = 1;
             commandRepository.save(command);
             return;
         }
         command.runtimeInstanceKey = runtime.getInstanceKey();
         command.dispatchMode = "HTTP_RUNTIME";
-        command.attemptCount = (command.attemptCount == null ? 0 : command.attemptCount) + 1;
         command.dispatchedAt = Instant.now();
         try {
             AgentControlAdapter.DispatchResult result = httpAdapter.dispatch(command, runtime);

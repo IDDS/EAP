@@ -95,21 +95,31 @@ public class ContentObservationService {
             Instant from,
             Instant to
     ) {
+        return list(limit, agentId, endpointKey, traceId, direction, from, to, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ContentObservationDtos.ContentObservationResponse> list(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String traceId,
+            ContentDirection direction,
+            Instant from,
+            Instant to,
+            int page
+    ) {
         int boundedLimit = Math.max(1, Math.min(Math.min(limit, 500), properties.getMaxListItems()));
         List<ContentObservation> observations;
-        if (agentId == null && blank(endpointKey) && blank(traceId) && direction == null && from == null && to == null) {
-            observations = repository.findTop500ByOrderByObservedAtDesc().stream().limit(boundedLimit).toList();
-        } else {
-            Specification<ContentObservation> specification = Specification.where(null);
-            if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
-            if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
-            if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
-            if (direction != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("direction"), direction));
-            if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
-            if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
-            observations = repository.findAll(specification,
-                    PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt"))).getContent();
-        }
+        Specification<ContentObservation> specification = Specification.where(null);
+        if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
+        if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
+        if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
+        if (direction != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("direction"), direction));
+        if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
+        if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
+        observations = repository.findAll(specification,
+                    PageRequest.of(page, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt", "id"))).getContent();
         return observations.stream()
                 .map(ContentObservationDtos::from)
                 .toList();

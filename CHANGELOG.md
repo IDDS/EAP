@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0.0] - 2026-09-08
+
+### Added
+
+- Added immutable calibration history, independent Agent history pagination, and read-only AgentOps dashboards with persisted signal freshness.
+- Added opt-in workflow HTTP execution with durable task evidence, deadlines, submission idempotency and node edit versions (Flyway V39–V42).
+
+### Fixed
+
+- Enforced authenticated approval identities and connector write permissions, isolated stale UI responses and permission failures, and lazy-loaded console routes.
+- Corrected mixed-currency ROI, Runtime heartbeat expiration, concurrent enrollment token usage, bounded gateway response reads and terminal task transitions.
+- Isolated evaluation transactions, recovered timed-out jobs without automatic retries, and prevented duplicate workflow edges and stale editor overwrites in the updated console.
+
+### Validation
+
+- 185 backend tests and 34 frontend tests; frontend production build and Flyway H2 V1–V42. Live deployment checks are recorded in the deployment report.
+
 ## [0.1.0.0] - 2026-09-02
 
 ### Added

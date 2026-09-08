@@ -126,6 +126,14 @@ eap:
     max-response-bytes: ${EAP_GATEWAY_MAX_RESPONSE_BYTES:4194304}
     input-cost-per-1k-tokens: ${EAP_GATEWAY_INPUT_COST_PER_1K_TOKENS:0}
     output-cost-per-1k-tokens: ${EAP_GATEWAY_OUTPUT_COST_PER_1K_TOKENS:0}
+  agentops:
+    signal-sync:
+      enabled: ${EAP_AGENTOPS_SIGNAL_SYNC_ENABLED:true}
+      interval-ms: ${EAP_AGENTOPS_SIGNAL_SYNC_INTERVAL_MS:${eap.agentops.signal-interval-ms:60000}}
+  registry:
+    runtime:
+      heartbeat-ttl-seconds: ${EAP_RUNTIME_HEARTBEAT_TTL_SECONDS:180}
+      availability-check-ms: ${EAP_RUNTIME_AVAILABILITY_CHECK_MS:30000}
   control:
     dispatch:
       enabled: ${EAP_CONTROL_DISPATCH_ENABLED:false}
@@ -147,6 +155,8 @@ eap:
         port: ${EAP_OTLP_GRPC_PORT:4317}
         max-inbound-message-bytes: ${EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES:4194304}
   evaluation:
+    # Marks abandoned/overlong jobs failed; does not retry or imply projection rollback.
+    job-timeout-seconds: ${EAP_EVALUATION_JOB_TIMEOUT_SECONDS:900}
     # Keep automatic projection opt-in until evaluator precision is calibrated.
     auto-sync-enabled: ${EAP_EVALUATION_AUTO_SYNC_ENABLED:false}
     auto-sync-initial-delay-ms: ${EAP_EVALUATION_AUTO_SYNC_INITIAL_DELAY_MS:30000}
@@ -154,3 +164,11 @@ eap:
     async-worker-enabled: ${EAP_EVALUATION_ASYNC_WORKER_ENABLED:true}
     worker-initial-delay-ms: ${EAP_EVALUATION_WORKER_INITIAL_DELAY_MS:10000}
     worker-interval-ms: ${EAP_EVALUATION_WORKER_INTERVAL_MS:5000}
+  workflow:
+    execution:
+      enabled: ${EAP_WORKFLOW_EXECUTION_ENABLED:false}
+      allowed-hosts: ${EAP_WORKFLOW_EXECUTION_ALLOWED_HOSTS:}
+      token: ${EAP_WORKFLOW_EXECUTION_TOKEN:}
+      allow-insecure-http: ${EAP_WORKFLOW_EXECUTION_ALLOW_INSECURE_HTTP:false}
+      allow-private-networks: ${EAP_WORKFLOW_EXECUTION_ALLOW_PRIVATE_NETWORKS:false}
+      timeout-seconds: ${EAP_WORKFLOW_EXECUTION_TIMEOUT_SECONDS:900}

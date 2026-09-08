@@ -73,6 +73,8 @@ public class WorkItemService {
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
     private final SecurityProperties securityProperties;
+    private final AgentOpsSignalSyncStateRepository syncStateRepository;
+    private final com.eap.platform.registry.RuntimeLeaseProperties leaseProperties;
 
     public WorkItemService(
             AgentWorkItemRepository repository,
@@ -88,7 +90,9 @@ public class WorkItemService {
             EvaluatorDefinitionRepository evaluatorDefinitionRepository,
             AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper,
-            SecurityProperties securityProperties
+            SecurityProperties securityProperties,
+            AgentOpsSignalSyncStateRepository syncStateRepository,
+            com.eap.platform.registry.RuntimeLeaseProperties leaseProperties
     ) {
         this.repository = repository;
         this.eventRepository = eventRepository;
@@ -104,10 +108,15 @@ public class WorkItemService {
         this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
         this.securityProperties = securityProperties;
+        this.syncStateRepository = syncStateRepository;
+        this.leaseProperties = leaseProperties;
     }
 
     @Transactional
     public int synchronizeSignals() {
+        // Serialize manual/scheduled synchronization; publish freshness only with a successful commit.
+        AgentOpsSignalSyncState syncState = syncStateRepository.lockState()
+                .orElseThrow(() -> new IllegalStateException("AgentOps 同步状态尚未初始化"));
         Instant now = Instant.now();
         int[] created = {0};
         Set<String> detectedKeys = new HashSet<>();
@@ -163,8 +172,9 @@ public class WorkItemService {
         for (AgentRuntimeInstance runtime : runtimeRepository.findAll()) {
             if (!visibleAgentIds.contains(runtime.getAgentId())) continue;
             runtimesByAgent.computeIfAbsent(runtime.getAgentId(), ignored -> new ArrayList<>()).add(runtime);
-            if (runtime.getStatus() == RuntimeStatus.DEGRADED || runtime.getStatus() == RuntimeStatus.OFFLINE) {
-                boolean offline = runtime.getStatus() == RuntimeStatus.OFFLINE;
+            RuntimeStatus effectiveStatus = leaseProperties.effectiveStatus(runtime, now.minusSeconds(leaseProperties.getHeartbeatTtlSeconds()));
+            if (effectiveStatus == RuntimeStatus.DEGRADED || effectiveStatus == RuntimeStatus.OFFLINE) {
+                boolean offline = effectiveStatus == RuntimeStatus.OFFLINE;
                 created[0] += registerSignal(detectedKeys, new Signal(
                         "RUNTIME:" + runtime.getInstanceKey(),
                         offline ? WorkItemType.RUNTIME_OFFLINE : WorkItemType.RUNTIME_DEGRADED,
@@ -173,7 +183,7 @@ public class WorkItemService {
                         offline ? WorkItemSeverity.P1 : WorkItemSeverity.P2,
                         runtime.getAgentId(), null, runtime.getInstanceKey(), "RUNTIME_INSTANCE", runtime.getInstanceKey(),
                         agentScope(runtime.getAgentId()), EvidenceBasis.MEASURED,
-                        Map.of("status", runtime.getStatus().name(), "endpoint", runtime.getEndpoint(),
+                        Map.of("status", effectiveStatus.name(), "endpoint", runtime.getEndpoint(),
                                 "lastHeartbeatAt", Objects.toString(runtime.getLastHeartbeatAt(), "")), now
                 ));
             }
@@ -283,7 +293,7 @@ public class WorkItemService {
                     blank(result.getRationale()) ? "请检查关联 Trace、Span 和 Agent 运行轨迹。" : result.getRationale(),
                     severity, result.getAgentId(), null, null, "EVALUATION_RESULT", result.getResultKey(),
                     result.getAgentId() == null ? null : agentScope(result.getAgentId()), EvidenceBasis.DERIVED,
-                    Map.of("evaluatorKey", evaluator.getEvaluatorKey(), "evaluatorVersion", evaluator.getVersion(),
+                    Map.of("evaluatorKey", evaluator.getEvaluatorKey(), "evaluatorVersion", result.getEvaluatorVersion(),
                             "score", result.getScore(), "confidence", result.getConfidence(),
                             "traceId", Objects.toString(result.getTraceId(), ""),
                             "spanId", Objects.toString(result.getSpanId(), ""),
@@ -291,6 +301,8 @@ public class WorkItemService {
             ));
         }
         resolveClearedSignals(detectedKeys, now);
+        syncState.lastCompletedAt = Instant.now();
+        syncState.lastCreatedCount = created[0];
         return created[0];
     }
 
@@ -303,12 +315,21 @@ public class WorkItemService {
             int limit
     ) {
         Instant now = Instant.now();
-        return repository.findAllByOrderBySeverityAscSlaDueAtAsc().stream()
-                .filter(item -> status == null || item.status == status)
-                .filter(item -> severity == null || item.severity == severity)
-                .filter(item -> agentId == null || Objects.equals(item.agentId, agentId))
-                .filter(item -> blank(organizationScope) || containsIgnoreCase(item.organizationScope, organizationScope))
-                .limit(Math.max(1, Math.min(limit, 500)))
+        org.springframework.data.jpa.domain.Specification<AgentWorkItem> specification = (root, criteria, builder) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            if (status != null) predicates.add(builder.equal(root.get("status"), status));
+            if (severity != null) predicates.add(builder.equal(root.get("severity"), severity));
+            if (agentId != null) predicates.add(builder.equal(root.get("agentId"), agentId));
+            if (!blank(organizationScope)) {
+                String escaped = organizationScope.trim().toLowerCase(java.util.Locale.ROOT)
+                        .replace("!", "!!").replace("%", "!%").replace("_", "!_");
+                predicates.add(builder.like(builder.lower(root.get("organizationScope")), "%" + escaped + "%", '!'));
+            }
+            return builder.and(predicates.toArray(jakarta.persistence.criteria.Predicate[]::new));
+        };
+        return repository.findAll(specification, org.springframework.data.domain.PageRequest.of(0,
+                        Math.max(1, Math.min(limit, 500)), org.springframework.data.domain.Sort.by("severity", "slaDueAt", "id")))
+                .stream()
                 .map(item -> AgentOpsDtos.from(item, now))
                 .toList();
     }
@@ -403,10 +424,11 @@ public class WorkItemService {
     }
 
     private void resolveClearedSignals(Set<String> detectedKeys, Instant now) {
-        repository.findAll().stream()
+        repository.findByStatusIn(List.copyOf(OPEN_STATUSES)).stream()
                 .filter(item -> AUTO_SIGNAL_TYPES.contains(item.itemType))
                 .filter(item -> OPEN_STATUSES.contains(item.status))
                 .filter(item -> !detectedKeys.contains(item.itemKey))
+                .filter(item -> !hasActiveSourceOutsideWindow(item))
                 .forEach(item -> {
                     WorkItemStatus before = item.status;
                     item.status = WorkItemStatus.RESOLVED;
@@ -417,6 +439,21 @@ public class WorkItemService {
                             item.resolution, null);
                     writeAudit(item, "system", before, WorkItemStatus.RESOLVED, item.resolution);
                 });
+    }
+
+    private boolean hasActiveSourceOutsideWindow(AgentWorkItem item) {
+        // Falling outside a bounded scan is not evidence that the source recovered.
+        if (item.itemType == WorkItemType.GOVERNANCE_APPROVAL) {
+            return governanceDecisionRepository.findByDecisionKey(item.sourceId)
+                    .map(decision -> decision.getApprovalStatus() == GovernanceApprovalStatus.PENDING)
+                    .orElse(false);
+        }
+        if (item.itemType == WorkItemType.EVALUATION_FAILURE) {
+            return evaluationResultRepository.findByResultKey(item.sourceId)
+                    .map(result -> result.getStatus() == EvaluationStatus.COMPLETED && !result.isPassed())
+                    .orElse(false);
+        }
+        return false;
     }
 
     private void validateTransition(AgentWorkItem item, AgentOpsDtos.WorkItemTransitionRequest request) {

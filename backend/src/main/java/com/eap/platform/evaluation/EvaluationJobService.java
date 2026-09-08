@@ -3,6 +3,11 @@ package com.eap.platform.evaluation;
 import com.eap.platform.common.BusinessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Instant;
 import java.util.List;
@@ -12,11 +17,17 @@ import java.util.UUID;
 public class EvaluationJobService {
     private final EvaluationProjectionJobRepository repository;
     private final EvaluationProjectionService projectionService;
+    private final TransactionTemplate jobTransaction;
+    @Value("${eap.evaluation.job-timeout-seconds:900}")
+    private long jobTimeoutSeconds = 900;
 
     public EvaluationJobService(EvaluationProjectionJobRepository repository,
-                                EvaluationProjectionService projectionService) {
+                                EvaluationProjectionService projectionService,
+                                PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.projectionService = projectionService;
+        this.jobTransaction = new TransactionTemplate(transactionManager);
+        this.jobTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Transactional
@@ -30,6 +41,7 @@ public class EvaluationJobService {
 
     @Transactional
     public EvaluationDtos.EvaluationJobResponse submitIfIdle(int requestedLimit) {
+        expireTimedOutJobs();
         if (repository.existsByStatusIn(List.of(EvaluationJobStatus.QUEUED, EvaluationJobStatus.RUNNING))) {
             return repository.findTop1ByStatusOrderByCreatedAtAsc(EvaluationJobStatus.QUEUED)
                     .or(() -> repository.findTop1ByStatusOrderByCreatedAtAsc(EvaluationJobStatus.RUNNING))
@@ -51,14 +63,18 @@ public class EvaluationJobService {
                 .orElseThrow(() -> new BusinessException("评估任务不存在")));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void processNext() {
-        EvaluationProjectionJob job = repository.findTop1ByStatusOrderByCreatedAtAsc(EvaluationJobStatus.QUEUED)
-                .orElse(null);
+        EvaluationProjectionJob job = jobTransaction.execute(status -> {
+            expireTimedOutJobs();
+            EvaluationProjectionJob queued = repository.findTop1ByStatusOrderByCreatedAtAsc(EvaluationJobStatus.QUEUED)
+                    .orElse(null);
+            if (queued == null) return null;
+            queued.status = EvaluationJobStatus.RUNNING;
+            queued.startedAt = Instant.now();
+            return repository.save(queued);
+        });
         if (job == null) return;
-        job.status = EvaluationJobStatus.RUNNING;
-        job.startedAt = Instant.now();
-        repository.save(job);
         try {
             EvaluationDtos.EvaluationSyncResponse result = projectionService.synchronize(job.requestedLimit);
             job.scanned = result.scanned();
@@ -72,7 +88,13 @@ public class EvaluationJobService {
             job.errorMessage = trim(exception.getMessage());
             job.completedAt = Instant.now();
         }
-        repository.save(job);
+        jobTransaction.executeWithoutResult(status -> repository.finishRunning(job.id, job.status, job.scanned,
+                job.evaluated, job.skipped, job.failed, job.errorMessage, job.completedAt));
+    }
+
+    private void expireTimedOutJobs() {
+        Instant now = Instant.now();
+        repository.expireRunning(now.minusSeconds(Math.max(1, jobTimeoutSeconds)), now);
     }
 
     private String trim(String value) {

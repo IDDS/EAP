@@ -18,6 +18,10 @@ public class WorkflowNode {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
 
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    Long version;
+
     @Column(name = "workflow_id", nullable = false)
     Long workflowId;
 

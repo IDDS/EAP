@@ -40,9 +40,11 @@ public class KnowledgeController {
 
     @GetMapping("/interactions")
     public ApiResponse<List<KnowledgeDtos.KnowledgeInteractionResponse>> list(
-            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit
+            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+            @RequestParam(required = false) @Min(1) Long agentId,
+            @RequestParam(defaultValue = "0") @Min(0) int page
     ) {
-        return ApiResponse.ok(knowledgeService.list(limit));
+        return ApiResponse.ok(knowledgeService.list(limit, agentId, page));
     }
 
     @GetMapping("/interactions/{id}")

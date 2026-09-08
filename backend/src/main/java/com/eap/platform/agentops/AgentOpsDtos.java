@@ -125,7 +125,9 @@ public final class AgentOpsDtos {
             List<WorkItemResponse> priorityWorkItems,
             List<AgentStateResponse> attentionAgents,
             boolean demoDataIncluded,
-            Instant generatedAt
+            Instant generatedAt,
+            Instant lastSignalSyncAt,
+            String signalSyncFreshness
     ) {}
 
     static WorkItemResponse from(AgentWorkItem item, Instant now) {

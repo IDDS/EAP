@@ -57,12 +57,24 @@ public class ToolInvocationService {
             Instant from,
             Instant to
     ) {
+        return list(limit, agentId, endpointKey, runtimeInstanceKey, traceId, toolKind, status, toolName, from, to, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ToolInvocationDtos.ToolInvocationResponse> list(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String runtimeInstanceKey,
+            String traceId,
+            ToolInvocationKind toolKind,
+            ToolInvocationStatus status,
+            String toolName,
+            Instant from,
+            Instant to,
+            int page
+    ) {
         int boundedLimit = Math.max(1, Math.min(limit, 500));
-        if (agentId == null && blank(endpointKey) && blank(runtimeInstanceKey) && blank(traceId)
-                && toolKind == null && status == null && blank(toolName) && from == null && to == null) {
-            return repository.findTop500ByOrderByObservedAtDesc().stream()
-                    .limit(boundedLimit).map(ToolInvocationDtos::from).toList();
-        }
         Specification<ToolInvocationEvent> specification = Specification.where(null);
         if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
         if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
@@ -74,7 +86,7 @@ public class ToolInvocationService {
         if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
         if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
         return repository.findAll(specification,
-                        PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt")))
+                        PageRequest.of(page, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt", "id")))
                 .map(ToolInvocationDtos::from).getContent();
     }
 

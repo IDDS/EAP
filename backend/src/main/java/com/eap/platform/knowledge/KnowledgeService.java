@@ -6,6 +6,7 @@ import com.eap.platform.discovery.DiscoveryEndpointRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -109,10 +110,16 @@ public class KnowledgeService {
 
     @Transactional(readOnly = true)
     public List<KnowledgeDtos.KnowledgeInteractionResponse> list(int limit) {
-        return interactionRepository.findTop500ByOrderByCreatedAtDesc().stream()
-                .limit(limit)
-                .map(this::toResponse)
-                .toList();
+        return list(limit, null, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<KnowledgeDtos.KnowledgeInteractionResponse> list(int limit, Long agentId, int page) {
+        PageRequest pageable = PageRequest.of(page, limit);
+        List<KnowledgeInteraction> rows = agentId == null
+                ? interactionRepository.findAllByOrderByCreatedAtDescIdDesc(pageable)
+                : interactionRepository.findByAgentIdOrderByCreatedAtDescIdDesc(agentId, pageable);
+        return rows.stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)

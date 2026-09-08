@@ -9,24 +9,9 @@ import com.eap.platform.common.BusinessException;
 import com.eap.platform.config.SecurityProperties;
 import com.eap.platform.discovery.DiscoveredAgent;
 import com.eap.platform.discovery.DiscoveredAgentRepository;
-import com.eap.platform.governance.GovernanceDataAction;
-import com.eap.platform.governance.GovernanceDataEvent;
-import com.eap.platform.governance.GovernanceDataEventRepository;
-import com.eap.platform.knowledge.KnowledgeInteraction;
-import com.eap.platform.knowledge.KnowledgeInteractionRepository;
-import com.eap.platform.observability.ContentObservation;
-import com.eap.platform.observability.ContentObservationRepository;
-import com.eap.platform.observability.ToolInvocationEvent;
-import com.eap.platform.observability.ToolInvocationEventRepository;
-import com.eap.platform.observability.TraceSpanObservation;
-import com.eap.platform.observability.TraceSpanObservationRepository;
-import com.eap.platform.operations.AgentTask;
-import com.eap.platform.operations.AgentTaskRepository;
 import com.eap.platform.registry.AgentRuntimeInstance;
 import com.eap.platform.registry.AgentRuntimeInstanceRepository;
 import com.eap.platform.registry.RuntimeStatus;
-import com.eap.platform.telemetry.ModelInvocationEvent;
-import com.eap.platform.telemetry.ModelInvocationEventRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,12 +20,10 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -52,51 +35,35 @@ public class AgentOpsService {
     private final AgentRepository agentRepository;
     private final AgentRuntimeInstanceRepository runtimeRepository;
     private final DiscoveredAgentRepository discoveredRepository;
-    private final ModelInvocationEventRepository modelRepository;
-    private final TraceSpanObservationRepository spanRepository;
-    private final ToolInvocationEventRepository toolRepository;
-    private final ContentObservationRepository contentRepository;
-    private final GovernanceDataEventRepository governanceRepository;
-    private final KnowledgeInteractionRepository knowledgeRepository;
-    private final AgentTaskRepository taskRepository;
     private final AgentWorkItemRepository workItemRepository;
-    private final WorkItemService workItemService;
+    private final AgentOpsEvidenceRepository evidenceRepository;
+    private final AgentOpsSignalSyncStateRepository syncStateRepository;
+    private final com.eap.platform.registry.RuntimeLeaseProperties leaseProperties;
     private final SecurityProperties securityProperties;
 
     public AgentOpsService(
             AgentRepository agentRepository,
             AgentRuntimeInstanceRepository runtimeRepository,
             DiscoveredAgentRepository discoveredRepository,
-            ModelInvocationEventRepository modelRepository,
-            TraceSpanObservationRepository spanRepository,
-            ToolInvocationEventRepository toolRepository,
-            ContentObservationRepository contentRepository,
-            GovernanceDataEventRepository governanceRepository,
-            KnowledgeInteractionRepository knowledgeRepository,
-            AgentTaskRepository taskRepository,
             AgentWorkItemRepository workItemRepository,
-            WorkItemService workItemService,
+            AgentOpsEvidenceRepository evidenceRepository,
+            AgentOpsSignalSyncStateRepository syncStateRepository,
+            com.eap.platform.registry.RuntimeLeaseProperties leaseProperties,
             SecurityProperties securityProperties
     ) {
         this.agentRepository = agentRepository;
         this.runtimeRepository = runtimeRepository;
         this.discoveredRepository = discoveredRepository;
-        this.modelRepository = modelRepository;
-        this.spanRepository = spanRepository;
-        this.toolRepository = toolRepository;
-        this.contentRepository = contentRepository;
-        this.governanceRepository = governanceRepository;
-        this.knowledgeRepository = knowledgeRepository;
-        this.taskRepository = taskRepository;
         this.workItemRepository = workItemRepository;
-        this.workItemService = workItemService;
+        this.evidenceRepository = evidenceRepository;
+        this.syncStateRepository = syncStateRepository;
+        this.leaseProperties = leaseProperties;
         this.securityProperties = securityProperties;
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public AgentOpsDtos.DashboardResponse dashboard(int requestedHours, String organizationScope) {
         int hours = clampHours(requestedHours);
-        workItemService.synchronizeSignals();
         Snapshot snapshot = snapshot(hours);
         List<AgentOpsDtos.AgentStateResponse> states = buildStates(snapshot).stream()
                 .filter(state -> blank(organizationScope) || contains(state.ownerDepartment(), organizationScope))
@@ -106,6 +73,7 @@ public class AgentOpsService {
                 .sorted(workItemComparator())
                 .toList();
         Instant now = snapshot.now();
+        Instant lastSignalSyncAt = syncStateRepository.findById(1L).map(state -> state.lastCompletedAt).orElse(null);
         Instant latestMeasuredAt = states.stream().map(AgentOpsDtos.AgentStateResponse::latestObservedAt)
                 .filter(Objects::nonNull).max(Instant::compareTo).orElse(null);
         boolean demoDataIncluded = states.stream().anyMatch(state -> state.statusBasis() == EvidenceBasis.DEMO);
@@ -124,7 +92,7 @@ public class AgentOpsService {
                         demoDataIncluded ? EvidenceBasis.DEMO : EvidenceBasis.MEASURED,
                         runtimeSource, latestMeasuredAt, freshness(latestMeasuredAt, now)),
                 metric("workitems.open", "待处理事项", openItems.size(), EvidenceBasis.DERIVED,
-                        "AgentOps 信号聚合", now, "FRESH"),
+                        "AgentOps 信号聚合", lastSignalSyncAt, freshness(lastSignalSyncAt, now)),
                 metric("agents.coverage_missing", "观测缺失", countCoverage(states, ObservationCoverage.MISSING),
                         demoDataIncluded ? EvidenceBasis.DEMO : EvidenceBasis.DERIVED,
                         "心跳与遥测覆盖计算", latestMeasuredAt, freshness(latestMeasuredAt, now))
@@ -149,7 +117,7 @@ public class AgentOpsService {
                 states.stream().filter(state -> state.riskPosture() == RiskPosture.HIGH || state.riskPosture() == RiskPosture.CRITICAL).count(),
                 new AgentOpsDtos.WorkItemCounts(openItems.size(), p0, p1, p2, p3, overdue), metrics,
                 openItems.stream().limit(12).map(item -> AgentOpsDtos.from(item, now)).toList(),
-                attentionAgents, demoDataIncluded, now
+                attentionAgents, demoDataIncluded, now, lastSignalSyncAt, freshness(lastSignalSyncAt, now)
         );
     }
 
@@ -177,55 +145,39 @@ public class AgentOpsService {
                 .sorted(Comparator.comparing(AgentOpsDtos.AgentStateResponse::riskPosture).reversed()
                         .thenComparing(AgentOpsDtos.AgentStateResponse::name))
                 .toList();
-        int from = Math.min(filtered.size(), page * size);
-        int to = Math.min(filtered.size(), from + size);
-        int totalPages = filtered.isEmpty() ? 0 : (filtered.size() + size - 1) / size;
+        int from = (int) Math.min(filtered.size(), (long) page * size);
+        int to = (int) Math.min(filtered.size(), (long) from + size);
+        int totalPages = filtered.isEmpty() ? 0 : (int) (((long) filtered.size() + size - 1) / size);
         return new AgentOpsDtos.PagedAgentResponse(filtered.subList(from, to), page, size, filtered.size(), totalPages);
     }
 
     @Transactional(readOnly = true)
     public AgentOpsDtos.AgentStateResponse getAgent(Long id, int requestedHours) {
-        return buildStates(snapshot(clampHours(requestedHours))).stream()
-                .filter(state -> Objects.equals(state.id(), id))
+        return buildStates(snapshot(clampHours(requestedHours), id)).stream()
                 .findFirst()
                 .orElseThrow(() -> new BusinessException("智能体不存在"));
     }
 
-    private Snapshot snapshot(int hours) {
+    private Snapshot snapshot(int hours) { return snapshot(hours, null); }
+
+    private Snapshot snapshot(int hours, Long agentId) {
         Instant now = Instant.now();
         Instant windowStart = now.minus(Duration.ofHours(hours));
-        return new Snapshot(
-                now, windowStart,
-                agentRepository.findAll().stream().filter(this::visibleAgent).toList(),
-                runtimeRepository.findAll(), discoveredRepository.findAll(),
-                modelRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(windowStart),
-                spanRepository.findTop500ByOrderByObservedAtDesc().stream().filter(item -> !item.getObservedAt().isBefore(windowStart)).toList(),
-                toolRepository.findTop500ByOrderByObservedAtDesc().stream().filter(item -> !item.getObservedAt().isBefore(windowStart)).toList(),
-                contentRepository.findTop500ByOrderByObservedAtDesc().stream().filter(item -> !item.getObservedAt().isBefore(windowStart)).toList(),
-                governanceRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(windowStart),
-                knowledgeRepository.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(windowStart),
-                taskRepository.findAll().stream().filter(item -> item.getUpdatedAt() != null && !item.getUpdatedAt().isBefore(windowStart)).toList(),
-                workItemRepository.findAll().stream().filter(item -> OPEN_STATUSES.contains(item.status)).toList()
-        );
+        List<Agent> agents = agentId == null ? agentRepository.findAll()
+                : agentRepository.findById(agentId).map(List::of).orElse(List.of());
+        return new Snapshot(now, windowStart, agents.stream().filter(this::visibleAgent).toList(),
+                agentId == null ? runtimeRepository.findAll() : runtimeRepository.findByAgentId(agentId),
+                agentId == null ? discoveredRepository.findAll()
+                        : discoveredRepository.findAllByManagedAgentIdOrderByLastSeenAtDesc(agentId),
+                evidenceRepository.summarize(windowStart, agentId),
+                agentId == null ? workItemRepository.findByStatusIn(OPEN_STATUSES)
+                        : workItemRepository.findByAgentIdAndStatusIn(agentId, OPEN_STATUSES));
     }
 
     private List<AgentOpsDtos.AgentStateResponse> buildStates(Snapshot snapshot) {
         Map<Long, List<AgentRuntimeInstance>> runtimes = group(snapshot.runtimes(), AgentRuntimeInstance::getAgentId);
         Map<Long, List<DiscoveredAgent>> discoveries = group(snapshot.discoveries().stream()
                 .filter(item -> item.getManagedAgentId() != null).toList(), DiscoveredAgent::getManagedAgentId);
-        Map<Long, List<ModelInvocationEvent>> models = group(snapshot.models().stream()
-                .filter(item -> item.getAgentId() != null).toList(), ModelInvocationEvent::getAgentId);
-        Map<Long, List<TraceSpanObservation>> spans = group(snapshot.spans().stream()
-                .filter(item -> item.getAgentId() != null).toList(), TraceSpanObservation::getAgentId);
-        Map<Long, List<ToolInvocationEvent>> tools = group(snapshot.tools().stream()
-                .filter(item -> item.getAgentId() != null).toList(), ToolInvocationEvent::getAgentId);
-        Map<Long, List<ContentObservation>> content = group(snapshot.content().stream()
-                .filter(item -> item.getAgentId() != null).toList(), ContentObservation::getAgentId);
-        Map<Long, List<GovernanceDataEvent>> governance = group(snapshot.governance().stream()
-                .filter(item -> item.getAgentId() != null).toList(), GovernanceDataEvent::getAgentId);
-        Map<Long, List<KnowledgeInteraction>> knowledge = group(snapshot.knowledge().stream()
-                .filter(item -> item.getAgentId() != null).toList(), KnowledgeInteraction::getAgentId);
-        Map<Long, List<AgentTask>> tasks = group(snapshot.tasks(), AgentTask::getAgentId);
         Map<Long, List<AgentWorkItem>> workItems = group(snapshot.openWorkItems().stream()
                 .filter(item -> item.agentId != null).toList(), item -> item.agentId);
 
@@ -233,32 +185,28 @@ public class AgentOpsService {
         for (Agent agent : snapshot.agents()) {
             Long id = agent.getId();
             List<AgentRuntimeInstance> agentRuntimes = runtimes.getOrDefault(id, List.of());
-            List<ModelInvocationEvent> agentModels = models.getOrDefault(id, List.of());
-            List<TraceSpanObservation> agentSpans = spans.getOrDefault(id, List.of());
-            List<ToolInvocationEvent> agentTools = tools.getOrDefault(id, List.of());
-            List<ContentObservation> agentContent = content.getOrDefault(id, List.of());
-            List<GovernanceDataEvent> agentGovernance = governance.getOrDefault(id, List.of());
-            List<KnowledgeInteraction> agentKnowledge = knowledge.getOrDefault(id, List.of());
-            List<AgentTask> agentTasks = tasks.getOrDefault(id, List.of());
+            var evidence = snapshot.evidence().getOrDefault(id, new AgentOpsEvidenceRepository.Evidence());
             List<AgentWorkItem> agentItems = workItems.getOrDefault(id, List.of());
             List<DiscoveredAgent> agentDiscoveries = discoveries.getOrDefault(id, List.of());
 
             OperationalHealth health = health(agentRuntimes, agentDiscoveries, snapshot.now());
-            List<String> signals = coverageSignals(agentRuntimes, agentModels, agentSpans, agentTools,
-                    agentContent, agentGovernance, agentKnowledge, agentTasks);
+            List<String> signals = new ArrayList<>();
+            if (!agentRuntimes.isEmpty()) signals.add("RUNTIME_HEARTBEAT");
+            signals.addAll(evidence.latestBySignal().keySet());
             if (!agentDiscoveries.isEmpty()) signals.add("DISCOVERY_SNAPSHOT");
             int score = signals.size();
-            ObservationCoverage coverage = score >= 4 && !agentRuntimes.isEmpty() && !agentModels.isEmpty()
+            ObservationCoverage coverage = score >= 4 && !agentRuntimes.isEmpty() && evidence.latestBySignal().containsKey("MODEL_TELEMETRY")
                     ? ObservationCoverage.FULL : score > 0 ? ObservationCoverage.PARTIAL : ObservationCoverage.MISSING;
             OnboardingState onboarding = onboarding(agent, agentDiscoveries);
-            Instant latest = latestObserved(agentRuntimes, agentModels, agentSpans, agentTools,
-                    agentContent, agentGovernance, agentKnowledge, agentTasks);
-            RiskPosture posture = posture(agent, agentItems, agentGovernance);
+            Instant latest = java.util.stream.Stream.concat(
+                    agentRuntimes.stream().map(AgentRuntimeInstance::getLastHeartbeatAt),
+                    evidence.latestBySignal().values().stream()).filter(Objects::nonNull).max(Instant::compareTo).orElse(null);
+            RiskPosture posture = posture(agent, agentItems, evidence);
 
             responses.add(new AgentOpsDtos.AgentStateResponse(
                     id, agent.getCode(), agent.getName(), agent.getDescription(), agent.getOwnerDepartment(), agent.getOwnerUser(),
                     agent.getCategory(), agent.getLifecycleStatus(), agent.getRiskLevel(), health, onboarding, coverage, posture,
-                    score, signals, agentRuntimes.size(), (int) agentRuntimes.stream().filter(item -> item.getStatus() == RuntimeStatus.ONLINE).count(),
+                    score, signals, agentRuntimes.size(), (int) agentRuntimes.stream().filter(item -> leaseProperties.effectiveStatus(item, snapshot.now().minusSeconds(leaseProperties.getHeartbeatTtlSeconds())) == RuntimeStatus.ONLINE).count(),
                     agentItems.size(), latest, freshness(latest, snapshot.now()),
                     agent.getRecordOrigin() == AgentRecordOrigin.DEMO ? EvidenceBasis.DEMO
                             : score > 0 ? EvidenceBasis.MEASURED : EvidenceBasis.HUMAN_CONFIRMED,
@@ -278,12 +226,10 @@ public class AgentOpsService {
             }
             return OperationalHealth.NOT_CONNECTED;
         }
-        Instant freshAfter = now.minus(Duration.ofMinutes(10));
-        boolean degraded = runtimes.stream().anyMatch(item -> item.getStatus() == RuntimeStatus.DEGRADED
-                && item.getLastHeartbeatAt() != null && !item.getLastHeartbeatAt().isBefore(freshAfter));
+        Instant freshAfter = now.minusSeconds(leaseProperties.getHeartbeatTtlSeconds());
+        boolean degraded = runtimes.stream().anyMatch(item -> leaseProperties.effectiveStatus(item, freshAfter) == RuntimeStatus.DEGRADED);
         if (degraded) return OperationalHealth.DEGRADED;
-        boolean online = runtimes.stream().anyMatch(item -> item.getStatus() == RuntimeStatus.ONLINE
-                && item.getLastHeartbeatAt() != null && !item.getLastHeartbeatAt().isBefore(freshAfter));
+        boolean online = runtimes.stream().anyMatch(item -> leaseProperties.effectiveStatus(item, freshAfter) == RuntimeStatus.ONLINE);
         return online ? OperationalHealth.HEALTHY : OperationalHealth.OFFLINE;
     }
 
@@ -295,60 +241,16 @@ public class AgentOpsService {
         return discoveries.isEmpty() ? OnboardingState.MANUAL : OnboardingState.MANAGED;
     }
 
-    private RiskPosture posture(Agent agent, List<AgentWorkItem> items, List<GovernanceDataEvent> governance) {
+    private RiskPosture posture(Agent agent, List<AgentWorkItem> items, AgentOpsEvidenceRepository.Evidence evidence) {
         if (agent.getRiskLevel() == RiskLevel.CRITICAL
                 || items.stream().anyMatch(item -> item.severity == WorkItemSeverity.P0)) return RiskPosture.CRITICAL;
         if (agent.getRiskLevel() == RiskLevel.HIGH
                 || items.stream().anyMatch(item -> item.severity == WorkItemSeverity.P1)
-                || governance.stream().anyMatch(item -> item.isCompanySecret() || item.getAction() == GovernanceDataAction.BLOCK)) {
+                || evidence.highGovernanceRisk()) {
             return RiskPosture.HIGH;
         }
-        if (agent.getRiskLevel() == RiskLevel.MEDIUM || !items.isEmpty() || !governance.isEmpty()) return RiskPosture.ATTENTION;
+        if (agent.getRiskLevel() == RiskLevel.MEDIUM || !items.isEmpty() || evidence.latestBySignal().containsKey("GOVERNANCE")) return RiskPosture.ATTENTION;
         return RiskPosture.NORMAL;
-    }
-
-    private List<String> coverageSignals(
-            List<AgentRuntimeInstance> runtimes,
-            List<ModelInvocationEvent> models,
-            List<TraceSpanObservation> spans,
-            List<ToolInvocationEvent> tools,
-            List<ContentObservation> content,
-            List<GovernanceDataEvent> governance,
-            List<KnowledgeInteraction> knowledge,
-            List<AgentTask> tasks
-    ) {
-        List<String> signals = new ArrayList<>();
-        if (!runtimes.isEmpty()) signals.add("RUNTIME_HEARTBEAT");
-        if (!models.isEmpty()) signals.add("MODEL_TELEMETRY");
-        if (!spans.isEmpty()) signals.add("TRACE");
-        if (!tools.isEmpty()) signals.add("TOOL_MCP");
-        if (!knowledge.isEmpty()) signals.add("KNOWLEDGE");
-        if (!governance.isEmpty()) signals.add("GOVERNANCE");
-        if (!content.isEmpty()) signals.add("CONTENT_METADATA");
-        if (!tasks.isEmpty()) signals.add("TASKS");
-        return signals;
-    }
-
-    private Instant latestObserved(
-            List<AgentRuntimeInstance> runtimes,
-            List<ModelInvocationEvent> models,
-            List<TraceSpanObservation> spans,
-            List<ToolInvocationEvent> tools,
-            List<ContentObservation> content,
-            List<GovernanceDataEvent> governance,
-            List<KnowledgeInteraction> knowledge,
-            List<AgentTask> tasks
-    ) {
-        return List.of(
-                        runtimes.stream().map(AgentRuntimeInstance::getLastHeartbeatAt).filter(Objects::nonNull).max(Instant::compareTo),
-                        models.stream().map(ModelInvocationEvent::getObservedAt).max(Instant::compareTo),
-                        spans.stream().map(TraceSpanObservation::getObservedAt).max(Instant::compareTo),
-                        tools.stream().map(ToolInvocationEvent::getObservedAt).max(Instant::compareTo),
-                        content.stream().map(ContentObservation::getObservedAt).max(Instant::compareTo),
-                        governance.stream().map(GovernanceDataEvent::getObservedAt).max(Instant::compareTo),
-                        knowledge.stream().map(KnowledgeInteraction::getCreatedAt).max(Instant::compareTo),
-                        tasks.stream().map(AgentTask::getUpdatedAt).filter(Objects::nonNull).max(Instant::compareTo)
-                ).stream().flatMap(Optional::stream).max(Instant::compareTo).orElse(null);
     }
 
     private Comparator<AgentWorkItem> workItemComparator() {
@@ -417,13 +319,7 @@ public class AgentOpsService {
             List<Agent> agents,
             List<AgentRuntimeInstance> runtimes,
             List<DiscoveredAgent> discoveries,
-            List<ModelInvocationEvent> models,
-            List<TraceSpanObservation> spans,
-            List<ToolInvocationEvent> tools,
-            List<ContentObservation> content,
-            List<GovernanceDataEvent> governance,
-            List<KnowledgeInteraction> knowledge,
-            List<AgentTask> tasks,
+            Map<Long, AgentOpsEvidenceRepository.Evidence> evidence,
             List<AgentWorkItem> openWorkItems
     ) {}
 }

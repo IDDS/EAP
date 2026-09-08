@@ -102,6 +102,7 @@ const filters = reactive<{
 }>({ query: '' })
 const page = ref<PagedAgentOpsResponse>({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })
 const dashboard = ref<AgentOpsDashboard>({
+  lastSignalSyncAt: null, signalSyncFreshness: 'NO_DATA',
   windowHours: 24, windowStart: '', windowEnd: '', timeZone: 'Asia/Shanghai', organizationScope: '企业全局',
   agentCount: 0, healthyAgentCount: 0, degradedAgentCount: 0, offlineAgentCount: 0,
   missingObservationCount: 0, highRiskAgentCount: 0,
@@ -110,7 +111,10 @@ const dashboard = ref<AgentOpsDashboard>({
 const form = reactive<AgentRequest>({ code: '', name: '', description: '', ownerDepartment: '', ownerUser: '', category: '', riskLevel: 'LOW' })
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
+let loadRequestId = 0
+
 async function load() {
+  const requestId = ++loadRequestId
   loading.value = true
   try {
     const [nextPage, nextDashboard] = await Promise.all([
@@ -121,9 +125,10 @@ async function load() {
       }),
       EapApi.getAgentOpsDashboard({ hours: context.windowHours, organizationScope: context.organizationScope || undefined }),
     ])
+    if (requestId !== loadRequestId) return
     page.value = nextPage
     dashboard.value = nextDashboard
-  } finally { loading.value = false }
+  } finally { if (requestId === loadRequestId) loading.value = false }
 }
 function resetFilters() { Object.assign(filters, { query: '', lifecycleStatus: undefined, health: undefined, coverage: undefined, risk: undefined }); currentPage.value = 1 }
 function openAgent(id: number) { router.push(`/agents/${id}`) }

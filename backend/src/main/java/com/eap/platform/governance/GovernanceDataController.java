@@ -87,9 +87,11 @@ public class GovernanceDataController {
 
     @GetMapping("/data-events")
     public ApiResponse<List<GovernanceDataDtos.DataEventResponse>> list(
-            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit
+            @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,
+            @RequestParam(required = false) @Min(1) Long agentId,
+            @RequestParam(defaultValue = "0") @Min(0) int page
     ) {
-        return ApiResponse.ok(service.list(limit));
+        return ApiResponse.ok(service.list(limit, agentId, page));
     }
 
     @GetMapping("/data-summary")

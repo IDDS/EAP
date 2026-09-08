@@ -83,6 +83,14 @@ public class ManagementConnectorService {
 
     public ManagementConnectorDtos.SyncResult sync(Long id) {
         if (!runningConnectors.add(id)) throw new BusinessException("连接器正在同步，请勿重复触发");
+        try {
+            return syncConnector(id);
+        } finally {
+            runningConnectors.remove(id);
+        }
+    }
+
+    private ManagementConnectorDtos.SyncResult syncConnector(Long id) {
         Instant startedAt = Instant.now();
         ManagementValueConnector connector = require(id);
         connector.status = "RUNNING";
@@ -134,8 +142,6 @@ public class ManagementConnectorService {
                     connector.id, connector.connectorKey, false, fetched, imported, skipped, failed,
                     connector.lastError, startedAt, completedAt
             );
-        } finally {
-            runningConnectors.remove(id);
         }
     }
 

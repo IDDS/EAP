@@ -14,11 +14,13 @@ import java.util.List;
 
 @Service
 public class AgentRegistryService {
+    private final RuntimeLeaseProperties leaseProperties;
     private final AgentRepository agentRepository;
     private final AgentCapabilityRepository capabilityRepository;
     private final AgentRuntimeInstanceRepository runtimeRepository;
 
-    public AgentRegistryService(AgentRepository agentRepository, AgentCapabilityRepository capabilityRepository, AgentRuntimeInstanceRepository runtimeRepository) {
+    public AgentRegistryService(AgentRepository agentRepository, AgentCapabilityRepository capabilityRepository, AgentRuntimeInstanceRepository runtimeRepository, RuntimeLeaseProperties leaseProperties) {
+        this.leaseProperties = leaseProperties;
         this.agentRepository = agentRepository;
         this.capabilityRepository = capabilityRepository;
         this.runtimeRepository = runtimeRepository;
@@ -42,7 +44,9 @@ public class AgentRegistryService {
 
     @Transactional(readOnly = true)
     public List<AgentRegistryDtos.RuntimeInstanceResponse> listRuntimeInstances(Long agentId) {
-        return runtimeRepository.findByAgentId(agentId).stream().map(AgentRegistryDtos::from).toList();
+        Instant cutoff = leaseProperties.cutoff();
+        return runtimeRepository.findByAgentId(agentId).stream()
+                .map(instance -> AgentRegistryDtos.from(instance, leaseProperties.effectiveStatus(instance, cutoff))).toList();
     }
 
     @Transactional
@@ -72,20 +76,21 @@ public class AgentRegistryService {
 
     @Transactional(readOnly = true)
     public AgentRegistryDtos.DiscoveryResponse discover(AgentRegistryDtos.DiscoveryRequest request) {
+        Instant cutoff = leaseProperties.cutoff();
         RiskLevel maxRisk = request.maxRiskLevel() == null ? RiskLevel.CRITICAL : request.maxRiskLevel();
         List<AgentRegistryDtos.DiscoveryCandidate> candidates = capabilityRepository.findByCapability(request.capability()).stream()
                 .flatMap(capability -> runtimeRepository.findByAgentId(capability.agentId).stream()
-                        .map(instance -> toCandidate(request, maxRisk, capability, instance)))
+                        .map(instance -> toCandidate(request, maxRisk, capability, instance, cutoff)))
                 .flatMap(List::stream)
                 .sorted(Comparator.comparing(AgentRegistryDtos.DiscoveryCandidate::score).reversed())
                 .toList();
         return new AgentRegistryDtos.DiscoveryResponse(candidates);
     }
 
-    private List<AgentRegistryDtos.DiscoveryCandidate> toCandidate(AgentRegistryDtos.DiscoveryRequest request, RiskLevel maxRisk, AgentCapability capability, AgentRuntimeInstance instance) {
+    private List<AgentRegistryDtos.DiscoveryCandidate> toCandidate(AgentRegistryDtos.DiscoveryRequest request, RiskLevel maxRisk, AgentCapability capability, AgentRuntimeInstance instance, Instant cutoff) {
         Agent agent = agentRepository.findById(capability.agentId).orElse(null);
         if (agent == null || agent.getLifecycleStatus() != AgentLifecycleStatus.ACTIVE
-                || instance.status != RuntimeStatus.ONLINE
+                || leaseProperties.effectiveStatus(instance, cutoff) != RuntimeStatus.ONLINE
                 || !"A2A".equalsIgnoreCase(instance.protocol)
                 || !Boolean.TRUE.equals(instance.dispatchAuthenticated)) {
             return List.of();

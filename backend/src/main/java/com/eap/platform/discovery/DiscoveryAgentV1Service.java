@@ -4,6 +4,10 @@ import com.eap.platform.audit.AuditLog;
 import com.eap.platform.audit.AuditLogRepository;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.common.TraceContext;
+import com.eap.platform.config.SecurityProperties;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,6 +42,7 @@ public class DiscoveryAgentV1Service {
     private final DiscoveryAgentV1Properties properties;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
+    private final SecurityProperties securityProperties;
 
     public DiscoveryAgentV1Service(
             DiscoveryEnrollmentTokenRepository enrollmentTokenRepository,
@@ -46,7 +51,8 @@ public class DiscoveryAgentV1Service {
             AgentDiscoveryService discoveryService,
             DiscoveryAgentV1Properties properties,
             AuditLogRepository auditLogRepository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            SecurityProperties securityProperties
     ) {
         this.enrollmentTokenRepository = enrollmentTokenRepository;
         this.endpointRepository = endpointRepository;
@@ -55,6 +61,7 @@ public class DiscoveryAgentV1Service {
         this.properties = properties;
         this.auditLogRepository = auditLogRepository;
         this.objectMapper = objectMapper;
+        this.securityProperties = securityProperties;
     }
 
     @Transactional
@@ -255,12 +262,32 @@ public class DiscoveryAgentV1Service {
             throw new BusinessException("当前版本已配置为内容采集免审核模式，无需提交审批");
         }
         String role = request.approvalRole().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("PLATFORM_ADMIN", "DATA_OWNER").contains(role)) {
+            throw new BusinessException("内容采集审批角色必须是 PLATFORM_ADMIN 或 DATA_OWNER");
+        }
+        String approvedBy = request.approvedBy().trim();
+        if (securityProperties.isJwtMode()) {
+            var authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (!(authentication instanceof JwtAuthenticationToken jwt) || !jwt.isAuthenticated()
+                    || jwt.getAuthorities().stream().noneMatch(authority -> authority.getAuthority().equals("ROLE_" + role))) {
+                throw new AccessDeniedException("当前认证用户不具备所选内容采集审批角色");
+            }
+            approvedBy = jwt.getToken().getSubject();
+            if (approvedBy == null || approvedBy.isBlank()) {
+                throw new AccessDeniedException("内容采集审批必须具有认证用户标识");
+            }
+        }
+        String otherApprover = "PLATFORM_ADMIN".equals(role)
+                ? endpoint.contentDataApprovedBy : endpoint.contentPlatformApprovedBy;
+        if (otherApprover != null && otherApprover.equalsIgnoreCase(approvedBy)) {
+            throw new BusinessException("平台管理员和数据负责人必须由不同人员审批");
+        }
         Instant now = Instant.now();
         if ("PLATFORM_ADMIN".equals(role)) {
-            endpoint.contentPlatformApprovedBy = request.approvedBy().trim();
+            endpoint.contentPlatformApprovedBy = approvedBy;
             endpoint.contentPlatformApprovedAt = now;
         } else if ("DATA_OWNER".equals(role)) {
-            endpoint.contentDataApprovedBy = request.approvedBy().trim();
+            endpoint.contentDataApprovedBy = approvedBy;
             endpoint.contentDataApprovedAt = now;
         } else {
             throw new BusinessException("内容采集审批角色必须是 PLATFORM_ADMIN 或 DATA_OWNER");
@@ -273,7 +300,7 @@ public class DiscoveryAgentV1Service {
         } else {
             endpoint.contentCaptureStatus = "PENDING_APPROVAL";
         }
-        audit(request.approvedBy(), "APPROVE_CONTENT_CAPTURE", "DISCOVERY_ENDPOINT", String.valueOf(endpoint.id),
+        audit(approvedBy, "APPROVE_CONTENT_CAPTURE", "DISCOVERY_ENDPOINT", String.valueOf(endpoint.id),
                 Map.of("approvalRole", role, "contentCaptureStatus", endpoint.contentCaptureStatus));
         return endpointResponse(endpoint);
     }

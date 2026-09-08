@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -70,6 +71,26 @@ class ManagementConnectorServiceTests {
         assertThat(request.getValue().agentId()).isEqualTo(4L);
         assertThat(request.getValue().taskId()).isEqualTo(17L);
         assertThat(request.getValue().observedAt()).isEqualTo(Instant.parse("2026-08-16T02:00:00Z"));
+    }
+
+    @Test
+    void releasesSyncGuardWhenInitialLookupFails() {
+        when(connectorRepository.findById(5L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.sync(5L)).hasMessage("业务价值连接器不存在");
+        assertThatThrownBy(() -> service.sync(5L)).hasMessage("业务价值连接器不存在");
+    }
+
+    @Test
+    void releasesSyncGuardWhenInitialStatusSaveFails() throws Exception {
+        ManagementValueConnector connector = connector();
+        when(connectorRepository.findById(5L)).thenReturn(Optional.of(connector));
+        when(connectorRepository.save(any())).thenThrow(new IllegalStateException("database unavailable"))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(client.fetch(connector)).thenReturn(new ObjectMapper().readTree("{\"data\":{\"records\":[]}}"));
+
+        assertThatThrownBy(() -> service.sync(5L)).hasMessage("database unavailable");
+        assertThat(service.sync(5L).success()).isTrue();
     }
 
     private ManagementValueConnector connector() {

@@ -120,6 +120,34 @@ class ModelTelemetryServiceTests {
     }
 
     @Test
+    void isolatesSelectedCurrencyInTotalsSubjectAndModelUsage() {
+        var usd = event("usd", ModelInvocationStatus.SUCCEEDED, 100, 50, 100, "model-a");
+        usd.currency = "USD";
+        usd.moneyCost = new BigDecimal("2");
+        var cny = event("cny", ModelInvocationStatus.SUCCEEDED, 200, 60, 200, "model-a");
+        cny.currency = " cny ";
+        cny.moneyCost = new BigDecimal("20");
+        when(eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(usd, cny));
+
+        var summary = service.summary(24, "CNY");
+
+        assertThat(summary.totalCalls()).isEqualTo(1);
+        assertThat(summary.moneyCost()).isEqualByComparingTo("20");
+        assertThat(summary.totalTokens()).isEqualTo(260);
+        assertThat(summary.subjectUsage()).singleElement().satisfies(item ->
+                assertThat(item.moneyCost()).isEqualByComparingTo("20"));
+        assertThat(summary.modelUsage()).singleElement().satisfies(item ->
+                assertThat(item.moneyCost()).isEqualByComparingTo("20"));
+    }
+
+    @Test
+    void normalizesAndDeduplicatesAvailableCurrencies() {
+        when(eventRepository.findCurrenciesSince(any())).thenReturn(java.util.Arrays.asList(" usd ", "USD", "cny", null));
+
+        assertThat(service.currencies(24)).containsExactly("CNY", "USD");
+    }
+
+    @Test
     void rejectsUnattributedEvents() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.record(request("evt-3", null, 1, 2)))
                 .hasMessageContaining("必须关联 Agent 或发现端点");

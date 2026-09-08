@@ -13,6 +13,10 @@
           <el-option label="最近 7 天" :value="168" />
           <el-option label="最近 30 天" :value="720" />
         </el-select>
+        <el-select v-model="selectedCurrency" aria-label="财务币种" style="width: 160px" @change="load">
+          <el-option label="自动识别币种" value="" />
+          <el-option v-for="currency in currencyOptions" :key="currency" :label="currency" :value="currency" />
+        </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
@@ -23,6 +27,9 @@
       <el-tag :class="{ 'is-active': activeSection === 'connectors' }" :effect="activeSection === 'connectors' ? 'dark' : 'plain'" @click="activeSection = 'connectors'">业务连接器</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
     </div>
+
+    <el-alert v-if="summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
+    <p class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
 
     <div class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
@@ -141,11 +148,11 @@
 
     <div v-show="activeSection === 'overview'" class="metric-strip">
       <div class="small-box box-warning">
-        <div><strong>{{ formatMoney(summary.totalCost) }}</strong><span>模型投入 USD</span></div>
+        <div><strong>{{ formatMoney(summary.totalCost) }}</strong><span>模型投入 {{ summary.currency || '待选币种' }}</span></div>
         <el-icon><Money /></el-icon>
       </div>
       <div class="small-box box-success">
-        <div><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><span>确认业务价值 USD</span></div>
+        <div><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><span>确认业务价值 {{ summary.currency || '待选币种' }}</span></div>
         <el-icon><TrendCharts /></el-icon>
       </div>
       <div class="small-box box-primary">
@@ -197,7 +204,8 @@
             <span class="muted">价值事件累计</span>
           </div>
         </template>
-        <TrendChart :option="valueTrendOption" />
+        <TrendChart v-if="summary.currency" :option="valueTrendOption" />
+        <el-empty v-else description="选择币种后查看价值走势" />
       </el-card>
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
@@ -221,7 +229,7 @@
         <div v-for="(row, index) in topAgentUsage" :key="row.subjectKey" class="management-leader-row">
           <span class="management-rank">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="management-leader-name"><strong>{{ row.subjectName }}</strong><span>{{ row.subjectKey }}</span></div>
-          <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</strong></div>
+          <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue != null && row.validatedValue > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</strong></div>
           <div class="management-leader-metric"><span>确认价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
           <div class="management-leader-bars">
             <div><span>采用 {{ Math.round(row.knowledgeAdoptionRate * 100) }}%</span><i><b :style="{ width: `${Math.round(row.knowledgeAdoptionRate * 100)}%` }"></b></i></div>
@@ -266,7 +274,7 @@
             </template>
           </el-table-column>
           <el-table-column label="投入产出比" width="85">
-            <template #default="{ row }">{{ row.validatedValue > 0 ? row.roi.toFixed(4) : '—' }}</template>
+            <template #default="{ row }">{{ row.validatedValue != null && row.validatedValue > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</template>
           </el-table-column>
           <el-table-column label="采用 / 复用" width="112">
             <template #default="{ row }">{{ Math.round(row.knowledgeAdoptionRate * 100) }}% / {{ Math.round(row.knowledgeReuseRate * 100) }}%</template>
@@ -603,6 +611,9 @@ import type {
 
 const emptySummary: ManagementSummary = {
   windowHours: 24,
+  currency: 'USD',
+  availableCurrencies: [],
+  mixedCurrencies: false,
   totalTasks: 0,
   succeededTasks: 0,
   taskSuccessRate: 0,
@@ -628,6 +639,9 @@ const emptySummary: ManagementSummary = {
 }
 
 const windowHours = ref(24)
+const selectedCurrency = ref('')
+const currencyOptions = computed(() => [...new Set([...summary.value.availableCurrencies, ...(selectedCurrency.value ? [selectedCurrency.value] : [])])].sort())
+let loadRequestId = 0
 const activeSection = ref<'overview' | 'attribution' | 'connectors' | 'value'>('overview')
 const loading = ref(false)
 const saving = ref(false)
@@ -791,13 +805,14 @@ const reusePercent = computed(() => Math.round(summary.value.knowledgeReuseRate 
 function improvementPercent(value: number) {
   return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`
 }
-const roiLabel = computed(() => summary.value.hasValidatedValue ? summary.value.roi.toFixed(4) : '—')
+const roiLabel = computed(() => summary.value.hasValidatedValue && summary.value.roi != null ? summary.value.roi.toFixed(4) : '—')
 const visibleAgentUsage = computed(() => summary.value.agentUsage.filter(subject => {
   if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
   if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
   return true
 }))
 const visibleValueEvents = computed(() => valueEvents.value.filter(event => {
+  if (summary.value.currency && (event.currency?.trim().toUpperCase() || 'USD') !== summary.value.currency) return false
   if (contextAgentId.value && event.agentId !== contextAgentId.value
     && !event.agentContributions.some(item => item.agentId === contextAgentId.value)) return false
   if (contextEndpointKey.value && event.endpointKey !== contextEndpointKey.value) return false
@@ -834,14 +849,17 @@ const businessValueFunnel = computed(() => {
     }
   })
 })
-const topAgentUsage = computed(() => [...visibleAgentUsage.value]
-  .sort((left, right) => right.validatedValue - left.validatedValue || right.totalCost - left.totalCost)
+const topAgentUsage = computed(() => [...visibleAgentUsage.value].filter(row => row.validatedValue != null && row.totalCost != null)
+  .sort((left, right) => (right.validatedValue ?? 0) - (left.validatedValue ?? 0) || (right.totalCost ?? 0) - (left.totalCost ?? 0))
   .slice(0, 3))
 type DecisionKey = 'SCALE' | 'OPTIMIZE' | 'VALIDATE' | 'OBSERVE'
 type DecisionSignal = { key: DecisionKey, label: string, reason: string, description: string, count: number }
 
 function decisionFor(row: ManagementSummary['agentUsage'][number]): { key: DecisionKey, label: string, reason: string } {
   const successRate = row.tasks > 0 ? row.succeededTasks / row.tasks : undefined
+  if (row.validatedValue == null || row.totalCost == null || row.roi == null) {
+    return { key: 'OBSERVE', label: '选择币种', reason: '多币种金额不可直接比较' }
+  }
   if (row.validatedValue > 0 && row.totalCost > 0 && row.roi > 0 && (successRate === undefined || successRate >= 0.8)) {
     return { key: 'SCALE', label: '扩大投入', reason: '价值为正' }
   }
@@ -872,7 +890,7 @@ function decisionTagType(key: DecisionKey) {
 }
 
 const valueTrendOption = computed<EChartsOption>(() => {
-  const rows = [...visibleValueEvents.value].sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime()).slice(-16)
+  const rows = (summary.value.currency ? [...valueEventsInWindow.value] : []).sort((left, right) => new Date(left.observedAt).getTime() - new Date(right.observedAt).getTime()).slice(-16)
   let cumulative = 0
   const cumulativeValues = rows.map(row => {
     cumulative += row.benefitMoney || 0
@@ -884,7 +902,7 @@ const valueTrendOption = computed<EChartsOption>(() => {
     legend: { top: 0, right: 0, textStyle: { color: '#718096', fontSize: 11 } },
     tooltip: { trigger: 'axis' },
     xAxis: { type: 'category', data: rows.map(row => new Date(row.observedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })), axisLabel: { color: '#8795a9', fontSize: 10 } },
-    yAxis: { type: 'value', name: 'USD', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
+    yAxis: { type: 'value', name: summary.value.currency || '', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
     series: [
       { name: '单次确认价值', type: 'bar', barMaxWidth: 18, data: rows.map(row => row.benefitMoney), itemStyle: { borderRadius: [4, 4, 0, 0] } },
       { name: '累计确认价值', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: cumulativeValues },
@@ -919,22 +937,24 @@ function clearDrilldown() {
 }
 
 async function load() {
+  const requestId = ++loadRequestId
   loading.value = true
   try {
     const [nextSummary, nextEvents, nextAgents, nextConnectors, nextTasks] = await Promise.all([
-      EapApi.getManagementSummary(windowHours.value),
+      EapApi.getManagementSummary(windowHours.value, selectedCurrency.value || undefined),
       EapApi.listManagementValueEvents(100),
       EapApi.listAgents(),
       EapApi.listManagementConnectors(),
       EapApi.listTasks().catch(() => [] as AgentTask[]),
     ])
+    if (requestId !== loadRequestId) return
     summary.value = nextSummary
     valueEvents.value = nextEvents
     agents.value = nextAgents
     connectors.value = nextConnectors
     tasks.value = nextTasks
   } finally {
-    loading.value = false
+    if (requestId === loadRequestId) loading.value = false
   }
 }
 
@@ -1058,14 +1078,7 @@ async function syncConnector(connector: ManagementValueConnector) {
     if (result.success) ElMessage.success(`同步完成：导入 ${result.importedRecords} 条，跳过 ${result.skippedRecords} 条`)
     else ElMessage.warning(result.message)
     connectors.value = await EapApi.listManagementConnectors()
-    if (result.importedRecords > 0) {
-      const [nextSummary, nextEvents] = await Promise.all([
-        EapApi.getManagementSummary(windowHours.value),
-        EapApi.listManagementValueEvents(100),
-      ])
-      summary.value = nextSummary
-      valueEvents.value = nextEvents
-    }
+    if (result.importedRecords > 0) await load()
   } finally {
     syncingConnectorId.value = undefined
   }
@@ -1092,8 +1105,9 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN', { notation: value >= 1_000_000 ? 'compact' : 'standard' }).format(value)
 }
 
-function formatMoney(value: number) {
-  return `$${new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(value || 0)}`
+function formatMoney(value: number | null) {
+  if (value == null || !summary.value.currency) return '—'
+  return `${new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(value)} ${summary.value.currency}`
 }
 
 function formatTime(value?: string) {

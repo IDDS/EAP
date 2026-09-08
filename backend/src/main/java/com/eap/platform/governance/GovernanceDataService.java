@@ -4,6 +4,7 @@ import com.eap.platform.agent.AgentRepository;
 import com.eap.platform.common.BusinessException;
 import com.eap.platform.discovery.DiscoveryEndpointRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -70,7 +71,16 @@ public class GovernanceDataService {
 
     @Transactional(readOnly = true)
     public List<GovernanceDataDtos.DataEventResponse> list(int limit) {
-        return eventRepository.findTop500ByOrderByObservedAtDesc().stream().limit(limit).map(GovernanceDataDtos::from).toList();
+        return list(limit, null, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<GovernanceDataDtos.DataEventResponse> list(int limit, Long agentId, int page) {
+        PageRequest pageable = PageRequest.of(page, limit);
+        List<GovernanceDataEvent> rows = agentId == null
+                ? eventRepository.findAllByOrderByObservedAtDescIdDesc(pageable)
+                : eventRepository.findByAgentIdOrderByObservedAtDescIdDesc(agentId, pageable);
+        return rows.stream().map(GovernanceDataDtos::from).toList();
     }
 
     @Transactional(readOnly = true)

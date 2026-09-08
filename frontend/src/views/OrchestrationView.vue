@@ -133,12 +133,22 @@ async function load() {
   }
 }
 
+let teamRequestId = 0
+let planRequestId = 0
 async function loadTeamDetail() {
-  if (!selectedTeamId.value) return
+  const requestId = ++teamRequestId
+  const teamId = selectedTeamId.value
+  ++planRequestId
+  members.value = []
+  plans.value = []
+  planSteps.value = []
+  selectedPlanId.value = undefined
+  if (!teamId) return
   const [nextMembers, nextPlans] = await Promise.all([
-    EapApi.listTeamMembers(selectedTeamId.value),
-    EapApi.listTeamPlans(selectedTeamId.value),
+    EapApi.listTeamMembers(teamId),
+    EapApi.listTeamPlans(teamId),
   ])
+  if (requestId !== teamRequestId || teamId !== selectedTeamId.value) return
   members.value = nextMembers
   plans.value = nextPlans
   selectedPlanId.value = nextPlans[0]?.id
@@ -148,21 +158,25 @@ async function loadTeamDetail() {
 }
 
 async function selectPlan(planId: number) {
+  const requestId = ++planRequestId
+  const teamId = selectedTeamId.value
   selectedPlanId.value = planId
+  planSteps.value = []
   const detail = await EapApi.getPlan(planId)
+  if (requestId !== planRequestId || teamId !== selectedTeamId.value || planId !== selectedPlanId.value) return
   planSteps.value = detail.steps
 }
 
 async function createDemoPlan() {
   if (!selectedTeamId.value) return
-  const plan = await EapApi.createPlan({
-    teamId: selectedTeamId.value,
+  const teamId = selectedTeamId.value
+  await EapApi.createPlan({
+    teamId,
     goal: '生成跨部门影响分析',
     contextSummary: '将运行告警、财务影响和治理策略合并为可审计计划。',
   })
-  selectedPlanId.value = plan.id
   ElMessage.success('计划已创建')
-  await loadTeamDetail()
+  if (teamId === selectedTeamId.value) await loadTeamDetail()
 }
 
 async function addDemoStep() {

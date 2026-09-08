@@ -20,6 +20,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -128,21 +129,31 @@ public class OtlpTraceIngestionService {
             Instant from,
             Instant to
     ) {
+        return listTraceSpans(limit, agentId, endpointKey, traceId, spanKind, from, to, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OtlpTraceIngestionDtos.TraceSpanResponse> listTraceSpans(
+            int limit,
+            Long agentId,
+            String endpointKey,
+            String traceId,
+            TraceSpanKind spanKind,
+            Instant from,
+            Instant to,
+            int page
+    ) {
         int boundedLimit = Math.max(1, Math.min(limit, 500));
         List<TraceSpanObservation> spans;
-        if (agentId == null && blank(endpointKey) && blank(traceId) && spanKind == null && from == null && to == null) {
-            spans = traceSpanRepository.findTop500ByOrderByObservedAtDesc().stream().limit(boundedLimit).toList();
-        } else {
-            Specification<TraceSpanObservation> specification = Specification.where(null);
-            if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
-            if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
-            if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
-            if (spanKind != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("spanKind"), spanKind));
-            if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
-            if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
-            spans = traceSpanRepository.findAll(specification,
-                    PageRequest.of(0, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt"))).getContent();
-        }
+        Specification<TraceSpanObservation> specification = Specification.where(null);
+        if (agentId != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("agentId"), agentId));
+        if (!blank(endpointKey)) specification = specification.and((root, query, cb) -> cb.equal(root.get("endpointKey"), endpointKey.trim()));
+        if (!blank(traceId)) specification = specification.and((root, query, cb) -> cb.equal(root.get("traceId"), traceId.trim()));
+        if (spanKind != null) specification = specification.and((root, query, cb) -> cb.equal(root.get("spanKind"), spanKind));
+        if (from != null) specification = specification.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("observedAt"), from));
+        if (to != null) specification = specification.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("observedAt"), to));
+        spans = traceSpanRepository.findAll(specification,
+                    PageRequest.of(page, boundedLimit, Sort.by(Sort.Direction.DESC, "observedAt", "id"))).getContent();
         return spans.stream()
                 .map(this::toResponse).toList();
     }

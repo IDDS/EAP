@@ -1,11 +1,12 @@
 {
   "name": "eap-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -b && vite build",
+    "test": "node --test tests/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -24,4 +25,3 @@
     "vue-tsc": "^2.2.0"
   }
 }
-
