@@ -45,6 +45,27 @@ class CallbackTests(unittest.TestCase):
         self.urlopen.stop()
         self.temp.cleanup()
 
+    def test_sync_callbacks_capture_both_directions_with_one_trace(self):
+        callback = EAPLiteLLMCallback()
+        payloads = []
+        callback._submit = payloads.append
+        kwargs = {"litellm_call_id": "sync-call", "model": "test"}
+        callback.log_pre_api_call("test", [{"role": "user", "content": "EAP test"}], kwargs)
+        callback.log_success_event(kwargs, {"choices": [{"message": {"content": "OK"}}]}, None, None)
+        self.assertEqual([p["direction"] for p in payloads], ["INPUT", "OUTPUT"])
+        self.assertEqual({p["traceId"] for p in payloads}, {"sync-call"})
+        callback.log_failure_event(kwargs, RuntimeError("private-error"), None, None)
+        self.assertNotIn("private-error", json.dumps(payloads))
+
+    def test_delivery_failure_is_visible_without_leaking_payload(self):
+        callback = EAPLiteLLMCallback()
+        with patch("urllib.request.urlopen", side_effect=RuntimeError("private-token")):
+            with self.assertLogs("eap_litellm_callback", level="WARNING") as captured:
+                callback._post({"content": "private-content"})
+        self.assertIn("RuntimeError", str(captured.output))
+        self.assertNotIn("private-token", str(captured.output))
+        self.assertNotIn("private-content", str(captured.output))
+
     def test_install_and_capture_usage_without_provider_secret(self):
         fake_litellm = SimpleNamespace(callbacks=[])
         self.assertTrue(install(fake_litellm))

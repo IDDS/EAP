@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import threading
 import urllib.request
@@ -150,11 +151,15 @@ class EAPLiteLLMCallback:
             )
             with urllib.request.urlopen(request, timeout=self.timeout_seconds):
                 pass
-        except Exception:
-            # Observability must never break the Agent's model request path.
+        except Exception as error:
+            # Never log payloads, credentials, URLs or raw exception text.
+            logging.getLogger(__name__).warning("EAP capture delivery failed (%s)", type(error).__name__)
             return
 
     async def async_log_pre_api_call(self, model: str, messages: Any, kwargs: dict[str, Any]) -> None:
+        self.log_pre_api_call(model, messages, kwargs)
+
+    def log_pre_api_call(self, model: str, messages: Any, kwargs: dict[str, Any]) -> None:
         trace_id = self._trace_id(kwargs)
         self._submit({
             "observationKey": self._observation_key(trace_id, "INPUT"),
@@ -171,6 +176,9 @@ class EAPLiteLLMCallback:
         })
 
     async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
+        self.log_success_event(kwargs, response_obj, start_time, end_time)
+
+    def log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
         trace_id = self._trace_id(kwargs)
         document = _as_dict(response_obj)
         hidden = _as_dict(document.get("_hidden_params"))
@@ -200,6 +208,9 @@ class EAPLiteLLMCallback:
         })
 
     async def async_log_failure_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
+        self.log_failure_event(kwargs, response_obj, start_time, end_time)
+
+    def log_failure_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
         trace_id = self._trace_id(kwargs)
         error = kwargs.get("exception") or response_obj or "model invocation failed"
         error_type = type(error).__name__

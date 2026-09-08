@@ -13,6 +13,10 @@ class _LiteLLMLoader(importlib.abc.Loader):
     def __init__(self, original_loader):
         self.original_loader = original_loader
 
+    def __getattr__(self, name):
+        # Preserve resource readers and loader APIs required by importlib.resources.
+        return getattr(self.original_loader, name)
+
     def create_module(self, spec):
         creator = getattr(self.original_loader, "create_module", None)
         return creator(spec) if creator else None

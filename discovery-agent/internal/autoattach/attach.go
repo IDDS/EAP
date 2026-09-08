@@ -24,7 +24,7 @@ var instrumentationAssets embed.FS
 
 var safeName = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
-const instrumentationVersion = "1.2.1"
+const instrumentationVersion = "1.2.2"
 
 type Options struct {
 	Target                   string

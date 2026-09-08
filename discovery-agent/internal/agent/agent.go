@@ -26,7 +26,7 @@ import (
 	"github.com/matrix-eap/discovery-agent/internal/state"
 )
 
-const Version = "1.5.0"
+const Version = "1.5.1"
 
 type autoAttachReconcileStatus struct {
 	CheckedAt                time.Time `json:"checked_at"`

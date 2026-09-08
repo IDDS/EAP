@@ -1,5 +1,11 @@
 # Changelog
 
+## [Discovery Agent 1.5.1 / instrumentation 1.2.2] - 2026-09-08
+
+- Fixed missing LiteLLM input capture by implementing synchronous and asynchronous callbacks.
+- Preserved Python loader resource APIs so LiteLLM offline model-cost fallback can read packaged resources.
+- Added sanitized delivery-failure diagnostics and regression tests; verified all Go packages and four Python tests, including the deployed LiteLLM 1.80.0 environment.
+
 ## [0.2.0.0] - 2026-09-08
 
 ### Added

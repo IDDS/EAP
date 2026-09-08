@@ -1,5 +1,8 @@
 # EAP Discovery Agent
 
+Capture compatibility fix (Discovery Agent 1.5.1, Python instrumentation 1.2.2): handles both synchronous and asynchronous LiteLLM callbacks, preserves importlib package resource readers for offline model-cost fallback, and reports delivery failure types without logging payloads or credentials. Verified against the deployed LiteLLM 1.80.0; other versions still require compatibility validation.
+
+
 Independent endpoint software for discovering AI agents and optionally observing governed business content. It has its own Go module and does not import EAP backend code.
 
 ## Binaries
