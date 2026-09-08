@@ -307,6 +307,15 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 发布前全量重新构建/回归：后端 185 项、前端 34 项与生产构建通过。备份位于 `/home/ubuntu/eap-backups/20260908T123803Z`，保留数据库、旧产物及旧镜像标签。
 - 服务器 Compose 现包含 `docker-compose.release.yml` 镜像覆盖文件；后续部署需连同原腾讯云/预构建配置一起使用。完整清单、校验值、回滚材料与验证见 `docs/DEPLOYMENT_2026-09-08.md`。
 
+### 2.30 通信内容采集修复与实测（2026-09-08）
+
+- 已复核线上并完成一次无敏感真实 DeepSeek 调用：新增输入/输出各一条（id 34/35），Agent 4 HelloBoss，同 Trace ID `eap-capture-check-82cb93247f4248fe9b1cfaab036da32b`，记录已真实落库。此前 33 条记录（1 输入/32 输出），最近时间为 8 月 30 日；当前代理及探针在线，不能把缺少新记录一概当作采集服务停机。
+- 修复 LiteLLM 1.80.0 使用同步输入回调而原注入器仅实现异步方法的问题；补同步/异步输入、成功、失败方法。修复 sitecustomize loader 丢失资源读取接口导致模型价格表离线回退失败。错误日志仅输出异常类型。
+- 代码 `6db452b` 已提交推送；Discovery Agent 1.5.1、注入器 1.2.2 已部署，HelloBoss 后端短暂重建后恢复 HTTP 200。备份 `/var/backups/eap-capture-20260908T130342Z`；重复自动协调不再重建容器，探针/代理/timer active。
+- 本地及实际依赖环境 Python 4 项通过，Go 全包测试通过。真实测试使用 102 输入/24 输出 Token（其中 21 推理），预期 EAP_CAPTURE_OK，实际 EAP；已显式记录 ACTION_COMPLETION 评估 id=1、score=0、passed=false。
+- 仅证明采集与 Trace ID 关联、显式规则评估；本次 Trace Span 数量为 0，尚无完整 Trace 时间线、自动正文语义评估或 LLM Judge。DEVELOPMENT/HTTP 仍不向控制台返回正文。
+- 详细证据与限制见 `docs/CONTENT_CAPTURE_CHECK_2026-09-08.md`。测试只读取本次固定提示的正文，不涉及历史业务正文。
+
 ## 3. 最近验证基线
 
 **2026-09-08 发布基线：** 0.2.0.0 已部署，代码 `29b77a9`；后端 185/185、前端 34/34、构建通过；目标 MySQL V42 与四个浏览器工作区冒烟已通过。完整证据见 `docs/DEPLOYMENT_2026-09-08.md`；以下未部署状态为历史记录。
