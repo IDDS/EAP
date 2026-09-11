@@ -67,6 +67,13 @@ public class TraceSpanObservation {
     @Column(name = "attributes_json", columnDefinition = "text")
     String attributesJson;
 
+    /** Producer timestamps only; null for legacy or missing timestamp evidence. */
+    @Column(name = "started_at")
+    Instant startedAt;
+
+    @Column(name = "ended_at")
+    Instant endedAt;
+
     @Column(name = "observed_at", nullable = false)
     Instant observedAt;
 

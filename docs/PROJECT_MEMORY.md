@@ -441,3 +441,23 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 腾讯云预构建产物部署：`docker compose -f docker-compose.tencent.yml -f docker-compose.tencent.prebuilt.yml up -d --build`
 - 远端仓库：`https://gitee.com/wallemit/eap.git`
 - 功能实现、测试结果或重要风险发生变化后，应同步更新本文件。
+
+## 7. 前端组件选型调研（2026-09-11）
+
+- 已完成[组件选型深度调研](research/component-selection/REPORT.md)，附 35 个包的公开 npm 元数据和 CSV；这是研究成果，未安装新组件或变更部署。
+- 核实 AdminLTE 已有官方 Vue 3 包；建议先验证 KPI/信息盒/卡片与现有 Element Plus 的样式隔离。保留 ECharts，D3 按模块增强交互；Vue Flow、G6 分别作为流程编辑与复杂拓扑候选。
+- 注意最新 vue-echarts 要求 ECharts 6；当前工程声明 ECharts 5。Trace 瀑布图需明确 span 开始/结束时间语义，调用流向图需真实关联边权，不能从独立聚合总量推导。所有推荐尚待 PoC 验收。
+
+### 首批组件本地实现
+
+- 已接入 AdminLTE Vue 0.7.0 的 SmallBox、InfoBox、Card，以及 D3 zoom/selection；大屏支持连续缩放、拖动、定位选中和键盘视图控制。采用组件局部样式，没有加载全局 Bootstrap 主题。
+- 用户明确希望保留持续流动动画；展示为潜在调用路径示意，不等于实测流量。暂停刷新、隐藏页和减少动态偏好继续控制动画。
+- 本地构建与 54 项测试通过，完成桌面/窄屏交互检查；尚未部署。详情见 [组件接入验证](COMMAND_CENTER_COMPONENTS_2026-09-11.md)。
+
+## 8. 持续优化执行（2026-09-11）
+
+- 用户授权“记录要修复或者优化的地方，逐一实现”。统一跟踪 [OPTIMIZATION_BACKLOG.md](OPTIMIZATION_BACKLOG.md)，18项分优先级、依赖、验收和部署状态。
+- 本轮完成 OBS-01/02/03 与 UI-02：V45生产端Span起止时间、Trace时间诊断/失败筛选、请求竞态保护、路由多根动画警告修复。后端203/203、前端60/60和构建通过；未部署。详见 [交付记录](TRACE_DIAGNOSTICS_2026-09-11.md)。
+- 旧Span不回填时间，500条读取上限明确提示；当前图只代表已加载观测范围。下一项为稳定任务关联，再推进Runtime查询合同。
+
+- 第二轮：OBS-04第一阶段任务证据API与诊断抽屉，显式taskId关联四类证据，隔离Agent冲突并支持Trace往返。大屏按用户要求突出业务结果与登记收益，后端新增业务结果三态计数。208后端/62前端测试通过，未部署；[交付记录](TASK_EVIDENCE_2026-09-11.md)。OTLP任务归属、工作流taskKey映射仍待实现，未将OBS-04整体标完成。

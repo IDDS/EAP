@@ -39,7 +39,9 @@ public final class OtlpTraceIngestionDtos {
             String status,
             long durationMs,
             String attributesJson,
-            Instant observedAt
+            Instant observedAt,
+            Instant startedAt,
+            Instant endedAt
     ) {
     }
 }

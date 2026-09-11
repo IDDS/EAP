@@ -186,6 +186,8 @@ public class OtlpTraceIngestionService {
         observation.durationMs = durationMillis(span, attrs);
         observation.attributesJson = traceAttributesJson(attrs);
         observation.observedAt = observedAt(span);
+        observation.startedAt = producerTime(span, "startTimeUnixNano");
+        observation.endedAt = producerTime(span, "endTimeUnixNano");
         traceSpanRepository.save(observation);
         counters.traceSpansRecorded++;
         switch (spanKind) {
@@ -377,7 +379,7 @@ public class OtlpTraceIngestionService {
         return new OtlpTraceIngestionDtos.TraceSpanResponse(
                 item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.agentId, item.spanName,
                 item.spanKind, item.operation, item.toolName, item.mcpServerName, item.ragSource,
-                item.status, item.durationMs == null ? 0L : item.durationMs, item.attributesJson, item.observedAt
+                item.status, item.durationMs == null ? 0L : item.durationMs, item.attributesJson, item.observedAt, item.startedAt, item.endedAt
         );
     }
 
@@ -583,13 +585,18 @@ public class OtlpTraceIngestionService {
         }
     }
 
-    private Instant observedAt(JsonNode span) {
+    private Instant producerTime(JsonNode span, String field) {
         try {
-            long nanos = Long.parseLong(span.path("startTimeUnixNano").asText("0"));
-            if (nanos > 0) return Instant.ofEpochSecond(nanos / 1_000_000_000L, nanos % 1_000_000_000L);
+            long nanos = Long.parseLong(span.path(field).asText("0"));
+            return nanos > 0 ? Instant.ofEpochSecond(nanos / 1_000_000_000L, nanos % 1_000_000_000L) : null;
         } catch (RuntimeException ignored) {
+            return null;
         }
-        return Instant.now();
+    }
+
+    private Instant observedAt(JsonNode span) {
+        Instant start = producerTime(span, "startTimeUnixNano");
+        return start == null ? Instant.now() : start;
     }
 
     private ModelInvocationStatus status(JsonNode span, Map<String, JsonNode> attrs) {

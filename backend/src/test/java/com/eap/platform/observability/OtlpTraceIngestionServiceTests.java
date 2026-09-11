@@ -26,6 +26,34 @@ class OtlpTraceIngestionServiceTests {
     private final ToolInvocationService toolInvocationService = mock(ToolInvocationService.class);
 
     @Test
+    void storesProducerTimesWithoutInventingMissingOrInvalidEvidence() throws Exception {
+        OtlpTraceIngestionService service = new OtlpTraceIngestionService(
+                objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
+        service.ingest(objectMapper.readTree("""
+            {"resourceSpans":[{"scopeSpans":[{"spans":[
+              {"traceId":"t-time","spanId":"valid","name":"tool execute","startTimeUnixNano":"1786240000123456000","endTimeUnixNano":"1786240000250000000","attributes":{"tool.name":"search"}},
+              {"traceId":"t-time","spanId":"missing","name":"tool execute","attributes":{"tool.name":"search"}},
+              {"traceId":"t-time","spanId":"invalid","name":"tool execute","startTimeUnixNano":"bad","endTimeUnixNano":"-1","attributes":{"tool.name":"search"}},
+              {"traceId":"t-time","spanId":"reversed","name":"tool execute","startTimeUnixNano":"1786240000250000000","endTimeUnixNano":"1786240000123456000","attributes":{"tool.name":"search"}}
+            ]}]}]}
+            """));
+        ArgumentCaptor<TraceSpanObservation> capture = ArgumentCaptor.forClass(TraceSpanObservation.class);
+        verify(traceSpanRepository, times(4)).save(capture.capture());
+        var values = capture.getAllValues();
+        assertThat(values.get(0).startedAt).isEqualTo(java.time.Instant.ofEpochSecond(1786240000L, 123456000));
+        assertThat(values.get(0).endedAt).isEqualTo(java.time.Instant.ofEpochSecond(1786240000L, 250000000));
+        assertThat(values.get(1).startedAt).isNull();
+        assertThat(values.get(1).endedAt).isNull();
+        assertThat(values.get(1).observedAt).isNotNull();
+        assertThat(values.get(2).startedAt).isNull();
+        assertThat(values.get(2).endedAt).isNull();
+        // Keep reversed producer evidence for diagnosis rather than silently correcting it.
+        assertThat(values.get(3).endedAt).isBefore(values.get(3).startedAt);
+    }
+
+    @Test
     void normalizesCurrentGenAiAttributesAndRedactsSensitiveInput() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,

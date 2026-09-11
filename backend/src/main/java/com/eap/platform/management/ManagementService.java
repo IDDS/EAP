@@ -221,7 +221,10 @@ public class ManagementService {
                 averageConfidence,
                 !values.isEmpty(),
                 values.isEmpty() ? null : values.get(0).observedAt,
-                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(item -> item.toResponse(!mixedCurrencies)).toList()
+                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(item -> item.toResponse(!mixedCurrencies)).toList(),
+                tasks.stream().filter(task -> Boolean.TRUE.equals(task.problemResolved())).count(),
+                tasks.stream().filter(task -> Boolean.FALSE.equals(task.problemResolved())).count(),
+                tasks.stream().filter(task -> task.problemResolved() == null).count()
         );
     }
 

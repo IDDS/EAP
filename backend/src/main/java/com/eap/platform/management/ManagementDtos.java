@@ -158,7 +158,10 @@ public final class ManagementDtos {
             double averageConfidence,
             boolean hasValidatedValue,
             Instant lastValueEventAt,
-            List<AgentManagementUsage> agentUsage
+            List<AgentManagementUsage> agentUsage,
+            long resolvedTasks,
+            long unresolvedTasks,
+            long unconfirmedTasks
     ) {
     }
 

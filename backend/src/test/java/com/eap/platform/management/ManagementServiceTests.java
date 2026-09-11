@@ -52,6 +52,23 @@ class ManagementServiceTests {
     }
 
     @Test
+    void countsBusinessOutcomesSeparatelyFromExecutionSuccess() {
+        stubFinancialContext("USD", "0");
+        when(taskService.list()).thenReturn(List.of(
+            outcomeTask(1L, true), outcomeTask(2L, false), outcomeTask(3L, null)));
+        var summary = service.summary(24);
+        assertThat(summary.succeededTasks()).isEqualTo(3);
+        assertThat(summary.resolvedTasks()).isEqualTo(1);
+        assertThat(summary.unresolvedTasks()).isEqualTo(1);
+        assertThat(summary.unconfirmedTasks()).isEqualTo(1);
+    }
+
+    private AgentTaskDtos.TaskResponse outcomeTask(Long id, Boolean resolved) {
+        return new AgentTaskDtos.TaskResponse(id, 1L, null, "TEST", null, null, AgentTaskStatus.SUCCEEDED,
+            Instant.now(), Instant.now(), 10L, 0L, BigDecimal.ZERO, null, resolved, null, Instant.now(), Instant.now());
+    }
+
+    @Test
     void calculatesValidatedValueAgainstModelCost() {
         when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 4, 3, 1, 0.75, 1000, 500, 100, 0, 1500,

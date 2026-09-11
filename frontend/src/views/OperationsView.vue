@@ -33,8 +33,9 @@
         <el-table-column prop="latencyMs" label="延迟 ms" width="110" />
         <el-table-column prop="tokenCost" label="Token" width="110" />
         <el-table-column prop="resultSummary" label="结果" min-width="240" show-overflow-tooltip />
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="310" fixed="right">
           <template #default="{ row }">
+            <el-button text type="primary" @click="openEvidence(row.id)">诊断</el-button>
             <el-button v-if="row.status === 'PENDING'" text @click="updateStatus(row.id, 'RUNNING')">运行</el-button>
             <el-button v-if="row.status === 'PENDING' || row.status === 'RUNNING'" text @click="updateStatus(row.id, 'SUCCEEDED')">完成</el-button>
             <el-button text type="success" @click="markResolution(row, true)">已解决</el-button>
@@ -43,15 +44,27 @@
         </el-table-column>
       </el-table>
     </el-card>
+    <TaskEvidenceDrawer v-if="selectedTaskId" :task-id="selectedTaskId" @close="closeEvidence" />
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import TaskEvidenceDrawer from '@/components/trace/TaskEvidenceDrawer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
 import type { AgentTask, AgentTaskStatus } from '@/types/domain'
+
+const route = useRoute()
+const router = useRouter()
+const selectedTaskId = computed(() => {
+  const id = Number(route.query.taskId)
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+})
+function openEvidence(id: number) { void router.push({ query: { ...route.query, taskId: String(id) } }) }
+function closeEvidence() { const { taskId, ...query } = route.query; void router.replace({ query }) }
 
 const tasks = ref<AgentTask[]>([])
 const loading = ref(false)

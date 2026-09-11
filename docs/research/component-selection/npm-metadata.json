@@ -1,0 +1,1012 @@
+[
+  {
+    "name": "@adminlte/vue",
+    "version": "0.7.0",
+    "published": "2026-08-19T11:47:16.741Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/ColorlibHQ/adminlte-vue.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "@fullcalendar/core": "^6.0.0",
+      "@fullcalendar/daygrid": "^6.0.0",
+      "@fullcalendar/interaction": "^6.0.0",
+      "apexcharts": "^4.0.0 || ^5.0.0 || ^6.0.0",
+      "bootstrap": "^5.3.0",
+      "flatpickr": "^4.6.0",
+      "jsvectormap": "^1.5.0",
+      "overlayscrollbars": "^2.0.0",
+      "quill": "^2.0.0",
+      "sortablejs": "^1.15.0",
+      "tabulator-tables": "^6.0.0",
+      "tom-select": "^2.0.0",
+      "vue": "^3.5.0"
+    },
+    "peerDependenciesMeta": {
+      "bootstrap": {
+        "optional": true
+      },
+      "apexcharts": {
+        "optional": true
+      },
+      "tabulator-tables": {
+        "optional": true
+      },
+      "quill": {
+        "optional": true
+      },
+      "flatpickr": {
+        "optional": true
+      },
+      "tom-select": {
+        "optional": true
+      },
+      "sortablejs": {
+        "optional": true
+      },
+      "jsvectormap": {
+        "optional": true
+      },
+      "overlayscrollbars": {
+        "optional": true
+      },
+      "@fullcalendar/core": {
+        "optional": true
+      },
+      "@fullcalendar/daygrid": {
+        "optional": true
+      },
+      "@fullcalendar/interaction": {
+        "optional": true
+      }
+    },
+    "unpackedSize": 1248731,
+    "registry": "https://registry.npmjs.org/%40adminlte%2Fvue",
+    "tarball": "https://registry.npmjs.org/@adminlte/vue/-/vue-0.7.0.tgz",
+    "distTags": {
+      "latest": "0.7.0"
+    },
+    "accessed": "2026-09-11T05:43:04.083271+00:00"
+  },
+  {
+    "name": "admin-lte",
+    "version": "4.9.1",
+    "published": "2026-08-26T09:44:37.838Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git://github.com/ColorlibHQ/AdminLTE.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "bootstrap": "^5.3.8"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 11075826,
+    "registry": "https://registry.npmjs.org/admin-lte",
+    "tarball": "https://registry.npmjs.org/admin-lte/-/admin-lte-4.9.1.tgz",
+    "distTags": {
+      "v2-latest": "2.4.18",
+      "legacy": "4.8.0",
+      "latest": "4.9.1"
+    },
+    "accessed": "2026-09-11T05:43:04.479844+00:00"
+  },
+  {
+    "name": "bootstrap",
+    "version": "5.3.8",
+    "published": "2025-08-26T14:39:00.539Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/twbs/bootstrap.git",
+      "type": "git"
+    },
+    "dependencies": {},
+    "peerDependencies": {
+      "@popperjs/core": "^2.11.8"
+    },
+    "registry": "https://registry.npmjs.org/bootstrap",
+    "accessed": "2026-09-11T05:46:35.695743+00:00"
+  },
+  {
+    "name": "d3",
+    "version": "7.9.0",
+    "published": "2024-03-12T22:15:07.703Z",
+    "license": "ISC",
+    "repository": {
+      "url": "git+https://github.com/d3/d3.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "d3-dsv": "3",
+      "d3-geo": "3",
+      "d3-axis": "3",
+      "d3-drag": "3",
+      "d3-ease": "3",
+      "d3-path": "3",
+      "d3-time": "3",
+      "d3-zoom": "3",
+      "d3-array": "3",
+      "d3-brush": "3",
+      "d3-chord": "3",
+      "d3-color": "3",
+      "d3-fetch": "3",
+      "d3-force": "3",
+      "d3-scale": "4",
+      "d3-shape": "3",
+      "d3-timer": "3",
+      "d3-format": "3",
+      "d3-random": "3",
+      "d3-contour": "4",
+      "d3-polygon": "3",
+      "d3-delaunay": "6",
+      "d3-dispatch": "3",
+      "d3-quadtree": "3",
+      "d3-hierarchy": "3",
+      "d3-selection": "3",
+      "d3-transition": "3",
+      "d3-interpolate": "3",
+      "d3-time-format": "4",
+      "d3-scale-chromatic": "3"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 871285,
+    "registry": "https://registry.npmjs.org/d3",
+    "tarball": "https://registry.npmjs.org/d3/-/d3-7.9.0.tgz",
+    "distTags": {
+      "next": "6.0.0-rc.4",
+      "latest": "7.9.0"
+    },
+    "accessed": "2026-09-11T05:43:04.686286+00:00"
+  },
+  {
+    "name": "d3-zoom",
+    "version": "3.0.0",
+    "published": "2021-06-10T00:49:18.125Z",
+    "license": "ISC",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/d3/d3-zoom.git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "d3-dispatch": "1 - 3",
+      "d3-drag": "2 - 3",
+      "d3-interpolate": "1 - 3",
+      "d3-selection": "2 - 3",
+      "d3-transition": "2 - 3"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 86878,
+    "registry": "https://registry.npmjs.org/d3-zoom",
+    "tarball": "https://registry.npmjs.org/d3-zoom/-/d3-zoom-3.0.0.tgz",
+    "distTags": {
+      "latest": "3.0.0",
+      "next": "2.0.0-rc.1"
+    },
+    "accessed": "2026-09-11T05:43:04.221270+00:00"
+  },
+  {
+    "name": "d3-force",
+    "version": "3.0.0",
+    "published": "2021-06-05T19:11:01.836Z",
+    "license": "ISC",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/d3/d3-force.git"
+    },
+    "dependencies": {
+      "d3-dispatch": "1 - 3",
+      "d3-quadtree": "1 - 3",
+      "d3-timer": "1 - 3"
+    },
+    "peerDependencies": {},
+    "registry": "https://registry.npmjs.org/d3-force",
+    "accessed": "2026-09-11T05:46:37.269861+00:00"
+  },
+  {
+    "name": "d3-sankey",
+    "version": "0.12.3",
+    "published": "2019-09-02T00:33:53.896Z",
+    "license": "BSD-3-Clause",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/d3/d3-sankey.git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "d3-array": "1 - 2",
+      "d3-shape": "^1.2.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 46205,
+    "registry": "https://registry.npmjs.org/d3-sankey",
+    "tarball": "https://registry.npmjs.org/d3-sankey/-/d3-sankey-0.12.3.tgz",
+    "distTags": {
+      "latest": "0.12.3"
+    },
+    "accessed": "2026-09-11T05:43:04.496015+00:00"
+  },
+  {
+    "name": "d3-brush",
+    "version": "3.0.0",
+    "published": "2021-06-10T00:04:10.328Z",
+    "license": "ISC",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/d3/d3-brush.git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "d3-dispatch": "1 - 3",
+      "d3-drag": "2 - 3",
+      "d3-interpolate": "1 - 3",
+      "d3-selection": "3",
+      "d3-transition": "3"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 66555,
+    "registry": "https://registry.npmjs.org/d3-brush",
+    "tarball": "https://registry.npmjs.org/d3-brush/-/d3-brush-3.0.0.tgz",
+    "distTags": {
+      "latest": "3.0.0",
+      "next": "2.0.0-rc.1"
+    },
+    "accessed": "2026-09-11T05:43:04.734936+00:00"
+  },
+  {
+    "name": "d3-hierarchy",
+    "version": "3.1.2",
+    "published": "2022-04-02T22:20:25.115Z",
+    "license": "ISC",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/d3/d3-hierarchy.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 136230,
+    "registry": "https://registry.npmjs.org/d3-hierarchy",
+    "tarball": "https://registry.npmjs.org/d3-hierarchy/-/d3-hierarchy-3.1.2.tgz",
+    "distTags": {
+      "latest": "3.1.2",
+      "next": "2.0.0-rc.4"
+    },
+    "accessed": "2026-09-11T05:43:05.805718+00:00"
+  },
+  {
+    "name": "echarts",
+    "version": "6.1.0",
+    "published": "2026-05-19T17:52:11.076Z",
+    "license": "Apache-2.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/apache/echarts.git"
+    },
+    "dependencies": {
+      "tslib": "2.3.0",
+      "zrender": "6.1.0"
+    },
+    "peerDependencies": {},
+    "registry": "https://registry.npmjs.org/echarts",
+    "accessed": "2026-09-11T05:46:39.081931+00:00"
+  },
+  {
+    "name": "vue-echarts",
+    "version": "8.3.0",
+    "published": "2026-09-06T06:23:17.008Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/ecomfe/vue-echarts.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "vue": "^3.3.0",
+      "echarts": "^6.0.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 358359,
+    "registry": "https://registry.npmjs.org/vue-echarts",
+    "tarball": "https://registry.npmjs.org/vue-echarts/-/vue-echarts-8.3.0.tgz",
+    "distTags": {
+      "beta": "8.1.0-beta.2",
+      "latest": "8.3.0"
+    },
+    "accessed": "2026-09-11T05:43:06.263342+00:00"
+  },
+  {
+    "name": "@unovis/vue",
+    "version": "1.7.0",
+    "published": "2026-09-10T22:58:38.369Z",
+    "license": "Apache-2.0",
+    "repository": {
+      "url": "git+https://github.com/f5/unovis.git",
+      "type": "git",
+      "directory": "packages/vue"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "vue": "^3",
+      "@unovis/ts": "1.7.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 388718,
+    "registry": "https://registry.npmjs.org/%40unovis%2Fvue",
+    "tarball": "https://registry.npmjs.org/@unovis/vue/-/vue-1.7.0.tgz",
+    "distTags": {
+      "beta": "1.6.6-beta.1",
+      "latest": "1.7.0"
+    },
+    "accessed": "2026-09-11T05:43:06.181785+00:00"
+  },
+  {
+    "name": "@unovis/ts",
+    "version": "1.7.0",
+    "published": "2026-09-10T22:56:39.677Z",
+    "license": "Apache-2.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/f5/unovis.git",
+      "directory": "packages/ts"
+    },
+    "dependencies": {
+      "@emotion/css": "^11.7.1",
+      "@juggle/resize-observer": "^3.3.1",
+      "csstype": "^3.2.3",
+      "d3-array": "~3",
+      "d3-shape": "~3",
+      "d3-hierarchy": "~3",
+      "d3-scale": "~4",
+      "d3-selection": "~3",
+      "d3-color": "~3",
+      "d3-chord": "~3",
+      "d3-force": "~3",
+      "d3-interpolate": "~3",
+      "d3-ease": "~3",
+      "d3-brush": "~3",
+      "d3-drag": "~3",
+      "d3-zoom": "~3",
+      "d3-timer": "~3",
+      "d3-axis": "~3",
+      "d3-transition": "~3",
+      "d3-path": "~3",
+      "d3-geo": "~3",
+      "@types/d3": "^7.4.0",
+      "@types/d3-collection": "^1.0.10",
+      "@types/d3-sankey": "^0.12.4",
+      "@types/d3-array": "~3.2.2",
+      "@types/d3-shape": "~3.1.7",
+      "@types/d3-hierarchy": "~3.1.7",
+      "@types/d3-scale": "~4.0.9",
+      "@types/d3-selection": "~3.0.0",
+      "@types/d3-color": "~3.1.3",
+      "@types/d3-chord": "~3.0.6",
+      "@types/d3-force": "~3.0.10",
+      "@types/d3-interpolate": "~3.0.4",
+      "@types/d3-ease": "~3.0.2",
+      "@types/d3-brush": "~3.0.6",
+      "@types/d3-drag": "~3.0.7",
+      "@types/d3-zoom": "~3.0.8",
+      "@types/d3-timer": "~3.0.2",
+      "@types/d3-axis": "~3.0.6",
+      "@types/d3-transition": "~3.0.9",
+      "@types/d3-path": "~3.1.1",
+      "@types/d3-geo": "~3.1.0",
+      "@types/dagre": "^0.7.50",
+      "@types/geojson": "^7946.0.8",
+      "@types/leaflet": "1.7.6",
+      "@types/supercluster": "^5.0.2",
+      "@types/three": "^0.135.0",
+      "@types/throttle-debounce": "^5.0.0",
+      "@types/topojson": "^3.2.3",
+      "@types/topojson-client": "^3.0.0",
+      "@types/topojson-specification": "^1.0.2",
+      "@maplibre/maplibre-gl-style-spec": "26.4.1",
+      "@unovis/dagre-layout": "0.8.8-3",
+      "@unovis/graphlibrary": "2.2.0-3",
+      "d3": "^7.2.1",
+      "d3-collection": "^1.0.7",
+      "d3-geo-projection": "^4.0.0",
+      "d3-interpolate-path": "^2.2.3",
+      "d3-sankey": "^0.12.3",
+      "elkjs": "^0.10.0",
+      "geojson": "^0.5.0",
+      "leaflet": "1.7.1",
+      "maplibre-gl": "6.7.0",
+      "striptags": "^3.2.0",
+      "supercluster": "^7.1.5",
+      "three": "^0.135.0",
+      "throttle-debounce": "^5.0.0",
+      "topojson-client": "^3.1.0",
+      "tslib": "^2.3.1"
+    },
+    "peerDependencies": {},
+    "registry": "https://registry.npmjs.org/%40unovis%2Fts",
+    "accessed": "2026-09-11T05:46:41.185485+00:00"
+  },
+  {
+    "name": "@observablehq/plot",
+    "version": "0.6.17",
+    "published": "2025-02-14T16:15:29.386Z",
+    "license": "ISC",
+    "repository": {
+      "url": "git+https://github.com/observablehq/plot.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "d3": "^7.9.0",
+      "isoformat": "^0.2.0",
+      "interval-tree-1d": "^1.0.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 1526486,
+    "registry": "https://registry.npmjs.org/%40observablehq%2Fplot",
+    "tarball": "https://registry.npmjs.org/@observablehq/plot/-/plot-0.6.17.tgz",
+    "distTags": {
+      "latest": "0.6.17"
+    },
+    "accessed": "2026-09-11T05:43:06.180104+00:00"
+  },
+  {
+    "name": "@vue-flow/core",
+    "version": "1.48.2",
+    "published": "2026-01-28T11:32:24.404Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/bcakmakoglu/vue-flow.git",
+      "directory": "packages/core"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "@vueuse/core": "^10.5.0",
+      "d3-drag": "^3.0.0",
+      "d3-interpolate": "^3.0.1",
+      "d3-selection": "^3.0.0",
+      "d3-zoom": "^3.0.0"
+    },
+    "peerDependencies": {
+      "vue": "^3.3.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 1285046,
+    "registry": "https://registry.npmjs.org/%40vue-flow%2Fcore",
+    "tarball": "https://registry.npmjs.org/@vue-flow/core/-/core-1.48.2.tgz",
+    "distTags": {
+      "latest": "1.48.2"
+    },
+    "accessed": "2026-09-11T05:43:06.580438+00:00"
+  },
+  {
+    "name": "@antv/g6",
+    "version": "5.1.1",
+    "published": "2026-05-08T10:44:58.472Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/antvis/g6.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "@antv/g": "^6.1.28",
+      "@antv/util": "^3.3.11",
+      "@antv/layout": "^2.0.0",
+      "bubblesets-js": "^2.3.4",
+      "@antv/g-canvas": "^2.0.48",
+      "@antv/graphlib": "^2.0.4",
+      "@antv/algorithm": "^0.1.26",
+      "@antv/component": "^2.1.7",
+      "@antv/hierarchy": "^0.7.1",
+      "@antv/event-emitter": "^0.1.3",
+      "@antv/g-plugin-dragndrop": "^2.0.38"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 7600816,
+    "registry": "https://registry.npmjs.org/%40antv%2Fg6",
+    "tarball": "https://registry.npmjs.org/@antv/g6/-/g6-5.1.1.tgz",
+    "distTags": {
+      "beta": "5.1.0-beta.1",
+      "latest": "5.1.1"
+    },
+    "accessed": "2026-09-11T05:43:07.483571+00:00"
+  },
+  {
+    "name": "@antv/x6",
+    "version": "3.1.8",
+    "published": "2026-08-11T03:25:45.730Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/antvis/x6.git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "dom-align": "^1.12.4",
+      "lodash-es": "^4.17.15",
+      "mousetrap": "^1.6.5",
+      "utility-types": "^3.10.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 8563331,
+    "registry": "https://registry.npmjs.org/%40antv%2Fx6",
+    "tarball": "https://registry.npmjs.org/@antv/x6/-/x6-3.1.8.tgz",
+    "distTags": {
+      "@antv/x6@1.35.1": "1.35.1",
+      "beta": "3.1.4-beta.1",
+      "latest": "3.1.8"
+    },
+    "accessed": "2026-09-11T05:43:08.294321+00:00"
+  },
+  {
+    "name": "cytoscape",
+    "version": "3.34.3",
+    "published": "2026-09-07T16:01:53.123Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/cytoscape/cytoscape.js.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 5699359,
+    "registry": "https://registry.npmjs.org/cytoscape",
+    "tarball": "https://registry.npmjs.org/cytoscape/-/cytoscape-3.34.3.tgz",
+    "distTags": {
+      "latest": "3.34.3"
+    },
+    "accessed": "2026-09-11T05:43:09.511866+00:00"
+  },
+  {
+    "name": "sigma",
+    "version": "3.0.3",
+    "published": "2026-04-30T13:04:02.520Z",
+    "license": "MIT",
+    "repository": {
+      "url": "http://github.com/jacomyal/sigma.js.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "events": "^3.3.0",
+      "graphology-utils": "^2.5.2"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 970733,
+    "registry": "https://registry.npmjs.org/sigma",
+    "tarball": "https://registry.npmjs.org/sigma/-/sigma-3.0.3.tgz",
+    "distTags": {
+      "alpha-rc": "2.0.0-alpha7-labelgrid",
+      "rc": "2.0.0-alpha10-rc2",
+      "legacy": "1.2.2",
+      "latest": "3.0.3",
+      "alpha": "4.0.0-alpha.7",
+      "beta": "4.0.0-beta.5"
+    },
+    "accessed": "2026-09-11T05:43:08.059180+00:00"
+  },
+  {
+    "name": "graphology",
+    "version": "0.26.0",
+    "published": "2025-01-26T10:25:05.589Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/graphology/graphology.git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "events": "^3.3.0"
+    },
+    "peerDependencies": {
+      "graphology-types": ">=0.24.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 2729833,
+    "registry": "https://registry.npmjs.org/graphology",
+    "tarball": "https://registry.npmjs.org/graphology/-/graphology-0.26.0.tgz",
+    "distTags": {
+      "alpha": "0.26.0-alpha1",
+      "latest": "0.26.0",
+      "rc": "0.26.0-rc1"
+    },
+    "accessed": "2026-09-11T05:43:07.827141+00:00"
+  },
+  {
+    "name": "elkjs",
+    "version": "0.12.0",
+    "published": "2026-07-17T08:07:54.693Z",
+    "license": "EPL-2.0 OR GPL-3.0-or-later",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/kieler/elkjs.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 8046232,
+    "registry": "https://registry.npmjs.org/elkjs",
+    "tarball": "https://registry.npmjs.org/elkjs/-/elkjs-0.12.0.tgz",
+    "distTags": {
+      "latest": "0.12.0"
+    },
+    "accessed": "2026-09-11T05:43:07.996890+00:00"
+  },
+  {
+    "name": "@dagrejs/dagre",
+    "version": "3.1.1",
+    "published": "2026-08-08T15:10:12.165Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/dagrejs/dagre.git",
+      "type": "git"
+    },
+    "dependencies": {
+      "@dagrejs/graphlib": "4.0.5"
+    },
+    "peerDependencies": {},
+    "registry": "https://registry.npmjs.org/%40dagrejs%2Fdagre",
+    "accessed": "2026-09-11T05:46:42.406802+00:00"
+  },
+  {
+    "name": "gridstack",
+    "version": "13.2.0",
+    "published": "2026-08-20T01:47:40.815Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/gridstack/gridstack.js.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 2071380,
+    "registry": "https://registry.npmjs.org/gridstack",
+    "tarball": "https://registry.npmjs.org/gridstack/-/gridstack-13.2.0.tgz",
+    "distTags": {
+      "latest": "13.2.0"
+    },
+    "accessed": "2026-09-11T05:43:10.142999+00:00"
+  },
+  {
+    "name": "grid-layout-plus",
+    "version": "1.1.1",
+    "published": "2025-10-13T02:42:42.281Z",
+    "license": "MIT",
+    "repository": null,
+    "deprecated": null,
+    "dependencies": {
+      "interactjs": "^1.10.27",
+      "@vexip-ui/hooks": "^2.8.0",
+      "@vexip-ui/utils": "^2.16.1"
+    },
+    "peerDependencies": {
+      "vue": "^3.0.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 2173600,
+    "registry": "https://registry.npmjs.org/grid-layout-plus",
+    "tarball": "https://registry.npmjs.org/grid-layout-plus/-/grid-layout-plus-1.1.1.tgz",
+    "distTags": {
+      "dev": "0.0.0",
+      "beta": "2.0.0-beta.0",
+      "latest": "1.1.1"
+    },
+    "accessed": "2026-09-11T05:43:09.587309+00:00"
+  },
+  {
+    "name": "ag-grid-community",
+    "version": "36.1.0",
+    "published": "2026-08-05T09:00:17.397Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/ag-grid/ag-grid.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "ag-stack": "36.1.0",
+      "ag-charts-types": "14.1.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 20962000,
+    "registry": "https://registry.npmjs.org/ag-grid-community",
+    "tarball": "https://registry.npmjs.org/ag-grid-community/-/ag-grid-community-36.1.0.tgz",
+    "distTags": {
+      "v32-lts": "32.3.9",
+      "latest": "36.1.0"
+    },
+    "accessed": "2026-09-11T05:43:10.564099+00:00"
+  },
+  {
+    "name": "ag-grid-enterprise",
+    "version": "36.1.0",
+    "published": "2026-08-05T09:00:24.161Z",
+    "license": "Commercial",
+    "repository": {
+      "url": "git+https://github.com/ag-grid/ag-grid.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "ag-stack": "36.1.0",
+      "ag-grid-community": "36.1.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 28822699,
+    "registry": "https://registry.npmjs.org/ag-grid-enterprise",
+    "tarball": "https://registry.npmjs.org/ag-grid-enterprise/-/ag-grid-enterprise-36.1.0.tgz",
+    "distTags": {
+      "v32-lts": "32.3.9",
+      "latest": "36.1.0"
+    },
+    "accessed": "2026-09-11T05:43:10.642683+00:00"
+  },
+  {
+    "name": "@tanstack/vue-table",
+    "version": "9.2.4",
+    "published": "2026-08-28T17:47:38.944Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/TanStack/table.git",
+      "directory": "packages/vue-table"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "@tanstack/store": "^0.11.1",
+      "@tanstack/table-core": "9.2.4"
+    },
+    "peerDependencies": {
+      "vue": ">=3.2"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 72026,
+    "registry": "https://registry.npmjs.org/%40tanstack%2Fvue-table",
+    "tarball": "https://registry.npmjs.org/@tanstack/vue-table/-/vue-table-9.2.4.tgz",
+    "distTags": {
+      "alpha": "9.0.0-alpha.54",
+      "beta": "9.0.0-beta.80",
+      "latest": "9.2.4"
+    },
+    "accessed": "2026-09-11T05:43:10.922753+00:00"
+  },
+  {
+    "name": "@tanstack/vue-virtual",
+    "version": "3.13.37",
+    "published": "2026-09-07T14:19:57.473Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/TanStack/virtual.git",
+      "type": "git",
+      "directory": "packages/vue-virtual"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "@tanstack/virtual-core": "3.17.9"
+    },
+    "peerDependencies": {
+      "vue": "^2.7.0 || ^3.0.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 18928,
+    "registry": "https://registry.npmjs.org/%40tanstack%2Fvue-virtual",
+    "tarball": "https://registry.npmjs.org/@tanstack/vue-virtual/-/vue-virtual-3.13.37.tgz",
+    "distTags": {
+      "beta": "3.0.0-beta.68",
+      "latest": "3.13.37"
+    },
+    "accessed": "2026-09-11T05:43:11.181233+00:00"
+  },
+  {
+    "name": "element-plus",
+    "version": "2.14.5",
+    "published": "2026-08-21T12:27:16.473Z",
+    "license": "MIT",
+    "repository": {
+      "url": "git+https://github.com/element-plus/element-plus.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "dayjs": "^1.11.20",
+      "lodash": "^4.18.1",
+      "lodash-es": "^4.18.1",
+      "memoize-one": "^6.0.0",
+      "@vueuse/core": "14.4.0",
+      "@types/lodash": "^4.17.24",
+      "@popperjs/core": "npm:@sxzz/popperjs-es@^2.11.8",
+      "lodash-unified": "^1.0.3",
+      "@ctrl/tinycolor": "^4.2.0",
+      "async-validator": "^4.2.5",
+      "@floating-ui/dom": "^1.8.0",
+      "@types/lodash-es": "^4.17.12",
+      "normalize-wheel-es": "^1.2.0",
+      "@element-plus/icons-vue": "^2.3.2",
+      "vue-component-type-helpers": "^3.3.9"
+    },
+    "peerDependencies": {
+      "vue": "^3.3.7"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 43563333,
+    "registry": "https://registry.npmjs.org/element-plus",
+    "tarball": "https://registry.npmjs.org/element-plus/-/element-plus-2.14.5.tgz",
+    "distTags": {
+      "latest": "2.14.5"
+    },
+    "accessed": "2026-09-11T05:43:11.623727+00:00"
+  },
+  {
+    "name": "uplot",
+    "version": "1.6.32",
+    "published": "2025-03-14T02:51:47.242Z",
+    "license": "MIT",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/leeoniya/uPlot.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 545468,
+    "registry": "https://registry.npmjs.org/uplot",
+    "tarball": "https://registry.npmjs.org/uplot/-/uplot-1.6.32.tgz",
+    "distTags": {
+      "latest": "1.6.32"
+    },
+    "accessed": "2026-09-11T05:43:11.663876+00:00"
+  },
+  {
+    "name": "vis-timeline",
+    "version": "8.5.4",
+    "published": "2026-08-12T15:57:02.063Z",
+    "license": "(Apache-2.0 OR MIT)",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/visjs/vis-timeline.git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "@egjs/hammerjs": "^2.0.0",
+      "component-emitter": "^1.3.0",
+      "keycharm": "^0.2.0 || ^0.3.0 || ^0.4.0",
+      "moment": "^2.24.0",
+      "propagating-hammerjs": "^1.4.0 || ^2.0.0 || ^3.0.0",
+      "uuid": "^3.4.0 || ^7.0.0 || ^8.0.0 || ^9.0.0 || ^10.0.0 || ^11.0.0 || ^13.0.0 || ^14.0.0",
+      "vis-data": ">=8.0.0",
+      "vis-util": ">=6.0.0",
+      "xss": "^1.0.0"
+    },
+    "peerDependenciesMeta": {},
+    "unpackedSize": 77798262,
+    "registry": "https://registry.npmjs.org/vis-timeline",
+    "tarball": "https://registry.npmjs.org/vis-timeline/-/vis-timeline-8.5.4.tgz",
+    "distTags": {
+      "latest": "8.5.4"
+    },
+    "accessed": "2026-09-11T05:43:12.601939+00:00"
+  },
+  {
+    "name": "d3-flame-graph",
+    "error": "<urlopen error EOF occurred in violation of protocol (_ssl.c:1129)>",
+    "registry": "https://registry.npmjs.org/d3-flame-graph"
+  },
+  {
+    "name": "highcharts",
+    "version": "13.0.2",
+    "published": "2026-08-27T07:38:29.964Z",
+    "license": "https://www.highcharts.com/license",
+    "repository": {
+      "url": "git+https://github.com/highcharts/highcharts-dist.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {},
+    "peerDependencies": {
+      "jspdf": "^4.1.0",
+      "svg2pdf.js": "^2.7.0"
+    },
+    "peerDependenciesMeta": {
+      "jspdf": {
+        "optional": true
+      },
+      "svg2pdf.js": {
+        "optional": true
+      }
+    },
+    "unpackedSize": 72163589,
+    "registry": "https://registry.npmjs.org/highcharts",
+    "tarball": "https://registry.npmjs.org/highcharts/-/highcharts-13.0.2.tgz",
+    "distTags": {
+      "hotfix-7.2.2": "7.2.2",
+      "beta": "13.0.0-beta.2",
+      "latest": "13.0.2"
+    },
+    "accessed": "2026-09-11T05:43:12.573550+00:00"
+  },
+  {
+    "name": "apexcharts",
+    "version": "7.1.0",
+    "published": "2026-08-31T07:01:19.051Z",
+    "license": "SEE LICENSE IN LICENSE",
+    "repository": {
+      "url": "git+https://github.com/apexcharts/apexcharts.js.git",
+      "type": "git"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "apex-commons": "^0.5.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 21171763,
+    "registry": "https://registry.npmjs.org/apexcharts",
+    "tarball": "https://registry.npmjs.org/apexcharts/-/apexcharts-7.1.0.tgz",
+    "distTags": {
+      "latest": "7.1.0",
+      "next": "7.2.0-rc.2"
+    },
+    "accessed": "2026-09-11T05:43:13.058596+00:00"
+  },
+  {
+    "name": "@logicflow/core",
+    "version": "2.2.5",
+    "published": "2026-07-30T07:15:37.854Z",
+    "license": "Apache-2.0",
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/didi/LogicFlow.git",
+      "directory": "packages/core"
+    },
+    "deprecated": null,
+    "dependencies": {
+      "lodash-es": "^4.17.21",
+      "classnames": "^2.3.2",
+      "mobx": "^5.15.7",
+      "mobx-preact": "^3.0.0",
+      "mobx-utils": "^5.6.1",
+      "mousetrap": "^1.6.5",
+      "preact": "^10.17.1",
+      "uuid": "^9.0.0"
+    },
+    "peerDependencies": {},
+    "peerDependenciesMeta": {},
+    "unpackedSize": 4688502,
+    "registry": "https://registry.npmjs.org/%40logicflow%2Fcore",
+    "tarball": "https://registry.npmjs.org/@logicflow/core/-/core-2.2.5.tgz",
+    "distTags": {
+      "stable": "1.1.31",
+      "next": "1.2.5",
+      "latest": "2.2.5",
+      "alpha": "2.2.5-alpha.0"
+    },
+    "accessed": "2026-09-11T05:43:13.107102+00:00"
+  }
+]

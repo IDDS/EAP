@@ -159,7 +159,7 @@
 
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
-            <component :is="Component" :key="route.path" />
+            <div :key="route.path" class="route-page"><component :is="Component" /></div>
           </transition>
         </router-view>
       </el-main>

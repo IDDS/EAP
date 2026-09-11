@@ -629,6 +629,9 @@ export interface TraceSpanObservation {
   durationMs: number
   attributesJson?: string
   observedAt: string
+  /** Producer timestamps; absent on legacy/synthetic observations. */
+  startedAt?: string | null
+  endedAt?: string | null
   /** Frontend fallback when a model invocation has a trace ID but no OTLP child span yet. */
   synthetic?: boolean
 }
@@ -905,6 +908,9 @@ export interface AgentManagementUsage {
 }
 
 export interface ManagementSummary {
+  resolvedTasks?: number
+  unresolvedTasks?: number
+  unconfirmedTasks?: number
   windowHours: number
   currency: string | null
   availableCurrencies: string[]

@@ -64,12 +64,14 @@
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
     </div>
 
+    <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" />
     <el-card v-if="contextTraceId" shadow="never" class="panel trace-inspector">
       <template #header>
         <div class="panel-header">
           <span>Trace 观测详情</span>
           <div class="trace-inspector-header-actions">
             <el-tag type="primary" effect="plain">{{ contextTraceId }}</el-tag>
+            <router-link v-if="contextTaskId" :to="{ path: '/operations', query: { taskId: String(contextTaskId) } }">返回关联任务 #{{ contextTaskId }}</router-link>
             <el-button link type="primary" @click="openGovernanceFromTrace">查看治理链路</el-button>
           </div>
         </div>
@@ -81,6 +83,7 @@
         <div><span>最长 Span</span><strong>{{ traceStats.maxDuration }} ms</strong></div>
         <div><span>内容观测</span><strong>{{ visibleContentObservations.length }}</strong></div>
       </div>
+      <TraceDiagnostics :spans="visibleTraceSpans" :trace-id="contextTraceId" :possibly-truncated="traceSpans.length >= 500" />
       <div class="trace-inspector-grid">
         <div class="trace-timeline">
           <div v-for="(span, index) in visibleTraceSpans" :key="span.id" class="trace-timeline-item">
@@ -539,7 +542,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
@@ -637,6 +641,7 @@ const contextAgentId = computed(() => {
   return Number.isFinite(value) && value > 0 ? value : undefined
 })
 const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
+const contextTaskId = computed(() => { const id = Number(route.query.taskId); return Number.isSafeInteger(id) && id > 0 ? id : undefined })
 const contextTraceId = computed(() => String(route.query.traceId || '').trim())
 const contextEventKey = computed(() => String(route.query.eventKey || '').trim())
 const drilldownLabel = computed(() => {
@@ -900,8 +905,13 @@ function clearDrilldown() {
   router.replace({ path: '/physical', query: {} })
 }
 
+const loadError = ref('')
+let loadVersion = 0
+let disposed = false
 async function load() {
+  const version = ++loadVersion
   loading.value = true
+  loadError.value = ''
   try {
     const [nextSummary, nextReconciliation, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans, nextToolInvocations] = await Promise.all([
       EapApi.getPhysicalTelemetrySummary(windowHours.value),
@@ -914,6 +924,7 @@ async function load() {
       EapApi.listTraceSpanObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listToolInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
     ])
+    if (disposed || version !== loadVersion) return
     summary.value = nextSummary
     reconciliation.value = nextReconciliation
     events.value = nextEvents
@@ -924,8 +935,10 @@ async function load() {
     traceSpans.value = nextTraceSpans
     toolInvocations.value = nextToolInvocations
     if (!telemetryForm.agentId) telemetryForm.agentId = nextAgents[0]?.id
+  } catch {
+    if (!disposed && version === loadVersion) loadError.value = '数据加载失败；保留当前筛选范围内已加载的记录，请刷新重试。'
   } finally {
-    loading.value = false
+    if (!disposed && version === loadVersion) loading.value = false
   }
 }
 
@@ -1093,5 +1106,13 @@ function toolStatusLabel(status: ToolInvocationStatus) {
   return labels[status] || status
 }
 
+watch([contextAgentId, contextEndpointKey, contextTraceId, contextEventKey], () => {
+  events.value = []
+  traceSpans.value = []
+  contentObservations.value = []
+  toolInvocations.value = []
+  void load()
+})
+onBeforeUnmount(() => { disposed = true; loadVersion++ })
 onMounted(load)
 </script>
