@@ -1,35 +1,46 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid evaluation-workspace">
     <div class="toolbar">
       <div class="toolbar-title">
         <strong>评估与可靠性</strong>
-        <span>把 Trace、任务结果和治理证据沉淀为可版本化评估</span>
+        <span>从运行证据到质量验证</span>
       </div>
       <div class="toolbar-actions">
-        <el-button :loading="syncing" @click="synchronize">异步同步近期观测</el-button>
+        <el-button type="primary" :loading="syncing" @click="synchronize">处理下一批观测</el-button>
         <el-button :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
 
+    <nav class="evaluation-tabs" aria-label="评估工作区">
+      <button v-for="tab in workspaceTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" :aria-current="activeTab === tab.key ? 'page' : undefined" @click="activeTab = tab.key">{{ tab.label }}</button>
+    </nav>
+    <el-alert v-if="pageError" :title="pageError" type="warning" :closable="false" show-icon />
+    <div v-show="activeTab === 'overview'" class="evaluation-overview">
+      <div class="evaluation-kpis">
+        <div><el-icon class="kpi-icon blue"><DataAnalysis /></el-icon><div><span>24 小时评估</span><strong>{{ summary.total }}</strong></div></div>
+        <div><el-icon class="kpi-icon green"><CircleCheck /></el-icon><div><span>规则通过率</span><strong>{{ summary.total ? `${passRate}%` : '—' }}</strong></div></div>
+        <div><el-icon class="kpi-icon amber"><Warning /></el-icon><div><span>未通过评估</span><strong>{{ summary.failed }}</strong></div></div>
+        <div><el-icon class="kpi-icon slate"><Collection /></el-icon><div><span>回归数据集</span><strong>{{ datasets.length }}</strong></div></div>
+      </div>
+      <div class="evaluation-process-layout">
+      <EvaluationRunProgress :job="activeJob" />
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>通信自动分析</strong><span>{{ contentAnalysis ? (contentAnalysis.enabled ? '已启用' : '已暂停') : '状态暂不可用' }}</span></div></template>
-      <p class="annotation-note">已采集的模型输出会生成关联时间线，并在有明确调用终态时自动评分。调用成功不代表业务任务完成；当前规则不判断正文质量。</p>
+      <p class="annotation-note">根据调用元数据生成时间线和状态评估。</p>
       <div v-if="contentAnalysis" class="evaluation-summary-grid">
         <div><span>待处理</span><strong>{{ contentAnalysis.counts.PENDING || 0 }}</strong></div>
         <div><span>已生成时间线</span><strong>{{ contentAnalysis.counts.DONE || 0 }}</strong></div>
         <div><span>缺少关联标识</span><strong>{{ contentAnalysis.counts.SKIPPED || 0 }}</strong></div>
         <div><span>处理失败</span><strong>{{ contentAnalysis.counts.FAILED || 0 }}</strong></div>
       </div>
+      <p class="annotation-note">调用成功不等于任务完成。</p>
       <p v-if="contentAnalysis?.counts.FAILED" class="annotation-note">部分记录重试后仍未完成分析，已采集的内容仍保留。请联系管理员排查。</p>
     </el-card>
 
-    <div class="metric-strip">
-      <div class="small-box" style="background: linear-gradient(135deg, #123c66, #1b6ca8)"><strong>{{ evaluators.length }}</strong><span>已注册评估器</span></div>
-      <div class="small-box" style="background: linear-gradient(135deg, #166534, #2f9e65)"><strong>{{ datasets.length }}</strong><span>评估数据集</span></div>
-      <div class="small-box" style="background: linear-gradient(135deg, #7c3aed, #8b5cf6)"><strong>{{ results.length }}</strong><span>最近评估结果</span></div>
-      <div class="small-box" style="background: linear-gradient(135deg, #9a3412, #ea580c)"><strong>{{ passRate }}%</strong><span>最近通过率</span></div>
+      </div>
+      <div class="evaluation-overview-note"><span>{{ syncing ? '正在跟踪任务进度' : '每批按已保存进度继续处理' }}</span><el-button v-if="!syncing && activeJob && ['QUEUED', 'RUNNING'].includes(activeJob.status)" link type="primary" @click="resumeJob(activeJob.id)">继续跟踪</el-button><el-button link type="primary" @click="activeTab = 'results'">查看评估结果 →</el-button></div>
     </div>
-
+    <template v-if="activeTab === 'results'">
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>评估窗口摘要</strong><span>按最近 {{ summary.windowHours }} 小时的完整结果统计，不受结果表展示条数限制</span></div></template>
       <div class="evaluation-summary-grid">
@@ -48,9 +59,11 @@
       <el-empty v-if="!summary.evaluators.length" description="当前窗口还没有评估结果" />
     </el-card>
 
+    </template>
+    <template v-if="activeTab === 'rules'">
     <div class="content-grid content-grid-wide">
       <el-card shadow="never" class="panel">
-        <template #header><div class="panel-heading"><strong>评估器目录</strong><span>当前为规则评分，后续可替换为本地 SLM / LLM Judge</span></div></template>
+        <template #header><div class="panel-heading"><strong>评估器目录</strong><span>规则与适用范围</span></div></template>
         <el-table :data="evaluators" v-loading="loading" size="small">
           <el-table-column prop="name" label="评估器" min-width="150" />
           <el-table-column prop="evaluatorKey" label="标识" min-width="180" />
@@ -82,6 +95,8 @@
       </el-card>
     </div>
 
+    </template>
+    <template v-if="activeTab === 'results'">
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>最近结果</strong><span>分数、置信度和证据可回溯到 Agent / Trace / Span</span></div></template>
       <el-table :data="results" v-loading="loading" size="small" row-key="id" @row-click="openResult">
@@ -98,18 +113,24 @@
       <el-empty v-if="!results.length && !loading" description="还没有评估结果，可先运行一次评估" />
     </el-card>
 
+    </template>
+    <template v-if="activeTab === 'overview'">
     <el-card shadow="never" class="panel">
-      <template #header><div class="panel-heading"><strong>投影任务</strong><span>评估扫描进入队列后由后台 Worker 执行，不占用页面请求线程</span></div></template>
-      <el-table :data="jobs" v-loading="loading" size="small">
+      <template #header><div class="panel-heading"><strong>处理记录</strong><span>最近 20 批 · 点击记录查看过程</span></div></template>
+      <el-table :data="jobs" v-loading="loading" size="small" @row-click="selectJob">
         <el-table-column prop="jobKey" label="任务" min-width="230" show-overflow-tooltip />
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="jobTagType(row.status)">{{ jobStatus(row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="扫描/评估" width="130"><template #default="{ row }">{{ row.scanned }} / {{ row.evaluated }}</template></el-table-column>
+        <el-table-column prop="skipped" label="跳过" width="80" />
         <el-table-column prop="failed" label="失败" width="80" />
+        <el-table-column label="进度" width="120"><template #default="{ row }">{{ row.processed || 0 }} / {{ row.total || 0 }}</template></el-table-column>
         <el-table-column label="提交时间" width="180"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column>
       </el-table>
       <el-empty v-if="!jobs.length && !loading" description="还没有后台投影任务" />
     </el-card>
 
+    </template>
+    <template v-if="activeTab === 'datasets'">
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>数据集</strong><span>版本化管理脱敏样本，并通过人工标签校准评估器</span></div></template>
       <div class="dataset-actions">
@@ -125,7 +146,7 @@
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-heading">
-          <strong>SME 标注样本</strong>
+          <strong>人工标注样本</strong>
           <div class="dataset-annotation-toolbar">
             <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" @change="selectDataset">
               <el-option v-for="item in datasets" :key="item.datasetKey" :label="`${item.name} · ${item.version}`" :value="item.datasetKey" />
@@ -158,7 +179,7 @@
     </el-card>
 
     <el-card v-if="selectedDatasetKey" shadow="never" class="panel">
-      <template #header><div class="panel-heading"><strong>评估器校准</strong><span>{{ selectedDatasetKey }} · 对比 SME ground truth 与评估器预测，弃权样本不进入混淆矩阵</span></div></template>
+      <template #header><div class="panel-heading"><strong>评估器校准</strong><span>{{ selectedDatasetKey }} · 对比人工标注与规则预测；弃权不计入准确率</span></div></template>
       <div class="button-row">
         <el-select v-model="selectedCalibrationRunId" aria-label="校准历史" style="width: 440px; max-width: 100%" @change="selectCalibrationRun">
           <el-option label="当前标注预览（随标注与评估器变化）" value="" />
@@ -219,7 +240,8 @@
       <div class="annotation-note">正文未采集、仅保存哈希或内容已隐藏时会跳过样本；可解析的脱敏 JSON 可用于运行。历史快照仅保存指标、定义和标注预测证据，不保存输入输出正文。</div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="评估证据详情" size="620px">
+    </template>
+    <el-drawer v-model="detailVisible" title="评估证据详情" size="min(760px, 100vw)">
       <template v-if="selectedResult">
         <div class="evaluation-detail-heading">
           <div>
@@ -243,6 +265,7 @@
         </div>
         <div class="evidence-json-block evaluation-evidence-block"><span>评估证据（脱敏/结构化）</span><pre>{{ prettyJson(selectedResult.evidence) }}</pre></div>
         <div class="evaluation-trace-heading"><strong>关联 Trace / Span</strong><el-button v-if="selectedResult.traceId" link type="primary" @click="openTraceWorkbench">打开 Trace 工作台</el-button></div>
+        <TraceEvidenceBars :spans="traceSpans" />
         <el-table v-loading="traceLoading" :data="traceSpans" size="small">
           <el-table-column label="类型" width="92"><template #default="{ row }">{{ traceKindLabel(row.spanKind) }}</template></el-table-column>
           <el-table-column label="Span" min-width="180"><template #default="{ row }"><strong>{{ row.spanName }}</strong><div class="muted">{{ row.spanId }}</div></template></el-table-column>
@@ -259,10 +282,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { DataAnalysis, CircleCheck, Warning, Collection } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
+import EvaluationRunProgress from '@/components/evaluation/EvaluationRunProgress.vue'
+import TraceEvidenceBars from '@/components/evaluation/TraceEvidenceBars.vue'
 import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationCalibrationRunSummary, EvaluationCalibrationRunDetail, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
+const workspaceTabs = [{ key: 'overview', label: '运行概览' }, { key: 'results', label: '评估结果' }, { key: 'datasets', label: '数据集与校准' }, { key: 'rules', label: '评估规则' }]
+const activeTab = ref('overview')
+const activeJob = ref<EvaluationJob>()
+const pageError = ref('')
+let loadRequestId = 0
 const evaluators = ref<EvaluatorDefinition[]>([])
 const datasets = ref<EvaluationDataset[]>([])
 const results = ref<EvaluationResult[]>([])
@@ -312,16 +343,20 @@ const confusionRows = computed(() => [
 ])
 
 async function load() {
+  const requestId = ++loadRequestId
   loading.value = true
+  pageError.value = ''
   try {
     const [evaluatorItems, datasetItems, resultItems, jobItems, summaryItem, analysisStatus] = await Promise.all([
       EapApi.listEvaluators(), EapApi.listEvaluationDatasets(), EapApi.listEvaluationResults({ limit: 100 }), EapApi.listEvaluationJobs(), EapApi.getEvaluationSummary(24),
       EapApi.getContentAnalysisStatus().catch(() => null),
     ])
+    if (pollingDisposed || requestId !== loadRequestId) return
     evaluators.value = evaluatorItems
     datasets.value = datasetItems
     results.value = resultItems
     jobs.value = jobItems
+    if (!syncing.value) activeJob.value = jobItems.find(item => ['QUEUED', 'RUNNING'].includes(item.status)) || jobItems[0]
     summary.value = summaryItem
     contentAnalysis.value = analysisStatus
     if (!selectedDatasetKey.value || !datasetItems.some(item => item.datasetKey === selectedDatasetKey.value)) {
@@ -333,8 +368,10 @@ async function load() {
       form.evaluatorKey = evaluatorItems[0].evaluatorKey
       applyExample()
     }
+  } catch {
+    if (!pollingDisposed && requestId === loadRequestId) pageError.value = '数据加载失败，已保留当前内容，请刷新重试'
   } finally {
-    loading.value = false
+    if (!pollingDisposed && requestId === loadRequestId) loading.value = false
   }
 }
 
@@ -405,20 +442,26 @@ function stopPolling() {
 }
 
 async function synchronize() {
+  if (syncing.value) return
   syncing.value = true
   try {
     const job = await EapApi.submitEvaluationJob(200)
     if (pollingDisposed) return
-    ElMessage.success(`评估投影任务已入队：${job.jobKey}`)
+    activeJob.value = job
+    jobs.value = [job, ...jobs.value.filter(item => item.id !== job.id)].slice(0, 20)
+    activeTab.value = 'overview'
+    ElMessage.success('评估任务已加入队列')
     await waitForJob(job.id)
-    if (!pollingDisposed) await load()
+    if (!pollingDisposed && activeJob.value && !['QUEUED', 'RUNNING'].includes(activeJob.value.status)) await load()
+  } catch {
+    if (!pollingDisposed) pageError.value = '提交状态未确认，请刷新处理记录后再试'
   } finally {
     syncing.value = false
   }
 }
 
 async function waitForJob(id: number) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 900; attempt += 1) {
     if (pollingDisposed) return
     await new Promise<void>(resolve => {
       finishPollDelay = resolve
@@ -427,10 +470,21 @@ async function waitForJob(id: number) {
     pollTimer = undefined
     finishPollDelay = undefined
     if (pollingDisposed) return
-    const job = await EapApi.getEvaluationJob(id)
+    let job: EvaluationJob
+    try { job = await EapApi.getEvaluationJob(id) }
+    catch {
+      if (!pollingDisposed) pageError.value = '进度连接中断，后台任务继续运行，可点击继续跟踪'
+      return
+    }
     if (pollingDisposed) return
+    activeJob.value = job
+    jobs.value = jobs.value.map(item => item.id === job.id ? job : item)
+    if (job.status === 'PARTIAL') {
+      ElMessage.warning(`本批处理完成，${job.failed} 条处理失败，后续扫描会重试`)
+      return
+    }
     if (job.status === 'SUCCEEDED') {
-      ElMessage.success(`后台评估完成：扫描 ${job.scanned} 条观测，生成 ${job.evaluated} 条结果`)
+      ElMessage.success(`后台评估完成：扫描 ${job.scanned} 条观测，评估/复用 ${job.evaluated} 条结果`)
       return
     }
     if (job.status === 'FAILED') {
@@ -441,12 +495,23 @@ async function waitForJob(id: number) {
   ElMessage.info('任务仍在后台执行，可稍后刷新查看结果')
 }
 
+function selectJob(job: EvaluationJob) {
+  if (!syncing.value) activeJob.value = job
+}
+
+async function resumeJob(id: number) {
+  if (syncing.value) return
+  syncing.value = true
+  try { pageError.value = ''; await waitForJob(id) }
+  finally { syncing.value = false }
+}
+
 function jobStatus(status: EvaluationJobStatus) {
-  return ({ QUEUED: '排队中', RUNNING: '执行中', SUCCEEDED: '已完成', FAILED: '失败' } as Record<EvaluationJobStatus, string>)[status]
+  return ({ QUEUED: '排队中', RUNNING: '执行中', SUCCEEDED: '已完成', PARTIAL: '部分失败', FAILED: '失败' } as Record<EvaluationJobStatus, string>)[status]
 }
 
 function jobTagType(status: EvaluationJobStatus) {
-  return status === 'SUCCEEDED' ? 'success' : status === 'FAILED' ? 'danger' : status === 'RUNNING' ? 'warning' : 'info'
+  return status === 'SUCCEEDED' ? 'success' : status === 'FAILED' ? 'danger' : status === 'RUNNING' || status === 'PARTIAL' ? 'warning' : 'info'
 }
 
 async function createDemoDataset() {
@@ -588,5 +653,12 @@ function formatTime(value?: string) {
 }
 
 onBeforeUnmount(stopPolling)
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (!pollingDisposed && activeJob.value && ['QUEUED', 'RUNNING'].includes(activeJob.value.status)) await resumeJob(activeJob.value.id)
+})
 </script>
+
+<style scoped>
+.evaluation-workspace{gap:18px}.evaluation-process-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px}.evaluation-process-layout .evaluation-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.evaluation-process-layout :deep(.el-card__body){padding:16px}.evaluation-process-layout .annotation-note{margin:0 0 12px;line-height:1.7}.evaluation-process-layout :deep(.el-card__header){padding:16px}.evaluation-process-layout .evaluation-summary-grid strong{font-size:21px}.evaluation-process-layout .evaluation-summary-grid>div{padding:12px}@media(max-width:1150px){.evaluation-process-layout{grid-template-columns:minmax(0,1fr)}}.evaluation-tabs{display:flex;gap:4px;border-bottom:1px solid #dbe3eb;overflow-x:auto}.evaluation-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;padding:13px 20px;color:#526175;font:inherit;white-space:nowrap;cursor:pointer;min-height:44px}.evaluation-tabs button.active{color:#176b9b;border-bottom-color:#2683b8;font-weight:600}.evaluation-tabs button:hover{background:#eef4f8}.evaluation-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.evaluation-overview{display:grid;gap:16px}.evaluation-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.evaluation-kpis>div{display:flex;gap:16px;align-items:center;padding:18px;background:white;border:1px solid #e2e8f0;border-radius:6px}.evaluation-kpis>div>div{display:grid;gap:5px}.evaluation-kpis span:not(.kpi-icon){font-size:13px;color:#64748b}.evaluation-kpis strong{font-size:27px;font-weight:600;line-height:1.2;color:#26374b;font-variant-numeric:tabular-nums}.kpi-icon{display:grid;place-items:center;width:46px;height:46px;border-radius:6px;font-size:19px;flex-shrink:0}.blue{background:#e6f1f8;color:#2679a7}.green{background:#e8f4ee;color:#277a58}.amber{background:#fff3e4;color:#a96623}.slate{background:#edf0f5;color:#63768c}.evaluation-overview-note{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#64748b;font-size:13px}.evaluation-workspace :deep(.panel){border-radius:6px;border-color:#e2e8f0}.evaluation-workspace :deep(.panel-heading)>span{color:#64748b;font-size:13px}.evaluation-workspace :deep(.el-table__row){cursor:pointer}@media(max-width:1000px){.evaluation-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.evaluation-kpis{gap:10px}.evaluation-kpis>div{padding:12px;gap:10px}.kpi-icon{width:34px;height:38px;font-size:16px}.evaluation-kpis strong{font-size:23px}.evaluation-tabs button{padding:12px}.evaluation-workspace :deep(.panel-heading){align-items:flex-start;gap:8px;flex-wrap:wrap}}
+</style>

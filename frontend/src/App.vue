@@ -1,5 +1,7 @@
 <template>
-  <el-container class="app-shell">
+  <router-view v-if="route.meta.standalone" />
+  <el-container v-else class="app-shell">
+    <a class="skip-content-link" href="#main-content">跳到主要内容</a>
     <el-aside :width="sidebarCollapsed ? '72px' : '248px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
@@ -7,7 +9,7 @@
           <strong>企业智能体平台</strong>
           <span>EAP · 智能体控制平面</span>
         </div>
-        <el-button class="sidebar-toggle" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
+        <el-button class="sidebar-toggle" :aria-label="sidebarCollapsed ? '展开导航' : '收起导航'" :aria-expanded="!sidebarCollapsed" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
         <el-menu
@@ -20,8 +22,9 @@
         >
           <el-menu-item index="/">
             <el-icon><DataBoard /></el-icon>
-            <span>总览与拓扑</span>
+            <span>运营工作台</span>
           </el-menu-item>
+          <el-menu-item index="/command-center"><el-icon><DataBoard /></el-icon><span>运行指挥大屏</span></el-menu-item>
           <el-sub-menu index="workspace-agents">
             <template #title>
               <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-agents', '/agents')">
@@ -77,10 +80,10 @@
         </el-menu>
       </div>
       <div class="sidebar-status">
-        <span class="status-dot"></span>
+        <span class="status-dot" :class="{ 'status-unknown': !platformStatus || platformStatusLoading, 'status-development': platformStatus?.securityMode === 'DEVELOPMENT' }"></span>
         <div class="sidebar-status-copy">
-          <strong>安全网关在线</strong>
-          <span>本地策略已加载</span>
+          <strong>{{ platformStatusLoading ? '正在确认环境' : !platformStatus ? '环境状态未知' : platformStatus.securityMode === 'DEVELOPMENT' ? '开发演示环境' : '企业认证环境' }}</strong>
+          <span>{{ platformStatus ? (platformStatus.controlDispatchEnabled ? '控制派发已启用' : '控制派发未启用') : '请检查平台连接' }}</span>
         </div>
       </div>
     </el-aside>
@@ -144,7 +147,16 @@
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
         </div>
       </el-header>
-      <el-main class="main">
+      <el-main id="main-content" class="main" tabindex="-1">
+  <div v-if="!route.meta.standalone && platformStatus?.securityMode === 'DEVELOPMENT'" class="app-environment-banner" role="status">
+    <span class="app-environment-dot"></span>
+    <span><strong>开发演示环境</strong> · 当前接口未启用 JWT 认证，请勿接入生产数据</span>
+  </div>
+  <div v-else-if="!route.meta.standalone && platformStatusLoading" class="app-environment-banner app-environment-banner-muted" role="status">
+    <span class="app-environment-dot"></span>
+    <span>正在确认 EAP 运行环境…</span>
+  </div>
+
         <router-view v-slot="{ Component }">
           <transition name="page-fade" mode="out-in">
             <component :is="Component" :key="route.path" />
@@ -154,14 +166,6 @@
     </el-container>
   </el-container>
 
-  <div v-if="platformStatus?.securityMode === 'DEVELOPMENT'" class="app-environment-banner" role="status">
-    <span class="app-environment-dot"></span>
-    <span><strong>开发演示环境</strong> · 当前接口未启用 JWT 认证，请勿接入生产数据</span>
-  </div>
-  <div v-else-if="platformStatusLoading" class="app-environment-banner app-environment-banner-muted" role="status">
-    <span class="app-environment-dot"></span>
-    <span>正在确认 EAP 运行环境…</span>
-  </div>
 
   <div v-if="updateAvailable" class="app-update-banner" role="status">
     <span>检测到 EAP 前端有新版本</span>

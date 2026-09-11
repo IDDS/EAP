@@ -55,18 +55,18 @@ class EvaluationJobServiceTests {
         ReflectionTestUtils.setField(job, "status", EvaluationJobStatus.QUEUED);
         ReflectionTestUtils.setField(job, "createdAt", Instant.parse("2026-09-02T00:00:00Z"));
         when(repository.findTop1ByStatusOrderByCreatedAtAsc(EvaluationJobStatus.QUEUED)).thenReturn(Optional.of(job));
-        when(projectionService.synchronize(200)).thenReturn(new EvaluationDtos.EvaluationSyncResponse(8, 6, 1, 1));
+        when(projectionService.synchronize(org.mockito.ArgumentMatchers.eq(200), any())).thenReturn(new EvaluationDtos.EvaluationSyncResponse(8, 6, 1, 1));
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         service.processNext();
 
-        assertThat(job.getStatus()).isEqualTo(EvaluationJobStatus.SUCCEEDED);
+        assertThat(job.getStatus()).isEqualTo(EvaluationJobStatus.PARTIAL);
         assertThat(job.getScanned()).isEqualTo(8);
         assertThat(job.getEvaluated()).isEqualTo(6);
         assertThat(job.getSkipped()).isEqualTo(1);
         assertThat(job.getFailed()).isEqualTo(1);
         assertThat(job.getCompletedAt()).isNotNull();
         verify(repository).save(job);
-        verify(repository).finishRunning(job.id, EvaluationJobStatus.SUCCEEDED, 8, 6, 1, 1, null, job.completedAt);
+        verify(repository).finishRunning(job.id, EvaluationJobStatus.PARTIAL, 8, 6, 1, 1, null, job.completedAt);
     }
 }

@@ -10,4 +10,10 @@ public interface ToolInvocationEventRepository extends JpaRepository<ToolInvocat
     Optional<ToolInvocationEvent> findByInvocationKey(String invocationKey);
 
     List<ToolInvocationEvent> findTop500ByOrderByObservedAtDesc();
+    @org.springframework.data.jpa.repository.Query("select coalesce(max(e.id), 0) from ToolInvocationEvent e")
+    long scanUpperBound();
+
+    List<ToolInvocationEvent> findByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(
+            long after, long upper, org.springframework.data.domain.Pageable page);
+
 }

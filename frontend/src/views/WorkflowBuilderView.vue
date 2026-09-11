@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <strong>拖拽式智能体工作流</strong>
+        <strong>智能体工作流</strong>
         <span>从左侧拖拽 Agent 到画布，点击两个节点创建执行连线</span>
       </div>
       <div class="button-row">
@@ -16,6 +16,11 @@
       </div>
     </div>
 
+    <div class="workflow-view-tabs" aria-label="工作流视图">
+      <button :class="{ active: workflowTab === 'design' }" @click="workflowTab = 'design'">流程设计</button>
+      <button :class="{ active: workflowTab === 'runs' }" @click="workflowTab = 'runs'">执行过程 <span>{{ executions.length }}</span></button>
+    </div>
+    <template v-if="workflowTab === 'design'">
     <el-alert title="安全预演：检查节点策略与分支路径，不调用 Agent、不生成制品；预演通过不代表任务执行成功。" type="info" :closable="false" show-icon />
     <el-alert :title="executionAvailability.message" :type="executionAvailability.enabled ? 'warning' : 'info'" :closable="false" />
     <div class="button-row">
@@ -26,25 +31,9 @@
       </el-select>
       <el-checkbox v-model="previewApproved">假设 approved 分支条件为真（不授予治理审批）</el-checkbox>
     </div>
-    <el-card v-if="executions.length || executionError" shadow="never">
-      <template #header><div class="button-row"><strong>真实执行记录 · 最近 20 次</strong><el-button :loading="executionsLoading" @click="loadExecutions">刷新</el-button></div></template>
-      <el-alert v-if="executionError" :title="executionError" type="error" :closable="false" />
-      <el-table :data="executions" @row-click="selectedExecutionKey = $event.runKey" highlight-current-row>
-        <el-table-column prop="runKey" label="执行标识" min-width="210" />
-        <el-table-column prop="requester" label="发起人" width="140" />
-        <el-table-column label="状态" width="150"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
-        <el-table-column prop="reason" label="结果说明" min-width="220" />
-      </el-table>
-      <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
-        <el-table-column prop="label" label="节点" /><el-table-column prop="taskKey" label="任务标识" min-width="240" />
-        <el-table-column prop="runtimeInstanceKey" label="运行实例" />
-        <el-table-column label="状态"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
-        <el-table-column prop="reason" label="完成证据" min-width="180" />
-      </el-table>
-    </el-card>
     <div class="workflow-builder">
       <aside class="workflow-palette">
-        <div class="palette-title">Agent Palette</div>
+        <div class="palette-title">可用智能体</div>
         <div
           v-for="agent in agents"
           :key="agent.id"
@@ -55,7 +44,7 @@
           <strong>{{ agent.name }}</strong>
           <span>{{ agent.code }} · {{ agent.riskLevel }}</span>
         </div>
-        <div class="palette-title">System Nodes</div>
+        <div class="palette-title">流程节点</div>
         <div
           v-for="node in systemNodes"
           :key="node.nodeType"
@@ -116,7 +105,7 @@
       </main>
 
       <aside class="workflow-inspector">
-        <div class="palette-title">Inspector</div>
+        <div class="palette-title">节点配置</div>
         <template v-if="selectedNode">
           <el-form label-position="top">
             <el-form-item label="节点名称">
@@ -159,6 +148,27 @@
         </div>
       </aside>
     </div>
+    </template>
+    <template v-if="workflowTab === 'runs'">
+    <el-card shadow="never">
+      <template #header><div class="button-row"><strong>真实执行记录 · 最近 20 次</strong><el-button :loading="executionsLoading" @click="loadExecutions">刷新</el-button></div></template>
+      <el-alert v-if="executionError" :title="executionError" type="error" :closable="false" />
+      <el-empty v-if="!executions.length && !executionsLoading && !executionError" description="暂无真实执行记录；安全预演记录保留在流程设计中" />
+      <el-table v-else :data="executions" @row-click="selectedExecutionKey = $event.runKey" highlight-current-row>
+        <el-table-column prop="runKey" label="执行标识" min-width="210" />
+        <el-table-column prop="requester" label="发起人" width="140" />
+        <el-table-column label="状态" width="150"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
+        <el-table-column prop="reason" label="结果说明" min-width="220" />
+      </el-table>
+      <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
+      <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
+        <el-table-column prop="label" label="节点" /><el-table-column prop="taskKey" label="任务标识" min-width="240" />
+        <el-table-column prop="runtimeInstanceKey" label="运行实例" />
+        <el-table-column label="状态"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
+        <el-table-column prop="reason" label="完成证据" min-width="180" />
+      </el-table>
+    </el-card>
+    </template>
   </section>
 </template>
 
@@ -167,6 +177,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
+import ExecutionTimeline from '@/components/workflow/ExecutionTimeline.vue'
 import type { Agent, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowRun, WorkflowExecution } from '@/types/domain'
 
 type DragPayload = {
@@ -177,6 +188,7 @@ type DragPayload = {
 }
 
 const canvasRef = ref<HTMLElement>()
+const workflowTab = ref('design')
 const workflows = ref<WorkflowDefinition[]>([])
 const selectedWorkflowId = ref<number>()
 const agents = ref<Agent[]>([])
@@ -212,6 +224,7 @@ async function loadExecutions() {
     const rows = await EapApi.listWorkflowExecutions(id)
     if (disposed || requestId !== executionRequestId || id !== selectedWorkflowId.value) return
     executions.value = rows
+    if (!rows.some(row => row.runKey === selectedExecutionKey.value)) selectedExecutionKey.value = rows[0]?.runKey || ''
     executionError.value = ''
   } catch {
     if (!disposed && requestId === executionRequestId) executionError.value = '执行记录加载失败，请重试'
@@ -226,6 +239,7 @@ async function executeWorkflow() {
     const result = await EapApi.executeWorkflow(id, { objective: workflows.value.find(row => row.id === id)?.name,
       context: { severity: previewSeverity.value, approved: previewApproved.value } })
     if (disposed || id !== selectedWorkflowId.value || revision !== workflowRequestId) return
+    workflowTab.value = 'runs'
     selectedExecutionKey.value = result.runKey
     await loadExecutions()
     if (!disposed && id === selectedWorkflowId.value && revision === workflowRequestId) ElMessage.success('已提交真实执行，可在执行记录查看进度')
@@ -518,3 +532,7 @@ onMounted(() => {
 })
 onUnmounted(() => { disposed = true; ++executionRequestId; ++workflowRequestId; ++previewRequestId; if (executionTimer) clearInterval(executionTimer) })
 </script>
+
+<style scoped>
+.workflow-view-tabs{display:flex;border-bottom:1px solid #dbe3eb;gap:8px}.workflow-view-tabs button{font:inherit;border:0;border-bottom:3px solid transparent;background:none;min-height:44px;padding:12px 20px;color:#526175;cursor:pointer}.workflow-view-tabs button.active{color:#176b9b;font-weight:600;border-bottom-color:#2683b8}.workflow-view-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.workflow-view-tabs span{font-size:12px;border-radius:4px;background:#e8eef4;padding:2px 6px;margin-left:8px}
+</style>

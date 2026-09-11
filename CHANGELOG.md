@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0.0] - 2026-09-11
+
+- 新增运行指挥大屏、拓扑搜索/分页/关联聚焦/放大及可控轮播。
+- 运营工作台默认展示待处理事项，手机事项卡片，真实环境与刷新状态。
+- 持久评估扫描、租约和固定上界，完整已接收 Trace 证据与显式完成信号。
+- 后台评估阶段/真实计数/PARTIAL，工作流执行过程与证据可视化。
+- Flyway V44；后端 202 项与前端 54 项回归基线。
+
 ## [0.2.1.0] - 2026-09-08
 
 - Automatically project captured model outputs into derived MODEL spans and metadata-only MODEL_CALL_STATUS evaluations (Flyway V43).

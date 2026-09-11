@@ -10,4 +10,11 @@ public interface TraceSpanObservationRepository extends JpaRepository<TraceSpanO
     Optional<TraceSpanObservation> findByTraceIdAndSpanId(String traceId, String spanId);
 
     List<TraceSpanObservation> findTop500ByOrderByObservedAtDesc();
+    @org.springframework.data.jpa.repository.Query("select coalesce(max(e.id), 0) from TraceSpanObservation e")
+    long scanUpperBound();
+
+    List<TraceSpanObservation> findByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(
+            long after, long upper, org.springframework.data.domain.Pageable page);
+
+    List<TraceSpanObservation> findByTraceIdOrderByIdAsc(String traceId, org.springframework.data.domain.Pageable page);
 }

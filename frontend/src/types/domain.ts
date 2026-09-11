@@ -1254,7 +1254,7 @@ export interface WorkflowExecution {
 export type EvaluatorType = 'RULE' | 'CODE' | 'LLM_JUDGE' | 'LOCAL_SLM'
 export type EvaluationLevel = 'SPAN' | 'TRACE' | 'SESSION' | 'AGENT' | 'WORKFLOW'
 export type EvaluationStatus = 'COMPLETED' | 'FAILED'
-export type EvaluationJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+export type EvaluationJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED'
 
 export interface EvaluatorDefinition {
   id: number
@@ -1326,6 +1326,9 @@ export interface EvaluationResult {
 }
 
 export interface EvaluationJob {
+  phase?: string
+  processed?: number
+  total?: number
   id: number
   jobKey: string
   requestedLimit: number

@@ -19,7 +19,8 @@ const EvaluationView = () => import('@/views/EvaluationView.vue')
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: DashboardView, meta: { title: '总览与拓扑' } },
+    { path: '/command-center', component: () => import('@/views/CommandCenterView.vue'), meta: { title: '运行指挥大屏', standalone: true } },
+    { path: '/', component: DashboardView, meta: { title: '运营工作台' } },
     { path: '/agents', component: AgentsView, meta: { title: '智能体目录' } },
     { path: '/agents/:id', component: AgentDetailView, meta: { title: '智能体详情' } },
     { path: '/registry', component: AgentRegistryView, meta: { title: '发现与接入' } },

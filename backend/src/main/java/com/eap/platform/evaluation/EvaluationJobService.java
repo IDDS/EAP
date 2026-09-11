@@ -71,21 +71,32 @@ public class EvaluationJobService {
                     .orElse(null);
             if (queued == null) return null;
             queued.status = EvaluationJobStatus.RUNNING;
+            queued.phase = "PREPARING";
             queued.startedAt = Instant.now();
             return repository.save(queued);
         });
         if (job == null) return;
         try {
-            EvaluationDtos.EvaluationSyncResponse result = projectionService.synchronize(job.requestedLimit);
+            EvaluationDtos.EvaluationSyncResponse result = projectionService.synchronize(job.requestedLimit, progress -> {
+                Instant now = Instant.now();
+                Integer updated = jobTransaction.execute(status -> repository.progress(job.id, progress.phase(),
+                        progress.processed(), progress.total(), progress.scanned(), progress.evaluated(),
+                        progress.skipped(), progress.failed(), now, now.minusSeconds(Math.max(1, jobTimeoutSeconds))));
+                if (updated == null || updated == 0) throw new BusinessException("任务已停止或超时");
+                job.scanned = progress.scanned(); job.evaluated = progress.evaluated();
+                job.skipped = progress.skipped(); job.failed = progress.failed();
+            });
             job.scanned = result.scanned();
             job.evaluated = result.evaluated();
             job.skipped = result.skipped();
             job.failed = result.failed();
-            job.status = EvaluationJobStatus.SUCCEEDED;
+            job.status = result.failed() > 0 ? EvaluationJobStatus.PARTIAL : EvaluationJobStatus.SUCCEEDED;
             job.completedAt = Instant.now();
         } catch (RuntimeException exception) {
             job.status = EvaluationJobStatus.FAILED;
-            job.errorMessage = trim(exception.getMessage());
+            job.errorMessage = exception instanceof com.eap.platform.common.ConflictException
+                    ? "已有扫描运行或扫描租约失效，请稍后重试；已保存结果会复用"
+                    : "评估任务中断，已保存结果保留，请检查任务状态后重试";
             job.completedAt = Instant.now();
         }
         jobTransaction.executeWithoutResult(status -> repository.finishRunning(job.id, job.status, job.scanned,

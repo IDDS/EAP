@@ -33,4 +33,11 @@ public interface EvaluationProjectionJobRepository extends JpaRepository<Evaluat
             + "where j.id = :id and j.status = com.eap.platform.evaluation.EvaluationJobStatus.RUNNING")
     int finishRunning(Long id, EvaluationJobStatus status, int scanned, int evaluated, int skipped, int failed,
                       String error, Instant now);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update EvaluationProjectionJob j set j.phase = :phase, j.processed = :processed, j.total = :total, "
+            + "j.scanned = :scanned, j.evaluated = :evaluated, j.skipped = :skipped, j.failed = :failed, j.updatedAt = :now "
+            + "where j.id = :id and j.status = com.eap.platform.evaluation.EvaluationJobStatus.RUNNING and j.startedAt > :cutoff")
+    int progress(Long id, String phase, int processed, int total, int scanned, int evaluated, int skipped, int failed,
+                 Instant now, Instant cutoff);
+
 }

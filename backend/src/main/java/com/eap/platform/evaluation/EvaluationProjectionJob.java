@@ -42,6 +42,11 @@ public class EvaluationProjectionJob {
     @Column(nullable = false)
     Integer failed = 0;
 
+    @Column(nullable = false, length = 32)
+    String phase = "QUEUED";
+    @Column(nullable = false) int processed = 0;
+    @Column(nullable = false) int total = 0;
+
     @Column(name = "error_message", length = 2048)
     String errorMessage;
 

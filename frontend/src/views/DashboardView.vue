@@ -1,36 +1,41 @@
 <template>
-  <section class="page-grid agentops-workbench" v-loading="loading">
+  <section class="page-grid agentops-workbench" :aria-busy="loading">
     <header class="agentops-page-header">
       <div>
         <span class="interface-eyebrow">EAP · ACTION WORKBENCH</span>
         <h2>运营工作台</h2>
-        <p>优先处理影响运行、身份、治理和观测完整性的事项。所有数字均显示证据基础与时间窗口。</p>
+        <p>优先处理影响运行、身份、治理和观测完整性的事项。按优先级查看证据、分派责任并跟进处置。</p>
       </div>
       <div class="button-row">
         <span class="context-summary">{{ context.scopeLabel }} · {{ context.windowLabel }}</span>
+        <router-link to="/command-center" class="command-center-link">打开运行大屏 ↗</router-link>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新视图</el-button>
       </div>
     </header>
-    <p class="muted">信号同步：{{ dashboard.lastSignalSyncAt ? formatDate(dashboard.lastSignalSyncAt) : '尚未完成' }} · {{ ({ NO_DATA: '暂无同步记录', FRESH: '最近已同步', AGING: '待更新', STALE: '同步已过期' } as Record<string, string>)[dashboard.signalSyncFreshness] }}</p>
+    <p class="muted">信号同步：{{ dashboard.lastSignalSyncAt ? formatDate(dashboard.lastSignalSyncAt) : '尚未完成' }} · {{ ({ NO_DATA: '暂无同步记录', FRESH: '最近已同步', AGING: '待更新', STALE: '同步已过期' } as Record<string, string>)[dashboard.signalSyncFreshness] }}<span v-if="dashboard.demoDataIncluded"> · 含演示智能体</span></p>
 
-    <el-alert v-if="dashboard.demoDataIncluded" type="warning" :closable="false" show-icon title="当前为开发模式：页面包含明确标记的演示 Agent；JWT 生产模式会从 EAP 主视图排除这些记录。" />
 
+
+    <el-alert v-if="dashboardError" type="error" :closable="false" show-icon :title="dashboardError" />
     <div class="workbench-priority-strip">
-      <button class="priority-cell priority-critical" type="button" @click="applySeverity('P0')">
-        <span>P0 · 立即响应</span><strong>{{ dashboard.workItems.p0 }}</strong><small>关键安全或治理阻断</small>
+      <button class="priority-cell priority-critical" type="button" :aria-pressed="severityFilter === 'P0'" :class="{ 'is-selected': severityFilter === 'P0' }" @click="applySeverity('P0')">
+        <span>P0 · 立即响应</span><strong>{{ hasDashboard ? dashboard.workItems.p0 : '—' }}</strong><small>关键安全或治理阻断</small>
       </button>
-      <button class="priority-cell priority-high" type="button" @click="applySeverity('P1')">
-        <span>P1 · 高优先</span><strong>{{ dashboard.workItems.p1 }}</strong><small>离线、身份与高风险事项</small>
+      <button class="priority-cell priority-high" type="button" :aria-pressed="severityFilter === 'P1'" :class="{ 'is-selected': severityFilter === 'P1' }" @click="applySeverity('P1')">
+        <span>P1 · 高优先</span><strong>{{ hasDashboard ? dashboard.workItems.p1 : '—' }}</strong><small>离线、身份与高风险事项</small>
       </button>
-      <button class="priority-cell priority-medium" type="button" @click="applySeverity('P2')">
-        <span>P2 · 计划内处理</span><strong>{{ dashboard.workItems.p2 }}</strong><small>降级与观测完整性</small>
+      <button class="priority-cell priority-medium" type="button" :aria-pressed="severityFilter === 'P2'" :class="{ 'is-selected': severityFilter === 'P2' }" @click="applySeverity('P2')">
+        <span>P2 · 计划内处理</span><strong>{{ hasDashboard ? dashboard.workItems.p2 : '—' }}</strong><small>降级与观测完整性</small>
       </button>
-      <button class="priority-cell priority-overdue" type="button" @click="showOverdueOnly = !showOverdueOnly">
-        <span>SLA · 已逾期</span><strong>{{ dashboard.workItems.overdue }}</strong><small>{{ showOverdueOnly ? '再次点击取消筛选' : '需要升级或重新分派' }}</small>
+      <button class="priority-cell priority-overdue" type="button" :aria-pressed="showOverdueOnly" :class="{ 'is-selected': showOverdueOnly }" @click="toggleOverdue">
+        <span>SLA · 已逾期</span><strong>{{ hasDashboard ? dashboard.workItems.overdue : '—' }}</strong><small>{{ showOverdueOnly ? '再次点击取消筛选' : '需要升级或重新分派' }}</small>
       </button>
     </div>
 
-    <div class="evidence-metric-grid">
+    <nav class="workbench-tabs" aria-label="工作台视图">
+      <button v-for="tab in workbenchTabs" :key="tab.key" :aria-pressed="workbenchTab === tab.key" @click="workbenchTab = tab.key">{{ tab.label }}<span v-if="tab.key === 'queue' && hasDashboard">{{ dashboard.workItems.totalOpen }}</span></button>
+    </nav>
+    <div v-show="workbenchTab === 'metrics'" class="evidence-metric-grid">
       <article v-for="metric in dashboard.metrics" :key="metric.key" class="evidence-metric-card">
         <div><span>{{ metric.label }}</span><EvidenceBadge :basis="metric.basis" :source="metric.source" :freshness="freshnessLabel(metric.freshness)" /></div>
         <strong>{{ formatNumber(metric.value) }}</strong>
@@ -38,7 +43,7 @@
       </article>
     </div>
 
-    <el-card shadow="never" class="panel topology-panel">
+    <el-card v-show="workbenchTab === 'network'" shadow="never" class="panel topology-panel">
       <template #header>
         <div class="panel-header">
           <span>智能体网络控制面 / 数据面</span>
@@ -197,19 +202,21 @@
       </div>
     </el-card>
 
-    <el-card shadow="never" class="panel workbench-queue-panel">
+    <el-card v-show="workbenchTab === 'queue'" shadow="never" class="panel workbench-queue-panel">
       <template #header>
         <div class="panel-header workbench-panel-header">
-          <div><strong>我的运营队列</strong><span>{{ queueCaption }}</span></div>
+          <div><strong>运营事项队列</strong><span>{{ queueCaption }}</span></div>
           <div class="workbench-filters">
-            <el-select v-model="severityFilter" clearable placeholder="全部级别" style="width: 126px">
+            <el-select v-model="severityFilter" clearable placeholder="全部级别" aria-label="事项优先级" style="width: 126px">
               <el-option v-for="level in ['P0', 'P1', 'P2', 'P3']" :key="level" :label="level" :value="level" />
             </el-select>
             <el-button text @click="clearFilters">清除筛选</el-button>
           </div>
         </div>
       </template>
-      <WorkItemTable
+      <div v-if="severityFilter || showOverdueOnly" class="queue-filter-summary" role="status"><span>当前筛选：{{ severityFilter || '全部级别' }}{{ showOverdueOnly ? ' · 仅逾期' : '' }}</span><el-button link @click="clearFilters">重置</el-button></div>
+      <el-empty v-if="!hasDashboard && !loading" description="事项数据尚未加载，请刷新重试" :image-size="64" />
+      <WorkItemTable v-else
         :items="filteredWorkItems"
         :loading="loading"
         @inspect="inspectWorkItem"
@@ -218,7 +225,7 @@
       />
     </el-card>
 
-    <div class="workbench-lower-grid">
+    <div v-show="workbenchTab === 'queue' && hasDashboard" class="workbench-lower-grid">
       <el-card shadow="never" class="panel attention-agent-panel">
         <template #header><div class="panel-header"><span>需要关注的 Agent</span><el-button link type="primary" @click="router.push('/agents')">查看全部</el-button></div></template>
         <button v-for="agent in dashboard.attentionAgents" :key="agent.id" class="attention-agent-row" type="button" @click="openAgent(agent.id)">
@@ -243,7 +250,7 @@
     </div>
   </section>
 
-  <el-drawer v-model="detailVisible" title="运营事项证据" size="520px">
+  <el-drawer v-model="detailVisible" title="运营事项证据" size="min(520px, 100vw)">
     <template v-if="selectedWorkItem">
       <div class="work-item-drawer-heading">
         <span class="severity-badge" :class="`severity-${selectedWorkItem.severity.toLowerCase()}`">{{ selectedWorkItem.severity }}</span>
@@ -262,7 +269,7 @@
     </template>
   </el-drawer>
 
-  <el-dialog v-model="transitionVisible" :title="transitionTitle" width="520px">
+  <el-dialog v-model="transitionVisible" :title="transitionTitle" width="min(520px, 94vw)">
     <el-form label-position="top">
       <el-form-item v-if="targetStatus === 'CLAIMED'" label="负责人">
         <el-input v-model="transitionForm.assignee" placeholder="输入本次事项负责人" />
@@ -294,6 +301,10 @@ type NetworkViewMode = 'ALL' | 'CONTROL' | 'DATA' | 'EVIDENCE'
 
 const router = useRouter()
 const context = useAgentOpsContextStore()
+const workbenchTab = ref('queue')
+const workbenchTabs = [{ key: 'queue', label: '待处理事项' }, { key: 'network', label: '拓扑与控制' }, { key: 'metrics', label: '观测指标' }]
+const hasDashboard = ref(false)
+const dashboardError = ref('')
 const loading = ref(false)
 const networkLoading = ref(false)
 const networkError = ref('')
@@ -387,9 +398,9 @@ async function load() {
       hours: context.windowHours,
       organizationScope: context.organizationScope || undefined,
     })
-    if (requestId === dashboardRequestId) dashboard.value = result
+    if (requestId === dashboardRequestId) { dashboard.value = result; hasDashboard.value = true; dashboardError.value = '' }
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '运营工作台加载失败')
+    if (requestId === dashboardRequestId) dashboardError.value = hasDashboard.value ? '更新失败，以下保留上次成功加载的结果。请刷新重试。' : '运营数据暂不可用，请检查连接后刷新重试。'
   } finally { if (requestId === dashboardRequestId) loading.value = false }
 }
 
@@ -468,7 +479,8 @@ async function retryCommand(command: AgentControlCommand) {
   } finally { retryingCommandKey.value = '' }
 }
 
-function applySeverity(value: WorkItemSeverity) { severityFilter.value = severityFilter.value === value ? undefined : value }
+function applySeverity(value: WorkItemSeverity) { severityFilter.value = severityFilter.value === value ? undefined : value; workbenchTab.value = 'queue' }
+function toggleOverdue() { showOverdueOnly.value = !showOverdueOnly.value; workbenchTab.value = 'queue' }
 function clearFilters() { severityFilter.value = undefined; showOverdueOnly.value = false }
 function openAgent(id: number) { router.push(`/agents/${id}`) }
 function inspectWorkItem(item: AgentOpsWorkItem) { selectedWorkItem.value = item; detailVisible.value = true }
@@ -509,3 +521,7 @@ function commandStatusType(value: AgentControlCommand['status']) { return ({ QUE
 watch(() => [context.windowHours, context.organizationScope], load)
 onMounted(() => { void Promise.all([load(), loadNetwork()]) })
 </script>
+
+<style scoped>
+.command-center-link{color:#176b9b;text-decoration:none;border:1px solid #b8cede;border-radius:5px;padding:9px 14px;font-size:14px}.command-center-link:hover{background:#eef5fa}.command-center-link:focus-visible{outline:2px solid #2683b8;outline-offset:3px}
+</style>

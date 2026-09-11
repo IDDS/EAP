@@ -6,8 +6,9 @@ import ts from 'typescript'
 
 // Run the real SFC functions with deferred API responses, without browser dependencies.
 function functionsFrom(file, names, state) {
+  if (file === 'views/EvaluationView.vue') Object.assign(state, { activeJob: ref(), jobs: ref([]), activeTab: ref('overview'), ...state })
   if (file === 'views/WorkflowBuilderView.vue') {
-    Object.assign(state, { disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
+    Object.assign(state, { workflowTab: ref('design'), selectedExecutionKey: ref(''), disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
   }
   if (file === 'views/AgentDetailView.vue' && names.includes('load')) {
     names = [...new Set([...names, 'resetHistory', 'fetchHistory', 'loadHistory'])]
@@ -478,4 +479,118 @@ test('a save conflict preserves the local draft and old version for explicit rel
   await assert.rejects(state.saveSelectedNode(), /409/)
   assert.equal(node.label, 'unsaved draft')
   assert.equal(node.version, 3)
+})
+
+test('evaluation polling publishes live counts and treats partial completion as warning', async () => {
+  let callback
+  const warnings = []
+  const state = functionsFrom('views/EvaluationView.vue', ['waitForJob'], {
+    pollingDisposed: false, pollTimer: undefined, finishPollDelay: undefined,
+    jobs: ref([{ id: 1, status: 'RUNNING' }]),
+    window: { setTimeout: fn => { callback = fn; return 1 } },
+    EapApi: { getEvaluationJob: async () => ({ id: 1, status: 'PARTIAL', processed: 10, total: 10, failed: 2 }) },
+    ElMessage: { warning: message => warnings.push(message) },
+  })
+  const polling = state.waitForJob(1)
+  callback(); await polling
+  assert.equal(state.activeJob.value.processed, 10)
+  assert.equal(state.jobs.value[0].status, 'PARTIAL')
+  assert.equal(warnings.length, 1)
+})
+
+test('lost progress connection preserves the active job and offers reconnection', async () => {
+  let callback
+  const original = { id: 1, status: 'RUNNING', processed: 5 }
+  const state = functionsFrom('views/EvaluationView.vue', ['waitForJob'], {
+    pollingDisposed: false, pollTimer: undefined, finishPollDelay: undefined,
+    pageError: ref(''), activeJob: ref(original),
+    window: { setTimeout: fn => { callback = fn; return 1 } },
+    EapApi: { getEvaluationJob: async () => { throw new Error('offline') } },
+  })
+  const polling = state.waitForJob(1)
+  callback(); await polling
+  assert.equal(state.activeJob.value, original)
+  assert.match(state.pageError.value, /继续跟踪/)
+})
+
+test('uncertain evaluation submission does not automatically send another job', async () => {
+  let calls = 0
+  const state = functionsFrom('views/EvaluationView.vue', ['synchronize'], {
+    syncing: ref(false), pollingDisposed: false, pageError: ref(''),
+    EapApi: { submitEvaluationJob: async () => { calls++; throw new Error('network lost') } },
+  })
+  await state.synchronize()
+  assert.equal(calls, 1)
+  assert.equal(state.syncing.value, false)
+  assert.match(state.pageError.value, /提交状态未确认/)
+})
+
+test('evaluation load ignores older page responses', async () => {
+  const first = deferred(), second = deferred()
+  let calls = 0
+  const state = functionsFrom('views/EvaluationView.vue', ['load'], {
+    loadRequestId: 0, pollingDisposed: false, syncing: ref(false), loading: ref(false), pageError: ref(''),
+    evaluators: ref([]), datasets: ref([]), results: ref([]), summary: ref({}), contentAnalysis: ref(),
+    selectedDatasetKey: ref(''), selectedCalibrationRunId: ref(''), form: { evaluatorKey: '' },
+    EapApi: { listEvaluators: async () => [], listEvaluationDatasets: async () => [],
+      listEvaluationResults: () => (++calls === 1 ? first.promise : second.promise),
+      listEvaluationJobs: async () => [], getEvaluationSummary: async () => ({}), getContentAnalysisStatus: async () => null },
+  })
+  const a = state.load(), b = state.load()
+  second.resolve([{ id: 2 }]); await b
+  first.resolve([{ id: 1 }]); await a
+  assert.equal(state.results.value[0].id, 2)
+  assert.equal(state.loading.value, false)
+})
+
+function commandCenterState(getData) {
+  return functionsFrom('views/CommandCenterView.vue', ['refresh', 'visibleRefresh', 'number', 'rate', 'matchingAgents', 'reconcileTopology'], {
+    disposed: false, loading: ref(false), failedSources: ref([]), lastUpdated: ref('previous'),
+    sourceUpdated: ref({}), agentPage: ref(0), documentHidden: ref(false), agentQuery: ref(''), focusConnections: ref(false),
+    ops: ref({ agentCount: 7 }), network: ref({ nodes: [] }), selectedNode: ref(), telemetry: ref(),
+    evaluation: ref(), management: ref(), platform: ref(), jobs: ref([]),
+    autoRefresh: ref(true), document: { hidden: false }, getData,
+  })
+}
+test('command center retains failed source values without advancing complete-refresh timestamp', async () => {
+  const state = commandCenterState(async (url, options) => {
+    assert.equal(options.silentError, true)
+    if (url.includes('agentops')) throw new Error('offline')
+    if (url.includes('network')) return { nodes: [] }
+    if (url.includes('jobs')) return []
+    return { count: 12 }
+  })
+  await state.refresh()
+  assert.equal(state.ops.value.agentCount, 7)
+  assert.equal(state.telemetry.value.count, 12)
+  assert.deepEqual(Array.from(state.failedSources.value), ['运行健康'])
+  assert.equal(state.lastUpdated.value, 'previous')
+  assert.equal(state.loading.value, false)
+})
+test('command center prevents overlapping refreshes and ignores results after unmount', async () => {
+  const pending = deferred()
+  let calls = 0
+  const state = commandCenterState(() => { calls++; return pending.promise })
+  const first = state.refresh()
+  await state.refresh()
+  assert.equal(calls, 7)
+  state.disposed = true
+  pending.resolve({ nodes: [], agentCount: 99 })
+  await first
+  assert.equal(state.ops.value.agentCount, 7)
+  assert.equal(state.lastUpdated.value, 'previous')
+})
+test('command center suppresses background polling and distinguishes absent metrics from zero', () => {
+  let calls = 0
+  const state = commandCenterState(async () => { calls++; return {} })
+  state.document.hidden = true
+  state.visibleRefresh()
+  state.document.hidden = false
+  state.autoRefresh.value = false
+  state.visibleRefresh()
+  assert.equal(calls, 0)
+  assert.equal(state.number(undefined), '—')
+  assert.equal(state.number(0), '0')
+  assert.equal(state.rate(0, 0), '—')
+  assert.equal(state.rate(0, 10), '0.0%')
 })

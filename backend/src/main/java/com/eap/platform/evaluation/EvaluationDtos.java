@@ -175,12 +175,15 @@ public final class EvaluationDtos {
             Instant createdAt,
             Instant startedAt,
             Instant completedAt,
-            Instant updatedAt
+            Instant updatedAt,
+            String phase,
+            int processed,
+            int total
     ) {
         static EvaluationJobResponse from(EvaluationProjectionJob job) {
             return new EvaluationJobResponse(job.id, job.jobKey, job.requestedLimit, job.status,
                     job.scanned, job.evaluated, job.skipped, job.failed, job.errorMessage,
-                    job.createdAt, job.startedAt, job.completedAt, job.updatedAt);
+                    job.createdAt, job.startedAt, job.completedAt, job.updatedAt, job.phase, job.processed, job.total);
         }
     }
 

@@ -51,7 +51,7 @@ class EvaluationJobTransactionTests {
                     return jdbc.update("update job_state set status = ?, error_message = ? where id = ? and status = 'RUNNING'",
                             invocation.getArgument(1).toString(), invocation.getArgument(6), 5L);
                 });
-        when(projection.synchronize(10)).thenAnswer(invocation -> {
+        when(projection.synchronize(org.mockito.ArgumentMatchers.eq(10), any())).thenAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             // A separate connection can observe RUNNING while the projection is still executing.
             assertThat(jdbc.queryForObject("select status from job_state where id = 5", String.class)).isEqualTo("RUNNING");
@@ -71,7 +71,7 @@ class EvaluationJobTransactionTests {
         service.processNext();
 
         assertThat(jdbc.queryForObject("select status from job_state where id = 5", String.class)).isEqualTo("FAILED");
-        assertThat(jdbc.queryForObject("select error_message from job_state where id = 5", String.class)).isEqualTo("evaluation failed");
+        assertThat(jdbc.queryForObject("select error_message from job_state where id = 5", String.class)).isEqualTo("评估任务中断，已保存结果保留，请检查任务状态后重试");
         assertThat(job.completedAt).isNotNull();
         jdbc.execute("shutdown");
     }

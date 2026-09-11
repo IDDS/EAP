@@ -4,6 +4,10 @@ import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types/domain'
 import { getAccessToken } from '@/api/auth'
 
+declare module 'axios' {
+  interface AxiosRequestConfig { silentError?: boolean }
+}
+
 export const http = axios.create({
   baseURL: '/api',
   timeout: 12000,
@@ -44,14 +48,14 @@ http.interceptors.request.use(config => {
 http.interceptors.response.use(
   response => response,
   (error: AxiosError<{ message?: string }>) => {
-    if (error?.response?.status === 401) window.dispatchEvent(new Event('eap-auth-required'))
-    showRequestError(requestErrorMessage(error))
+    if (error?.response?.status === 401 && !error.config?.silentError) window.dispatchEvent(new Event('eap-auth-required'))
+    if (!error.config?.silentError) showRequestError(requestErrorMessage(error))
     return Promise.reject(error)
   },
 )
 
-export async function getData<T>(url: string): Promise<T> {
-  const response = await http.get<ApiResponse<T>>(url)
+export async function getData<T>(url: string, options: { silentError?: boolean } = {}): Promise<T> {
+  const response = await http.get<ApiResponse<T>>(url, options)
   return response.data.data
 }
 

@@ -260,7 +260,7 @@ public class EvaluationService {
             case "PII_POLICY" -> booleanPolicy(actual, "containsPii", false, "检测到个人敏感信息");
             case "SENSITIVE_APPROVAL" -> booleanPolicy(actual, "approved", true, "敏感操作缺少审批");
             case "COST_BUDGET" -> costBudget(input, actual);
-            case "ACTION_COMPLETION" -> booleanPolicy(actual, "completed", true, "任务未完成");
+            case "ACTION_COMPLETION" -> taskCompletion(actual);
             case "RAG_CONTEXT_COVERAGE" -> ragContextCoverage(actual);
             case "EXACT_MATCH" -> exactMatch(expected, actual);
             default -> throw new BusinessException("不支持的确定性评估器实现：" + implementationKey);
@@ -347,6 +347,19 @@ public class EvaluationService {
         return new Score(passed ? BigDecimal.ONE : BigDecimal.ZERO,
                 passed ? "工具调用成功。" : "工具调用状态为 " + (status.isBlank() ? "UNKNOWN" : status) + "。",
                 evidence("status", status, "success", passed));
+    }
+
+    private Score taskCompletion(JsonNode actual) {
+        Score result = booleanPolicy(actual, "completed", true, "任务未完成");
+        ObjectNode evidence = result.evidence();
+        // Preserve only bounded aggregate evidence, never arbitrary source attributes or content.
+        for (String key : List.of("spanCount", "failedSpanCount", "toolCount", "failedToolCount", "modelCount", "sumSpanDurationMs")) {
+            JsonNode value = actual.path(key);
+            if (value.isIntegralNumber() && value.canConvertToLong()) evidence.put(key, Math.max(0L, value.longValue()));
+        }
+        if ("EXPLICIT".equals(actual.path("inferenceMode").asText())) evidence.put("inferenceMode", "EXPLICIT");
+        if ("RECEIVED_SPANS".equals(actual.path("evidenceScope").asText())) evidence.put("evidenceScope", "RECEIVED_SPANS");
+        return new Score(result.score(), "任务完成信号判定；不代表独立验证业务效果。" + result.rationale(), evidence);
     }
 
     private Score booleanPolicy(JsonNode actual, String field, boolean expected, String failure) {

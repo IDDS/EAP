@@ -33,81 +33,99 @@ public class EvaluationProjectionService {
     private final KnowledgeInteractionRepository knowledgeRepository;
     private final EvaluationService evaluationService;
     private final ObjectMapper objectMapper;
+    private final EvaluationScanCoordinator coordinator;
 
     public EvaluationProjectionService(
             ToolInvocationEventRepository toolRepository,
             TraceSpanObservationRepository traceRepository,
             KnowledgeInteractionRepository knowledgeRepository,
             EvaluationService evaluationService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper, EvaluationScanCoordinator coordinator
     ) {
         this.toolRepository = toolRepository;
         this.traceRepository = traceRepository;
         this.knowledgeRepository = knowledgeRepository;
         this.evaluationService = evaluationService;
         this.objectMapper = objectMapper;
+        this.coordinator = coordinator;
     }
 
+    public record Progress(String phase, int processed, int total, int scanned, int evaluated, int skipped, int failed) { }
+
     public EvaluationDtos.EvaluationSyncResponse synchronize(int requestedLimit) {
+        return synchronize(requestedLimit, progress -> { });
+    }
+
+    public EvaluationDtos.EvaluationSyncResponse synchronize(int requestedLimit, java.util.function.Consumer<Progress> listener) {
         int limit = Math.max(1, Math.min(requestedLimit, 500));
-        int scanned = 0;
-        int evaluated = 0;
-        int skipped = 0;
-        int failed = 0;
-        List<ToolInvocationEvent> events = toolRepository.findTop500ByOrderByObservedAtDesc();
-        for (ToolInvocationEvent event : events.stream().limit(limit).toList()) {
-            scanned++;
-            if (event.getStatus() == null || event.getStatus() == ToolInvocationStatus.REQUESTED) {
-                skipped++;
-                continue;
-            }
-            try {
-                JsonNode attributes = parse(event.getAttributesJson());
-                ObjectNode input = objectMapper.createObjectNode();
-                JsonNode requiredArguments = attributes.path("requiredArguments");
-                input.set("requiredArguments", requiredArguments.isArray() ? requiredArguments : objectMapper.createArrayNode());
-
-                ObjectNode actual = objectMapper.createObjectNode();
-                actual.put("status", event.getStatus().name());
-                actual.put("toolName", event.getToolName());
-                actual.put("durationMs", event.getDurationMs() == null ? 0L : event.getDurationMs());
-                JsonNode arguments = attributes.path("arguments");
-                if (arguments.isObject()) actual.set("arguments", arguments);
-
-                evaluate(event, "TOOL_STATUS", "tool-" + event.getId() + "-status-v1", objectMapper.createObjectNode(), actual);
-                evaluated++;
-                if (requiredArguments.isArray() && !requiredArguments.isEmpty()) {
-                    evaluate(event, "TOOL_ARGUMENT_VALIDITY", "tool-" + event.getId() + "-args-v1", input, actual);
+        var lease = coordinator.acquire(toolRepository.scanUpperBound(), traceRepository.scanUpperBound(), knowledgeRepository.scanUpperBound());
+        int scanned = 0, evaluated = 0, skipped = 0, failed = 0, processed = 0;
+        try {
+            var page = org.springframework.data.domain.PageRequest.of(0, limit);
+            var events = toolRepository.findByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(lease.tools().cursor(), lease.tools().upper(), page);
+            var spans = traceRepository.findByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(lease.spans().cursor(), lease.spans().upper(), page);
+            var knowledge = knowledgeRepository.findByIdGreaterThanAndIdLessThanEqualOrderByIdAsc(lease.rag().cursor(), lease.rag().upper(), page);
+            int total = events.size() + spans.size() + knowledge.size();
+            listener.accept(new Progress("TOOLS", 0, total, 0, 0, 0, 0));
+            for (var event : events) {
+                coordinator.heartbeat(lease.owner());
+                scanned++;
+                if (event.getStatus() == null || event.getStatus() == ToolInvocationStatus.REQUESTED) skipped++;
+                else try {
+                    JsonNode attributes = parse(event.getAttributesJson());
+                    ObjectNode input = objectMapper.createObjectNode();
+                    JsonNode required = attributes.path("requiredArguments");
+                    input.set("requiredArguments", required.isArray() ? required : objectMapper.createArrayNode());
+                    ObjectNode actual = objectMapper.createObjectNode();
+                    actual.put("status", event.getStatus().name());
+                    actual.put("toolName", event.getToolName());
+                    actual.put("durationMs", event.getDurationMs() == null ? 0L : event.getDurationMs());
+                    JsonNode arguments = attributes.path("arguments");
+                    if (arguments.isObject()) actual.set("arguments", arguments);
+                    // Mutable source records produce a new result only when the evaluation input changes.
+                    String revision = digest(event.getAgentId() + "|" + event.getTraceId() + "|" + event.getSpanId() + "|" + input + "|" + actual);
+                    evaluate(event, "TOOL_STATUS", "tool-" + event.getId() + "-status-" + revision, objectMapper.createObjectNode(), actual);
                     evaluated++;
+                    if (required.isArray() && !required.isEmpty()) {
+                        evaluate(event, "TOOL_ARGUMENT_VALIDITY", "tool-" + event.getId() + "-args-" + revision, input, actual);
+                        evaluated++;
+                    }
+                } catch (RuntimeException exception) { failed++; }
+                listener.accept(new Progress("TOOLS", ++processed, total, scanned, evaluated, skipped, failed));
+                coordinator.advance(lease.owner(), "TOOLS", event.getId());
+            }
+            if (events.size() < limit) coordinator.advance(lease.owner(), "TOOLS", lease.tools().upper());
+            var visited = new java.util.HashSet<String>();
+            listener.accept(new Progress("TRACES", processed, total, scanned, evaluated, skipped, failed));
+            for (var span : spans) {
+                coordinator.heartbeat(lease.owner());
+                if (span.getTraceId() != null && visited.add(span.getTraceId())) {
+                    scanned++;
+                    try {
+                        // Fetch the trace independently of the event page. Never score a truncated trace.
+                        var complete = traceRepository.findByTraceIdOrderByIdAsc(span.getTraceId(), org.springframework.data.domain.PageRequest.of(0, 2001));
+                        if (complete.size() > 2000 || !projectTrace(span.getTraceId(), complete)) skipped++;
+                        else evaluated++;
+                    } catch (RuntimeException exception) { failed++; }
                 }
-            } catch (RuntimeException exception) {
-                failed++;
+                listener.accept(new Progress("TRACES", ++processed, total, scanned, evaluated, skipped, failed));
+                coordinator.advance(lease.owner(), "TRACES", span.getId());
             }
-        }
-        List<TraceSpanObservation> spans = traceRepository.findTop500ByOrderByObservedAtDesc();
-        Map<String, List<TraceSpanObservation>> traces = spans.stream()
-                .filter(item -> item.getTraceId() != null && !item.getTraceId().isBlank())
-                .collect(Collectors.groupingBy(TraceSpanObservation::getTraceId));
-        for (Map.Entry<String, List<TraceSpanObservation>> entry : traces.entrySet()) {
-            scanned++;
-            try {
-                if (projectTrace(entry.getKey(), entry.getValue())) evaluated++;
-                else skipped++;
-            } catch (RuntimeException exception) {
-                failed++;
+            if (spans.size() < limit) coordinator.advance(lease.owner(), "TRACES", lease.spans().upper());
+            listener.accept(new Progress("RAG", processed, total, scanned, evaluated, skipped, failed));
+            for (var interaction : knowledge) {
+                coordinator.heartbeat(lease.owner());
+                scanned++;
+                if (!isRagInteraction(interaction)) skipped++;
+                else try { projectRag(interaction); evaluated++; }
+                catch (RuntimeException exception) { failed++; }
+                listener.accept(new Progress("RAG", ++processed, total, scanned, evaluated, skipped, failed));
+                coordinator.advance(lease.owner(), "RAG", interaction.getId());
             }
-        }
-        for (KnowledgeInteraction interaction : knowledgeRepository.findTop500ByOrderByCreatedAtDesc().stream()
-                .filter(this::isRagInteraction).toList()) {
-            scanned++;
-            try {
-                projectRag(interaction);
-                evaluated++;
-            } catch (RuntimeException exception) {
-                failed++;
-            }
-        }
-        return new EvaluationDtos.EvaluationSyncResponse(scanned, evaluated, skipped, failed);
+            if (knowledge.size() < limit) coordinator.advance(lease.owner(), "RAG", lease.rag().upper());
+            listener.accept(new Progress("COMPLETE", processed, total, scanned, evaluated, skipped, failed));
+            return new EvaluationDtos.EvaluationSyncResponse(scanned, evaluated, skipped, failed);
+        } finally { coordinator.release(lease.owner()); }
     }
 
     private void projectRag(KnowledgeInteraction interaction) {
@@ -128,7 +146,7 @@ public class EvaluationProjectionService {
         String traceId = interaction.getTraceId();
         String fingerprint = digest(interaction.getInteractionKey() + "|" + traceId + "|"
                 + inputSourceCount + "|" + outputSourceCount + "|" + inputRefs + "|" + outputRefs
-                + "|" + interaction.getStatus() + "|" + interaction.getAdopted() + "|" + interaction.getQualityScore());
+                + "|" + interaction.getAgentId() + "|" + actual);
         evaluationService.evaluate(new EvaluationDtos.EvaluationRequest(
                 "rag-" + fingerprint, "RAG_CONTEXT_COVERAGE", "v1", null, interaction.getAgentId(),
                 traceId, null, objectMapper.createObjectNode(), null, actual, interaction.getCreatedAt()
@@ -157,23 +175,19 @@ public class EvaluationProjectionService {
         if (spans.isEmpty()) return false;
         List<TraceSpanObservation> ordered = spans.stream()
                 .sorted(java.util.Comparator.comparing(TraceSpanObservation::getObservedAt,
-                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                        .thenComparing(TraceSpanObservation::getId, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
                 .toList();
         long failedSpans = ordered.stream().filter(this::failed).count();
         long toolSpans = ordered.stream().filter(this::tool).count();
         long failedToolSpans = ordered.stream().filter(item -> tool(item) && failed(item)).count();
-        boolean hasModel = ordered.stream().anyMatch(item -> item.getSpanKind() == TraceSpanKind.MODEL);
-        boolean hasAgent = ordered.stream().anyMatch(item -> item.getSpanKind() == TraceSpanKind.AGENT);
         Boolean explicitCompletion = explicitCompletion(ordered);
-        // Content-derived responses cannot establish business task completion, including mixed traces.
-        if (explicitCompletion == null && ordered.stream().anyMatch(item ->
-                "CONTENT_PROXY".equals(parse(item.getAttributesJson()).path("eap.projection.source").asText()))) {
-            return false;
-        }
-        boolean completed = explicitCompletion != null
-                ? explicitCompletion
-                : (hasModel || hasAgent) && failedSpans == 0;
-        String inferenceMode = explicitCompletion == null ? "HEURISTIC" : "EXPLICIT";
+        // A successful span or a partial trace is not evidence of task completion.
+        // Conflicting signals or multiple attributed agents need a task-scoped contract first.
+        if (explicitCompletion == null || ordered.stream().map(TraceSpanObservation::getAgentId)
+                .filter(Objects::nonNull).distinct().count() > 1) return false;
+        boolean completed = explicitCompletion;
+        String inferenceMode = "EXPLICIT";
         long durationMs = ordered.stream().map(TraceSpanObservation::getDurationMs)
                 .filter(Objects::nonNull).mapToLong(value -> Math.max(0L, value)).sum();
         TraceSpanObservation latest = ordered.get(ordered.size() - 1);
@@ -186,12 +200,12 @@ public class EvaluationProjectionService {
         actual.put("toolCount", toolSpans);
         actual.put("failedToolCount", failedToolSpans);
         actual.put("modelCount", ordered.stream().filter(item -> item.getSpanKind() == TraceSpanKind.MODEL).count());
-        actual.put("durationMs", durationMs);
+        actual.put("sumSpanDurationMs", durationMs);
+        actual.put("evidenceScope", "RECEIVED_SPANS");
         actual.put("latestSpanId", Objects.toString(latest.getSpanId(), ""));
         actual.put("heuristic", explicitCompletion == null);
 
-        String fingerprint = digest(traceId + "|" + latest.getSpanId() + "|" + ordered.size()
-                + "|" + failedSpans + "|" + completed);
+        String fingerprint = digest(traceId + "|" + latest.getAgentId() + "|" + actual);
         evaluateTrace(traceId, latest, "trace-action-" + fingerprint, actual);
         return true;
     }
@@ -211,12 +225,13 @@ public class EvaluationProjectionService {
             for (String key : keys) {
                 JsonNode value = attributes.get(key);
                 if (value == null || value.isNull()) continue;
-                if (value.isBoolean()) {
-                    signal = value.asBoolean();
-                    continue;
-                }
-                if (value.isTextual() && ("true".equalsIgnoreCase(value.asText()) || "false".equalsIgnoreCase(value.asText()))) {
-                    signal = Boolean.parseBoolean(value.asText());
+                Boolean next = null;
+                if (value.isBoolean()) next = value.asBoolean();
+                else if (value.isTextual() && ("true".equalsIgnoreCase(value.asText()) || "false".equalsIgnoreCase(value.asText())))
+                    next = Boolean.parseBoolean(value.asText());
+                if (next != null) {
+                    if (signal != null && !signal.equals(next)) return null;
+                    signal = next;
                 }
             }
         }
