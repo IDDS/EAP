@@ -21,6 +21,18 @@ public class AgentTaskService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<AgentTaskDtos.TaskResponse> page(com.eap.platform.common.HistoryQuery query) {
+        AgentTaskStatus status = null;
+        if(query.status != null && !query.status.isBlank()) {
+            try { status = AgentTaskStatus.valueOf(query.status); }
+            catch(IllegalArgumentException ex) { throw new BusinessException("无效的任务状态"); }
+        }
+        var pageable = query.pageable();
+        return com.eap.platform.common.HistoryPage.from(taskRepository.findAll(
+            query.specification("status", status, "taskType", "requester", "inputSummary", "resultSummary"), pageable).map(AgentTaskDtos::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<AgentTaskDtos.TaskResponse> list() {
         return taskRepository.findAll().stream().map(AgentTaskDtos::from).toList();
     }

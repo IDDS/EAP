@@ -1,3 +1,4 @@
+import type { HistoryParams } from '@/components/common/HistoryTable.vue'
 import { submitWorkflowOnce } from './workflowSubmission'
 import { getData, patchData, postData, putData } from './http'
 import type {
@@ -213,6 +214,7 @@ export const EapApi = {
     postData<AgentControlCommand, { agentId: number; commandType: string; payloadJson?: string; issuedBy?: string }>('/control/commands', payload),
   retryControlCommand: (commandKey: string) =>
     postData<AgentControlCommand, Record<string, never>>(`/control/commands/${encodeURIComponent(commandKey)}/retry`, {}),
+  pageAuditLogs: (params: HistoryParams) => getData<{items: AuditLog[]; totalElements: number}>(`/audit-logs/page${queryString({...params})}`),
   listAuditLogs: () => getData<AuditLog[]>('/audit-logs'),
   listAgents: () => getData<Agent[]>('/agents'),
   createAgent: (payload: AgentRequest) => postData<Agent, AgentRequest>('/agents', payload),
@@ -269,6 +271,7 @@ export const EapApi = {
     postData<GovernancePreflightDecision, { approver: string; reason?: string }>(`/governance/preflight-decisions/${encodeURIComponent(decisionKey)}/approve`, payload),
   rejectGovernanceDecision: (decisionKey: string, payload: { approver: string; reason?: string }) =>
     postData<GovernancePreflightDecision, { approver: string; reason?: string }>(`/governance/preflight-decisions/${encodeURIComponent(decisionKey)}/reject`, payload),
+  pageTasks: (params: HistoryParams) => getData<{items: AgentTask[]; totalElements: number}>(`/tasks/page${queryString({...params})}`),
   listTasks: () => getData<AgentTask[]>('/tasks'),
   createTask: (payload: { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string; requester?: string }) =>
     postData<AgentTask, { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string; requester?: string }>('/tasks', payload),

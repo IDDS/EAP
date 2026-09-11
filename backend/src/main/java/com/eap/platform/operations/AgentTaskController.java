@@ -22,6 +22,12 @@ public class AgentTaskController {
         this.taskService = taskService;
     }
 
+    @GetMapping("/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<AgentTaskDtos.TaskResponse>> page(
+            @Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.HistoryQuery query) {
+        return ApiResponse.ok(taskService.page(query));
+    }
+
     @GetMapping
     public ApiResponse<List<AgentTaskDtos.TaskResponse>> list() {
         return ApiResponse.ok(taskService.list());

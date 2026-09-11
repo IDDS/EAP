@@ -12,7 +12,7 @@
     </div>
 
     <el-card shadow="never" class="panel">
-      <PaginatedTable :data="tasks" v-loading="loading">
+      <HistoryTable ref="history" :fetch-page="EapApi.pageTasks" :statuses="['PENDING','RUNNING','SUCCEEDED','FAILED','CANCELLED']" placeholder="搜索任务类型、调用方、输入或结果">
         <el-table-column prop="taskType" label="任务类型" width="180" />
         <el-table-column prop="requester" label="员工 / 调用方" width="160">
           <template #default="{ row }">{{ row.requester || '未采集' }}</template>
@@ -42,15 +42,15 @@
             <el-button text type="warning" @click="markResolution(row, false)">未解决</el-button>
           </template>
         </el-table-column>
-      </PaginatedTable>
+      </HistoryTable>
     </el-card>
     <TaskEvidenceDrawer v-if="selectedTaskId" :task-id="selectedTaskId" @close="closeEvidence" />
   </section>
 </template>
 
 <script setup lang="ts">
-import PaginatedTable from '@/components/common/PaginatedTable.vue'
-import { computed, onMounted, ref } from 'vue'
+import HistoryTable from '@/components/common/HistoryTable.vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TaskEvidenceDrawer from '@/components/trace/TaskEvidenceDrawer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -67,18 +67,9 @@ const selectedTaskId = computed(() => {
 function openEvidence(id: number) { void router.push({ query: { ...route.query, taskId: String(id) } }) }
 function closeEvidence() { const { taskId, ...query } = route.query; void router.replace({ query }) }
 
-const tasks = ref<AgentTask[]>([])
-const loading = ref(false)
+const history = ref<InstanceType<typeof HistoryTable>>()
 const requester = ref('')
-
-async function load() {
-  loading.value = true
-  try {
-    tasks.value = await EapApi.listTasks()
-  } finally {
-    loading.value = false
-  }
-}
+async function load() { await history.value?.reload() }
 
 async function createDemoTask() {
   await EapApi.createTask({
@@ -117,5 +108,5 @@ function taskStatusType(status: AgentTaskStatus) {
   return status === 'SUCCEEDED' ? 'success' : status === 'FAILED' ? 'danger' : status === 'RUNNING' ? 'warning' : 'info'
 }
 
-onMounted(load)
+
 </script>
