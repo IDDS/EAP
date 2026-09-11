@@ -1,5 +1,6 @@
 <template>
-  <el-table v-if="items.length || loading" v-loading="loading" :data="items" size="small" class="work-item-table" row-key="id">
+  <PaginatedList :data="items" :reset-key="resetKey" v-slot="{ rows }">
+  <el-table v-if="items.length || loading" v-loading="loading" :data="rows" size="small" class="work-item-table" row-key="id">
     <el-table-column label="级别" width="72">
       <template #default="{ row }"><span class="severity-badge" :class="`severity-${row.severity.toLowerCase()}`">{{ row.severity }}</span></template>
     </el-table-column>
@@ -36,7 +37,7 @@
   </el-table>
   <div v-if="loading && !items.length" class="work-item-mobile-loading"><el-skeleton :rows="3" animated /></div>
   <div v-if="items.length" class="work-item-cards">
-    <article v-for="item in items" :key="item.id" class="work-item-mobile">
+    <article v-for="item in rows" :key="item.id" class="work-item-mobile">
       <header><span class="severity-badge" :class="`severity-${item.severity.toLowerCase()}`">{{ item.severity }}</span><span>{{ statusLabel(item.status) }}</span><span :class="{ overdue: item.overdue }">{{ slaLabel(item) }}</span></header>
       <button class="work-item-title" type="button" @click="$emit('inspect', item)"><strong>{{ item.title }}</strong><span>{{ typeLabel(item.itemType) }}</span></button>
       <div class="work-item-mobile-meta"><span>{{ item.assignee || item.assignedTeam || '待认领' }} · {{ item.organizationScope || '企业全局' }}</span><EvidenceBadge :basis="item.evidenceBasis" /></div>
@@ -44,13 +45,15 @@
     </article>
   </div>
   <el-empty v-if="!loading && !items.length" description="当前筛选范围没有待处理事项" :image-size="64" />
+  </PaginatedList>
 </template>
 
 <script setup lang="ts">
+import PaginatedList from '@/components/common/PaginatedList.vue'
 import EvidenceBadge from '@/components/EvidenceBadge.vue'
 import type { AgentOpsWorkItem, WorkItemStatus, WorkItemType } from '@/types/domain'
 
-defineProps<{ items: AgentOpsWorkItem[]; loading?: boolean }>()
+defineProps<{ items: AgentOpsWorkItem[]; loading?: boolean; resetKey?: string }>()
 defineEmits<{
   inspect: [item: AgentOpsWorkItem]
   transition: [item: AgentOpsWorkItem, status: WorkItemStatus]

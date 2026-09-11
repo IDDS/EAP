@@ -160,7 +160,7 @@
             <span class="muted">仅聚合分类元数据</span>
           </div>
         </template>
-        <el-table :data="visibleSubjectUsage" v-loading="loading" size="small">
+        <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleSubjectUsage" v-loading="loading" size="small">
           <el-table-column label="智能体 / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
@@ -175,7 +175,7 @@
           <el-table-column label="Token" width="100">
             <template #default="{ row }">{{ formatNumber(row.tokenCount) }}</template>
           </el-table-column>
-        </el-table>
+        </PaginatedTable>
         <el-empty v-if="summary.subjectUsage.length === 0" description="当前窗口没有治理数据" />
       </el-card>
 
@@ -257,7 +257,7 @@
           <span class="muted">放行 · 脱敏后复检 · 请求审批 · 阻断</span>
         </div>
       </template>
-      <el-table :data="visibleDecisions" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleDecisions" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.decidedAt) }}</template>
         </el-table-column>
@@ -297,7 +297,7 @@
             <span v-else class="muted">{{ row.approvedBy ? `${row.approvedBy} · ${formatTime(row.approvedAt)}` : '无需审批' }}</span>
           </template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
       <el-empty v-if="visibleDecisions.length === 0" description="尚未执行模型网关预检" />
     </el-card>
 
@@ -308,7 +308,7 @@
           <span class="muted">分类、敏感级别和策略动作；不展示信息正文</span>
         </div>
       </template>
-      <el-table :data="visibleEvents" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -335,7 +335,7 @@
         <el-table-column label="钻取" width="92" fixed="right">
           <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
       <el-empty v-if="visibleEvents.length === 0" description="尚未收到治理数据事件" />
     </el-card>
 
@@ -346,7 +346,7 @@
           <el-button size="small" type="primary" :icon="Plus" @click="openPolicyDialog()">新建策略</el-button>
         </div>
       </template>
-      <el-table :data="visiblePolicies" v-loading="loading">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visiblePolicies" v-loading="loading">
         <el-table-column prop="name" label="策略名称" min-width="180" />
         <el-table-column label="类型" width="140"><template #default="{ row }">{{ policyTypeLabel(row.policyType) }}</template></el-table-column>
         <el-table-column label="范围" width="120"><template #default="{ row }">{{ scopeTypeLabel(row.scopeType) }}</template></el-table-column>
@@ -364,7 +364,7 @@
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="{ row }"><el-button text type="primary" @click="openPolicyDialog(row)">编辑</el-button></template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
     </el-card>
 
     <el-dialog v-model="policyDialogVisible" :title="editingPolicyId ? '编辑治理策略' : '新建治理策略'" width="680px">
@@ -424,6 +424,7 @@
 </template>
 
 <script setup lang="ts">
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, DataAnalysis, Lock, OfficeBuilding, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'

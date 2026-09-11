@@ -17,7 +17,7 @@
     </div>
 
     <el-card shadow="never" class="panel">
-      <el-table :data="filteredLogs" v-loading="loading" @row-click="openDetail">
+      <PaginatedTable :data="filteredLogs" :reset-key="`${keyword}:${resultFilter}`" v-loading="loading" @row-click="openDetail">
         <el-table-column prop="createdAt" label="时间" width="220" />
         <el-table-column prop="actor" label="操作者" width="150" />
         <el-table-column prop="action" label="动作" min-width="200" />
@@ -33,7 +33,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="traceId" label="Trace ID" min-width="260" show-overflow-tooltip />
-      </el-table>
+      </PaginatedTable>
     </el-card>
 
     <el-drawer v-model="drawerVisible" title="审计详情" size="520px">
@@ -54,6 +54,7 @@
 </template>
 
 <script setup lang="ts">
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'

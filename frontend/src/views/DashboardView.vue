@@ -218,6 +218,7 @@
       <el-empty v-if="!hasDashboard && !loading" description="事项数据尚未加载，请刷新重试" :image-size="64" />
       <WorkItemTable v-else
         :items="filteredWorkItems"
+        :reset-key="`${severityFilter}:${showOverdueOnly}`"
         :loading="loading"
         @inspect="inspectWorkItem"
         @transition="prepareTransition"

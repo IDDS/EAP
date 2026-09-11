@@ -12,7 +12,7 @@
     </div>
 
     <el-card shadow="never" class="panel">
-      <el-table :data="tasks" v-loading="loading">
+      <PaginatedTable :data="tasks" v-loading="loading">
         <el-table-column prop="taskType" label="任务类型" width="180" />
         <el-table-column prop="requester" label="员工 / 调用方" width="160">
           <template #default="{ row }">{{ row.requester || '未采集' }}</template>
@@ -42,13 +42,14 @@
             <el-button text type="warning" @click="markResolution(row, false)">未解决</el-button>
           </template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
     </el-card>
     <TaskEvidenceDrawer v-if="selectedTaskId" :task-id="selectedTaskId" @close="closeEvidence" />
   </section>
 </template>
 
 <script setup lang="ts">
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TaskEvidenceDrawer from '@/components/trace/TaskEvidenceDrawer.vue'

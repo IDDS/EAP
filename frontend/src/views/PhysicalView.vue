@@ -240,7 +240,7 @@
         show-icon
         title="尚未形成共享用量池。调用侧请上报 usagePoolKey，供应商侧通过 provider-usage-snapshots 接口导入同名账单窗口。"
       />
-      <el-table v-else :data="reconciliation.pools" size="small">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" v-else :data="reconciliation.pools" size="small">
         <el-table-column label="用量池" min-width="210">
           <template #default="{ row }">
             <strong class="mono">{{ row.usagePoolKey }}</strong>
@@ -270,7 +270,7 @@
         <el-table-column label="账单窗口" min-width="205">
           <template #default="{ row }"><span>{{ row.providerWindowStart ? formatTime(row.providerWindowStart) : '尚无快照' }}</span><div class="muted">至 {{ row.providerWindowEnd ? formatTime(row.providerWindowEnd) : '—' }}</div></template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
       <div class="usage-reconciliation-note">这里只保存共享凭证别名，不保存 API Key；差额不会平均摊派给各智能体。</div>
     </el-card>
 
@@ -336,7 +336,7 @@
     <div v-show="activeSection === 'assets'" class="physical-two-column">
       <el-card shadow="never" class="panel">
         <template #header>智能体 / 端点消耗排行</template>
-        <el-table :data="visibleSubjectUsage" size="small">
+        <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleSubjectUsage" size="small">
           <el-table-column prop="subjectName" label="智能体 / 端点" min-width="170" />
           <el-table-column prop="calls" label="调用" width="75" />
           <el-table-column label="Token" width="120">
@@ -351,12 +351,12 @@
           <el-table-column label="费用" width="95">
             <template #default="{ row }">{{ formatMoney(row.moneyCost) }}</template>
           </el-table-column>
-        </el-table>
+        </PaginatedTable>
       </el-card>
 
       <el-card shadow="never" class="panel">
         <template #header>模型消耗排行</template>
-        <el-table :data="summary.modelUsage" size="small">
+        <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="summary.modelUsage" size="small">
           <el-table-column label="模型" min-width="220"><template #default="{ row }"><div class="model-table-name"><ModelGlyph :provider="row.provider" size="xs" /><span><strong>{{ row.modelName }}</strong><small>{{ row.provider }}</small></span></div></template></el-table-column>
           <el-table-column prop="calls" label="调用" width="75" />
           <el-table-column label="Token" width="120">
@@ -365,7 +365,7 @@
           <el-table-column label="费用" width="95">
             <template #default="{ row }">{{ formatMoney(row.moneyCost) }}</template>
           </el-table-column>
-        </el-table>
+        </PaginatedTable>
       </el-card>
     </div>
 
@@ -376,7 +376,7 @@
           <span class="muted">只保存物理遥测元数据，不在此表保存提示词与模型输出</span>
         </div>
       </template>
-      <el-table :data="visibleEvents" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -426,7 +426,7 @@
             </div>
           </template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
     </el-card>
 
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
@@ -436,7 +436,7 @@
           <span class="muted">输入 / 输出正文仅在 REDACTED 模式保存；HASH_ONLY 只保留哈希、长度和 Token 估算</span>
         </div>
       </template>
-      <el-table :data="visibleContentObservations" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleContentObservations" v-loading="loading" row-key="id">
         <el-table-column label="方向" width="100">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(row.direction) }}</el-tag>
@@ -467,7 +467,7 @@
         <el-table-column label="时间" width="175">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
     </el-card>
 
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
@@ -477,7 +477,7 @@
           <span class="muted">优先显示 OTLP Span；暂无子 Span 时显示模型调用根节点</span>
         </div>
       </template>
-      <el-table :data="visibleTraceSpans" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleTraceSpans" v-loading="loading" row-key="id">
         <el-table-column label="类型" width="100">
           <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.synthetic ? '遥测根 Span' : traceKindLabel(row.spanKind) }}</el-tag></template>
         </el-table-column>
@@ -501,7 +501,7 @@
           <template #default="{ row }">{{ row.endpointKey }}</template>
         </el-table-column>
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
-      </el-table>
+      </PaginatedTable>
     </el-card>
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
@@ -510,7 +510,7 @@
           <span class="muted">记录工具/MCP 的实际观测、输入输出观测关联和调用状态</span>
         </div>
       </template>
-      <el-table :data="visibleToolInvocations" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleToolInvocations" v-loading="loading" row-key="id">
         <el-table-column label="工具" min-width="190">
           <template #default="{ row }">
             <strong>{{ row.toolName }}</strong>
@@ -535,13 +535,14 @@
           </template>
         </el-table-column>
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
-      </el-table>
+      </PaginatedTable>
       <el-empty v-if="visibleToolInvocations.length === 0" description="当前筛选条件下没有工具调用明细" />
     </el-card>
   </section>
 </template>
 
 <script setup lang="ts">
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'

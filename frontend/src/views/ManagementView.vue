@@ -86,24 +86,24 @@
       <div class="management-usage-grid">
         <div>
           <div class="management-section-heading"><strong>员工使用频率</strong><span>按任务请求方统计</span></div>
-          <el-table :data="employeeUsage" size="small">
+          <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}:${selectedCurrency}`" :data="employeeUsage" size="small">
             <el-table-column prop="requester" label="员工 / 调用方" min-width="160" />
             <el-table-column prop="uses" label="使用次数" width="90" />
             <el-table-column prop="succeeded" label="任务成功" width="90" />
             <el-table-column label="解决问题" width="100"><template #default="{ row }">{{ row.resolved }} / {{ row.judged }}</template></el-table-column>
             <el-table-column label="最近使用" width="165"><template #default="{ row }">{{ formatTime(row.lastUsedAt) }}</template></el-table-column>
-          </el-table>
+          </PaginatedTable>
           <el-empty v-if="!employeeUsage.length" description="当前窗口没有任务使用记录" :image-size="56" />
         </div>
         <div>
           <div class="management-section-heading"><strong>应用场景与效果</strong><span>按任务类型聚合</span></div>
-          <el-table :data="applicationUsage" size="small">
+          <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}:${selectedCurrency}`" :data="applicationUsage" size="small">
             <el-table-column label="应用场景" min-width="170"><template #default="{ row }"><strong>{{ applicationLabel(row.taskType) }}</strong><div class="muted">{{ row.taskType }}</div></template></el-table-column>
             <el-table-column prop="uses" label="使用次数" width="90" />
             <el-table-column label="完成率" width="105"><template #default="{ row }">{{ row.successRate }}%</template></el-table-column>
             <el-table-column label="解决率" width="105"><template #default="{ row }">{{ row.resolutionRate }}</template></el-table-column>
             <el-table-column label="确认价值" width="110"><template #default="{ row }">{{ row.validatedValue > 0 ? formatMoney(row.validatedValue) : '—' }}</template></el-table-column>
-          </el-table>
+          </PaginatedTable>
           <el-empty v-if="!applicationUsage.length" description="当前窗口没有可识别应用场景" :image-size="56" />
         </div>
       </div>
@@ -248,7 +248,7 @@
             <span class="muted">按窗口聚合真实任务、遥测和知识交互</span>
           </div>
         </template>
-        <el-table :data="visibleAgentUsage" v-loading="loading" size="small">
+        <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}:${selectedCurrency}`" :data="visibleAgentUsage" v-loading="loading" size="small">
           <el-table-column label="智能体 / 端点" min-width="170">
             <template #default="{ row }">
               <strong>{{ row.subjectName }}</strong>
@@ -282,7 +282,7 @@
           <el-table-column label="钻取" width="92" fixed="right">
             <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
           </el-table-column>
-        </el-table>
+        </PaginatedTable>
         <el-empty v-if="visibleAgentUsage.length === 0" description="当前窗口没有可归因的运行数据" />
       </el-card>
 
@@ -543,7 +543,7 @@
           <span class="muted">最近 {{ windowHours }} 小时的价值确认；原始知识正文不进入此界面</span>
         </div>
       </template>
-      <el-table :data="visibleValueEvents" v-loading="loading" row-key="id">
+      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}:${selectedCurrency}`" :data="visibleValueEvents" v-loading="loading" row-key="id">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -585,13 +585,14 @@
         <el-table-column label="说明" min-width="240">
           <template #default="{ row }">{{ row.description || '—' }}</template>
         </el-table-column>
-      </el-table>
+      </PaginatedTable>
       <el-empty v-if="visibleValueEvents.length === 0" description="尚未登记业务价值事件" />
     </el-card>
   </section>
 </template>
 
 <script setup lang="ts">
+import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { CircleCheck, DataAnalysis, Money, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
