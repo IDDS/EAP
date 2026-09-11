@@ -44,6 +44,12 @@ public class ModelTelemetryController {
         return ApiResponse.ok(telemetryService.record(request));
     }
 
+    @GetMapping("/model-invocations/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<ModelTelemetryDtos.ModelInvocationResponse>> page(
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.ObservationHistoryQuery query) {
+        return ApiResponse.ok(telemetryService.page(query));
+    }
+
     @GetMapping("/model-invocations")
     public ApiResponse<List<ModelTelemetryDtos.ModelInvocationResponse>> list(
             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,

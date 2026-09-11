@@ -45,6 +45,15 @@ public class ToolInvocationService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<ToolInvocationDtos.ToolInvocationResponse> page(com.eap.platform.common.ObservationHistoryQuery query) {
+        if(query.getEventKey()!=null && !query.getEventKey().isBlank()) throw new com.eap.platform.common.BusinessException("此类记录不支持eventKey筛选，请使用Trace ID");
+        var pageable=query.pageable();
+        var selected=query.enumStatus(ToolInvocationStatus.class);
+        var spec=query.<ToolInvocationEvent>specification("status", selected, "invocationKey", "traceId", "toolName", "mcpServerName").and(query.observationContext());
+        return com.eap.platform.common.HistoryPage.from(repository.findAll(spec,pageable).map(ToolInvocationDtos::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<ToolInvocationDtos.ToolInvocationResponse> list(
             int limit,
             Long agentId,

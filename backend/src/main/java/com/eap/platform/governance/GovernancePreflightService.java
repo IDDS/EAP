@@ -114,6 +114,24 @@ public class GovernancePreflightService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<GovernanceDataDtos.PreflightResponse> page(com.eap.platform.common.DecisionHistoryQuery query) {
+        var pageable=query.pageable();
+        var spec=query.<GovernancePreflightDecision>specification("approvalStatus",query.enumStatus(GovernanceApprovalStatus.class),"decisionKey","provider","modelName","classifier");
+        if(query.getAgentId()!=null || query.getEndpointKey()!=null || query.getEventKey()!=null || query.getTraceId()!=null) spec=spec.and((root,q,cb)->{
+            var sub=q.subquery(Long.class);var event=sub.from(GovernanceDataEvent.class);
+            var terms=new java.util.ArrayList<jakarta.persistence.criteria.Predicate>();
+            terms.add(cb.equal(event.get("id"),root.get("dataEventId")));
+            if(query.getAgentId()!=null) terms.add(cb.equal(event.get("agentId"),query.getAgentId()));
+            if(query.getEndpointKey()!=null && !query.getEndpointKey().isBlank()) terms.add(cb.equal(event.get("endpointKey"),query.getEndpointKey()));
+            if(query.getEventKey()!=null && !query.getEventKey().isBlank()) terms.add(cb.equal(event.get("eventKey"),query.getEventKey()));
+            if(query.getTraceId()!=null && !query.getTraceId().isBlank()) terms.add(cb.equal(event.get("traceId"),query.getTraceId()));
+            sub.select(event.get("id")).where(terms.toArray(jakarta.persistence.criteria.Predicate[]::new));
+            return cb.exists(sub);
+        });
+        return com.eap.platform.common.HistoryPage.from(decisionRepository.findAll(spec,pageable).map(this::response));
+    }
+
+    @Transactional(readOnly = true)
     public List<GovernanceDataDtos.PreflightResponse> list(int limit) {
         return decisionRepository.findTop500ByOrderByDecidedAtDesc().stream().limit(limit).map(this::response).toList();
     }

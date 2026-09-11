@@ -36,6 +36,14 @@ public class ContentObservationController {
         this.securityProperties = securityProperties;
     }
 
+    @GetMapping("/content/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<ContentObservationDtos.ContentObservationResponse>> page(
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.ObservationHistoryQuery query) {
+        var page=service.page(query);
+        if(securityProperties.isDevelopmentMode()) page=new com.eap.platform.common.HistoryPage<>(page.items().stream().map(ContentObservationDtos.ContentObservationResponse::withoutContent).toList(),page.totalElements(),page.page(),page.size());
+        return ApiResponse.ok(page);
+    }
+
     @GetMapping("/status")
     public ApiResponse<ContentObservationDtos.ObservationStatus> status() {
         return ApiResponse.ok(service.status());

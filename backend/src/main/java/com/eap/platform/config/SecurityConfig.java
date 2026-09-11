@@ -83,7 +83,7 @@ public class SecurityConfig {
                                 "/api/discovery/connectors/host/observations",
                                 "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/observability/content")
+                        .requestMatchers(HttpMethod.GET, "/api/observability/content", "/api/observability/content/page")
                             .hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/discovery/v1/admin/agents/*/content-approval")
                             .hasAnyRole("PLATFORM_ADMIN", "DATA_OWNER")

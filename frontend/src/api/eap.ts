@@ -100,6 +100,11 @@ function queryString(params: Record<string, string | number | boolean | undefine
 }
 
 export const EapApi = {
+  pageModelHistory: (params: HistoryParams & {agentId?:number; endpointKey?:string; traceId?:string; eventKey?:string}) => getData<{items:ModelInvocationEvent[]; totalElements:number}>(`/telemetry/model-invocations/page${queryString({...params})}`),
+  pageContentHistory: (params: HistoryParams & {agentId?:number; endpointKey?:string; traceId?:string; eventKey?:string}) => getData<{items:ContentObservation[]; totalElements:number}>(`/observability/content/page${queryString({...params})}`),
+  pageSpanHistory: (params: HistoryParams & {agentId?:number; endpointKey?:string; traceId?:string; eventKey?:string}) => getData<{items:TraceSpanObservation[]; totalElements:number}>(`/observability/otlp/spans/page${queryString({...params})}`),
+  pageToolHistory: (params: HistoryParams & {agentId?:number; endpointKey?:string; traceId?:string; eventKey?:string}) => getData<{items:ToolInvocationEvent[]; totalElements:number}>(`/observability/tool-invocations/page${queryString({...params})}`),
+  pageDecisionHistory: (params: HistoryParams & {agentId?:number; endpointKey?:string; traceId?:string; eventKey?:string}) => getData<{items:GovernancePreflightDecision[]; totalElements:number}>(`/governance/preflight-decisions/page${queryString({...params})}`),
   listEvaluators: () => getData<EvaluatorDefinition[]>('/evaluations/evaluators'),
   createEvaluator: (payload: {
     evaluatorKey: string

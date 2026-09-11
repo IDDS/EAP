@@ -376,7 +376,7 @@
           <span class="muted">只保存物理遥测元数据，不在此表保存提示词与模型输出</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleEvents" v-loading="loading" row-key="id">
+      <HistoryTable ref="modelHistory" :fetch-page="fetchModelHistory" :reset-key="route.fullPath" :statuses="['STARTED','SUCCEEDED','FAILED','CANCELLED']" placeholder="搜索标识、名称或 Trace">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -426,7 +426,7 @@
             </div>
           </template>
         </el-table-column>
-      </PaginatedTable>
+      </HistoryTable>
     </el-card>
 
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
@@ -436,7 +436,7 @@
           <span class="muted">输入 / 输出正文仅在 REDACTED 模式保存；HASH_ONLY 只保留哈希、长度和 Token 估算</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleContentObservations" v-loading="loading" row-key="id">
+      <HistoryTable ref="contentHistory" :fetch-page="fetchContentHistory" :reset-key="route.fullPath" :statuses="['INPUT','OUTPUT','TOOL_INPUT','TOOL_OUTPUT','SYSTEM']" placeholder="搜索标识、名称或 Trace">
         <el-table-column label="方向" width="100">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(row.direction) }}</el-tag>
@@ -467,17 +467,18 @@
         <el-table-column label="时间" width="175">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
-      </PaginatedTable>
+      <el-table-column label="诊断" width="90" fixed="right"><template #default="{ row }"><el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button></template></el-table-column>
+      </HistoryTable>
     </el-card>
 
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>智能体深度 Trace</span>
-          <span class="muted">优先显示 OTLP Span；暂无子 Span 时显示模型调用根节点</span>
+          <span class="muted">已持久化 OTLP Span 历史；模型调用补充节点见上方诊断图</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleTraceSpans" v-loading="loading" row-key="id">
+      <HistoryTable ref="spanHistory" :fetch-page="fetchSpanHistory" :reset-key="route.fullPath" :statuses="['STARTED','SUCCEEDED','FAILED','CANCELLED']" placeholder="搜索标识、名称或 Trace">
         <el-table-column label="类型" width="100">
           <template #default="{ row }"><el-tag size="small" :type="traceTagType(row.spanKind)">{{ row.synthetic ? '遥测根 Span' : traceKindLabel(row.spanKind) }}</el-tag></template>
         </el-table-column>
@@ -501,7 +502,8 @@
           <template #default="{ row }">{{ row.endpointKey }}</template>
         </el-table-column>
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
-      </PaginatedTable>
+      <el-table-column label="诊断" width="90" fixed="right"><template #default="{ row }"><el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button></template></el-table-column>
+      </HistoryTable>
     </el-card>
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
@@ -510,7 +512,7 @@
           <span class="muted">记录工具/MCP 的实际观测、输入输出观测关联和调用状态</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleToolInvocations" v-loading="loading" row-key="id">
+      <HistoryTable ref="toolHistory" :fetch-page="fetchToolHistory" :reset-key="route.fullPath" :statuses="['REQUESTED','SUCCEEDED','FAILED','UNKNOWN']" placeholder="搜索标识、名称或 Trace">
         <el-table-column label="工具" min-width="190">
           <template #default="{ row }">
             <strong>{{ row.toolName }}</strong>
@@ -535,13 +537,15 @@
           </template>
         </el-table-column>
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
-      </PaginatedTable>
+      <el-table-column label="诊断" width="90" fixed="right"><template #default="{ row }"><el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button></template></el-table-column>
+      </HistoryTable>
       <el-empty v-if="visibleToolInvocations.length === 0" description="当前筛选条件下没有工具调用明细" />
     </el-card>
   </section>
 </template>
 
 <script setup lang="ts">
+import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -886,7 +890,7 @@ function openKnowledge(row: ModelInvocationEvent) {
   } })
 }
 
-function openTrace(row: ModelInvocationEvent) {
+function openTrace(row: {agentId?:number;endpointKey?:string;traceId?:string}) {
   if (!row.traceId) return
   router.push({ path: '/physical', query: {
     agentId: row.agentId ? String(row.agentId) : undefined,
@@ -906,6 +910,14 @@ function clearDrilldown() {
   router.replace({ path: '/physical', query: {} })
 }
 
+const modelHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchModelHistory(params:HistoryParams) { return EapApi.pageModelHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined,eventKey:contextEventKey.value || undefined}) }
+const contentHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchContentHistory(params:HistoryParams) { return EapApi.pageContentHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined,eventKey:contextEventKey.value || undefined}) }
+const spanHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchSpanHistory(params:HistoryParams) { return EapApi.pageSpanHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined}) }
+const toolHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchToolHistory(params:HistoryParams) { return EapApi.pageToolHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined}) }
 const loadError = ref('')
 let loadVersion = 0
 let disposed = false
@@ -936,6 +948,7 @@ async function load() {
     traceSpans.value = nextTraceSpans
     toolInvocations.value = nextToolInvocations
     if (!telemetryForm.agentId) telemetryForm.agentId = nextAgents[0]?.id
+    for (const table of [modelHistory,contentHistory,spanHistory,toolHistory]) void table.value?.reload()
   } catch {
     if (!disposed && version === loadVersion) loadError.value = '数据加载失败；保留当前筛选范围内已加载的记录，请刷新重试。'
   } finally {

@@ -257,7 +257,7 @@
           <span class="muted">放行 · 脱敏后复检 · 请求审批 · 阻断</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleDecisions" v-loading="loading" row-key="id">
+      <HistoryTable ref="decisionHistory" :labels="{PENDING: '待审批'}" :fetch-page="fetchDecisionHistory" :reset-key="route.fullPath" :statuses="['NOT_REQUIRED','PENDING','APPROVED','REJECTED']" placeholder="搜索决策标识、模型或分类器">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.decidedAt) }}</template>
         </el-table-column>
@@ -297,8 +297,7 @@
             <span v-else class="muted">{{ row.approvedBy ? `${row.approvedBy} · ${formatTime(row.approvedAt)}` : '无需审批' }}</span>
           </template>
         </el-table-column>
-      </PaginatedTable>
-      <el-empty v-if="visibleDecisions.length === 0" description="尚未执行模型网关预检" />
+      </HistoryTable>
     </el-card>
 
     <el-card v-show="activeSection === 'audit'" shadow="never" class="panel">
@@ -619,6 +618,8 @@ function clearDrilldown() {
   router.replace({ path: '/governance', query: {} })
 }
 
+const decisionHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchDecisionHistory(params:HistoryParams) {return EapApi.pageDecisionHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,eventKey:contextEventKey.value || undefined})}
 const eventHistory = ref<InstanceType<typeof HistoryTable>>()
 function fetchEventHistory(params:HistoryParams) { return EapApi.pageGovernanceEvents({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,eventKey:contextEventKey.value || undefined}) }
 async function load() {
@@ -641,6 +642,7 @@ async function load() {
   } finally {
     loading.value = false
     void eventHistory.value?.reload()
+    void decisionHistory.value?.reload()
   }
 }
 

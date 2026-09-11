@@ -133,6 +133,15 @@ public class OtlpTraceIngestionService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<OtlpTraceIngestionDtos.TraceSpanResponse> page(com.eap.platform.common.ObservationHistoryQuery query) {
+        if(query.getEventKey()!=null && !query.getEventKey().isBlank()) throw new com.eap.platform.common.BusinessException("此类记录不支持eventKey筛选，请使用Trace ID");
+        var pageable=query.pageable();
+        var selected=query.enumStatus(com.eap.platform.telemetry.ModelInvocationStatus.class);
+        var spec=query.<TraceSpanObservation>specification("status", selected==null?null:selected.name(), "traceId", "spanId", "spanName", "toolName", "mcpServerName").and(query.observationContext());
+        return com.eap.platform.common.HistoryPage.from(traceSpanRepository.findAll(spec,pageable).map(this::toResponse));
+    }
+
+    @Transactional(readOnly = true)
     public List<OtlpTraceIngestionDtos.TraceSpanResponse> listTraceSpans(
             int limit,
             Long agentId,

@@ -81,6 +81,15 @@ public class ContentObservationService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<ContentObservationDtos.ContentObservationResponse> page(com.eap.platform.common.ObservationHistoryQuery query) {
+        if(query.size>properties.getMaxListItems()) throw new com.eap.platform.common.BusinessException("每页条数超过内容查看配置上限");
+        var pageable=query.pageable();
+        var selected=query.enumStatus(ContentDirection.class);
+        var spec=query.<ContentObservation>specification("direction", selected, "observationKey", "eventKey", "traceId", "provider", "modelName").and(query.observationContext());
+        return com.eap.platform.common.HistoryPage.from(repository.findAll(spec,pageable).map(ContentObservationDtos::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<ContentObservationDtos.ContentObservationResponse> list(int limit) {
         return list(limit, null, null, null, null, null, null);
     }

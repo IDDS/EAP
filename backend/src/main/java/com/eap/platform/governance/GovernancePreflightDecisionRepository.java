@@ -5,7 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface GovernancePreflightDecisionRepository extends JpaRepository<GovernancePreflightDecision, Long> {
+public interface GovernancePreflightDecisionRepository extends JpaRepository<GovernancePreflightDecision, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<GovernancePreflightDecision> {
     Optional<GovernancePreflightDecision> findByDecisionKey(String decisionKey);
 
     List<GovernancePreflightDecision> findTop500ByOrderByDecidedAtDesc();

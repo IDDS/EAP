@@ -22,6 +22,12 @@ public class ToolInvocationController {
         this.service = service;
     }
 
+    @GetMapping("/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<ToolInvocationDtos.ToolInvocationResponse>> page(
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.ObservationHistoryQuery query) {
+        return ApiResponse.ok(service.page(query));
+    }
+
     @GetMapping
     public ApiResponse<List<ToolInvocationDtos.ToolInvocationResponse>> list(
             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit,

@@ -18,7 +18,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(46);
+        assertThat(result.migrationsExecuted).isEqualTo(47);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables = statement.executeQuery("select count(*) from information_schema.tables where table_name in "

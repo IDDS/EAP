@@ -44,6 +44,12 @@ public class GovernanceDataController {
         return ApiResponse.ok(preflightService.evaluate(request));
     }
 
+    @GetMapping("/preflight-decisions/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<GovernanceDataDtos.PreflightResponse>> decisionPage(
+            @Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.DecisionHistoryQuery query) {
+        return ApiResponse.ok(preflightService.page(query));
+    }
+
     @GetMapping("/data-events/page")
     public ApiResponse<com.eap.platform.common.HistoryPage<GovernanceDataDtos.DataEventResponse>> page(
             @Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.EventHistoryQuery query) {

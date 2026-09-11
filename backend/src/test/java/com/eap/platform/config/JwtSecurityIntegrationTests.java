@@ -117,6 +117,13 @@ class JwtSecurityIntegrationTests {
     }
 
     @Test
+    void paginatedContentKeepsRestrictedReadRoles() throws Exception {
+        mockMvc.perform(get("/api/observability/content/page")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/observability/content/page").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_VIEWER")))).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/observability/content/page").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_GOVERNANCE_ADMIN")))).andExpect(status().isOk());
+    }
+
+    @Test
     void machineEndpointUsesDedicatedTokenWithoutUserJwt() throws Exception {
         mockMvc.perform(post("/api/observability/otlp/v1/traces")
                         .contentType(MediaType.APPLICATION_JSON)

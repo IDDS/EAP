@@ -123,6 +123,14 @@ public class ModelTelemetryService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<ModelTelemetryDtos.ModelInvocationResponse> page(com.eap.platform.common.ObservationHistoryQuery query) {
+        var pageable=query.pageable();
+        var selected=query.enumStatus(ModelInvocationStatus.class);
+        var spec=query.<ModelInvocationEvent>specification("status", selected, "eventKey", "traceId", "provider", "modelName").and(query.observationContext());
+        return com.eap.platform.common.HistoryPage.from(eventRepository.findAll(spec,pageable).map(ModelTelemetryDtos::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<ModelTelemetryDtos.ModelInvocationResponse> list(int limit) {
         return list(limit, null, null, null, null, null, null, null);
     }

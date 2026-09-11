@@ -61,6 +61,12 @@ public class OtlpTraceIngestionController {
                 .body(ExportTraceServiceResponse.getDefaultInstance().toByteArray());
     }
 
+    @GetMapping("/spans/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<OtlpTraceIngestionDtos.TraceSpanResponse>> page(
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.ObservationHistoryQuery query) {
+        return ApiResponse.ok(service.page(query));
+    }
+
     @GetMapping("/spans")
     public ApiResponse<java.util.List<OtlpTraceIngestionDtos.TraceSpanResponse>> spans(
             @org.springframework.web.bind.annotation.RequestParam(defaultValue = "100") @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(500) int limit,
