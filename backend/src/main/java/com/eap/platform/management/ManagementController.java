@@ -38,6 +38,12 @@ public class ManagementController {
         return ApiResponse.ok(managementService.recordValue(request));
     }
 
+    @GetMapping("/value-events/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<ManagementDtos.ValueEventResponse>> page(
+            @Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.EventHistoryQuery query) {
+        return ApiResponse.ok(managementService.pageValues(query));
+    }
+
     @GetMapping("/value-events")
     public ApiResponse<List<ManagementDtos.ValueEventResponse>> listValues(
             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit

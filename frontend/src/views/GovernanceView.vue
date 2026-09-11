@@ -304,11 +304,11 @@
     <el-card v-show="activeSection === 'audit'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
-          <span>最近治理事件</span>
+          <span>治理事件历史</span>
           <span class="muted">分类、敏感级别和策略动作；不展示信息正文</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}`" :data="visibleEvents" v-loading="loading" row-key="id">
+      <HistoryTable ref="eventHistory" :fetch-page="fetchEventHistory" :reset-key="route.fullPath" :statuses="['ALLOW','WARN','REDACT','BLOCK','APPROVAL_REQUIRED']" placeholder="搜索事件标识、Trace、数据类别、端点">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -335,7 +335,7 @@
         <el-table-column label="钻取" width="92" fixed="right">
           <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
         </el-table-column>
-      </PaginatedTable>
+      </HistoryTable>
       <el-empty v-if="visibleEvents.length === 0" description="尚未收到治理数据事件" />
     </el-card>
 
@@ -424,6 +424,7 @@
 </template>
 
 <script setup lang="ts">
+import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, DataAnalysis, Lock, OfficeBuilding, Plus, Refresh } from '@element-plus/icons-vue'
@@ -618,6 +619,8 @@ function clearDrilldown() {
   router.replace({ path: '/governance', query: {} })
 }
 
+const eventHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchEventHistory(params:HistoryParams) { return EapApi.pageGovernanceEvents({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,eventKey:contextEventKey.value || undefined}) }
 async function load() {
   loading.value = true
   try {
@@ -637,6 +640,7 @@ async function load() {
     gateway.value = nextGateway
   } finally {
     loading.value = false
+    void eventHistory.value?.reload()
   }
 }
 

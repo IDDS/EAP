@@ -70,6 +70,19 @@ public class GovernanceDataService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<GovernanceDataDtos.DataEventResponse> page(com.eap.platform.common.EventHistoryQuery query) {
+        GovernanceDataAction action = null;
+        if(query.status != null && !query.status.isBlank()) {
+            try { action = GovernanceDataAction.valueOf(query.status); }
+            catch(IllegalArgumentException ex) { throw new com.eap.platform.common.BusinessException("无效的治理动作"); }
+        }
+        var pageable = query.pageable();
+        var spec = query.<GovernanceDataEvent>specification("action", action, "eventKey", "traceId", "dataCategory", "endpointKey")
+            .and(query.context(true));
+        return com.eap.platform.common.HistoryPage.from(eventRepository.findAll(spec, pageable).map(GovernanceDataDtos::from));
+    }
+
+    @Transactional(readOnly = true)
     public List<GovernanceDataDtos.DataEventResponse> list(int limit) {
         return list(limit, null, 0);
     }

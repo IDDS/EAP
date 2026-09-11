@@ -226,6 +226,7 @@ export const EapApi = {
   updatePolicy: (id: number, payload: Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>) =>
     putData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>>(`/policies/${id}`, payload),
   getGovernanceDataSummary: (hours = 24) => getData<GovernanceDataSummary>(`/governance/data-summary?hours=${hours}`),
+  pageGovernanceEvents: (params: HistoryParams & {agentId?:number; endpointKey?:string; eventKey?:string}) => getData<{items: GovernanceDataEvent[]; totalElements:number}>(`/governance/data-events/page${queryString({...params})}`),
   listGovernanceDataEvents: (limit = 100, params: { agentId?: number; page?: number } = {}) =>
     getData<GovernanceDataEvent[]>(`/governance/data-events${queryString({ limit, ...params })}`),
   recordGovernanceDataEvent: (payload: {
@@ -449,6 +450,7 @@ export const EapApi = {
   updateKnowledgeOutcome: (id: number, payload: { adopted: boolean; reused: boolean; qualityScore?: number }) =>
     postData<KnowledgeInteraction, typeof payload>(`/knowledge/interactions/${id}/outcome`, payload),
   getManagementSummary: (hours = 24, currency?: string) => getData<ManagementSummary>(`/management/summary?hours=${hours}${currency ? `&currency=${encodeURIComponent(currency)}` : ''}`),
+  pageManagementValues: (params: HistoryParams & {agentId?:number; endpointKey?:string; currency?:string}) => getData<{items: ManagementValueEvent[]; totalElements:number}>(`/management/value-events/page${queryString({...params})}`),
   listManagementValueEvents: (limit = 100) => getData<ManagementValueEvent[]>(`/management/value-events?limit=${limit}`),
   recordManagementValueEvent: (payload: {
     eventKey: string

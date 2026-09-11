@@ -26,16 +26,17 @@ public class HistoryQuery {
     public String getOrder(){return order;} public void setOrder(String v){order=v;}
     public Instant getFrom(){return from;} public void setFrom(Instant v){from=v;}
     public Instant getTo(){return to;} public void setTo(Instant v){to=v;}
+    protected String timeField() { return "createdAt"; }
     public PageRequest pageable() {
         if(from!=null && to!=null && !from.isBefore(to)) throw new BusinessException("开始时间必须早于结束时间");
-        return PageRequest.of(page-1,size,Sort.by(Sort.Direction.fromString(order),"createdAt","id"));
+        return PageRequest.of(page-1,size,Sort.by(Sort.Direction.fromString(order),timeField(),"id"));
     }
     public <T> Specification<T> specification(String statusField, Object statusValue, String... fields) {
         return (root,query,cb)->{
             var terms=new ArrayList<Predicate>();
             if(statusValue!=null) terms.add(cb.equal(root.get(statusField),statusValue));
-            if(from!=null) terms.add(cb.greaterThanOrEqualTo(root.get("createdAt"),from));
-            if(to!=null) terms.add(cb.lessThan(root.get("createdAt"),to));
+            if(from!=null) terms.add(cb.greaterThanOrEqualTo(root.get(timeField()),from));
+            if(to!=null) terms.add(cb.lessThan(root.get(timeField()),to));
             if(keyword!=null && !keyword.isBlank()) {
                 String escaped=keyword.trim().toLowerCase(Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_");
                 var matches=new ArrayList<Predicate>();

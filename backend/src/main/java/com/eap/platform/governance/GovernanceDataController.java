@@ -44,6 +44,12 @@ public class GovernanceDataController {
         return ApiResponse.ok(preflightService.evaluate(request));
     }
 
+    @GetMapping("/data-events/page")
+    public ApiResponse<com.eap.platform.common.HistoryPage<GovernanceDataDtos.DataEventResponse>> page(
+            @Valid @org.springframework.web.bind.annotation.ModelAttribute com.eap.platform.common.EventHistoryQuery query) {
+        return ApiResponse.ok(service.page(query));
+    }
+
     @GetMapping("/preflight-decisions")
     public ApiResponse<List<GovernanceDataDtos.PreflightResponse>> decisions(
             @RequestParam(defaultValue = "100") @Min(1) @Max(500) int limit

@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-public interface ManagementValueEventRepository extends JpaRepository<ManagementValueEvent, Long> {
+public interface ManagementValueEventRepository extends JpaRepository<ManagementValueEvent, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<ManagementValueEvent> {
     Optional<ManagementValueEvent> findByEventKey(String eventKey);
 
     Optional<ManagementValueEvent> findBySourceSystemAndSourceRecordKey(String sourceSystem, String sourceRecordKey);

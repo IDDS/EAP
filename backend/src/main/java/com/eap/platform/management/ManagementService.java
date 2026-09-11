@@ -121,6 +121,25 @@ public class ManagementService {
     }
 
     @Transactional(readOnly = true)
+    public com.eap.platform.common.HistoryPage<ManagementDtos.ValueEventResponse> pageValues(com.eap.platform.common.EventHistoryQuery query) {
+        if(query.status != null && !query.status.isBlank()) throw new com.eap.platform.common.BusinessException("价值记录不支持状态筛选");
+        var pageable = query.pageable();
+        var spec = query.<ManagementValueEvent>specification(null, null, "eventKey", "description", "validatedBy", "valueType", "sourceSystem", "sourceRecordKey")
+            .and(query.context(false));
+        if(query.getCurrency()!=null && !query.getCurrency().isBlank())
+            spec=spec.and((root,q,cb)->cb.equal(cb.upper(cb.trim(root.get("currency"))),query.getCurrency().trim().toUpperCase(java.util.Locale.ROOT)));
+        if(query.getAgentId()!=null) spec=spec.and((root,q,cb)->{
+            var sub=q.subquery(Long.class);
+            var contribution=sub.from(ManagementValueAttribution.class);
+            sub.select(contribution.get("valueEventId")).where(cb.equal(contribution.get("agentId"),query.getAgentId()), cb.equal(contribution.get("valueEventId"),root.get("id")));
+            return cb.or(cb.equal(root.get("agentId"),query.getAgentId()),cb.exists(sub));
+        });
+        var page=valueRepository.findAll(spec,pageable);
+        var attributions=attributionsByEvent(page.getContent());
+        return com.eap.platform.common.HistoryPage.from(page.map(value->ManagementDtos.from(value,attributions.getOrDefault(value.id,List.of()))));
+    }
+
+    @Transactional(readOnly = true)
     public List<ManagementDtos.ValueEventResponse> listValues(int limit) {
         List<ManagementValueEvent> values = valueRepository.findTop500ByOrderByObservedAtDesc().stream().limit(limit).toList();
         Map<Long, List<ManagementValueAttribution>> attributions = attributionsByEvent(values);

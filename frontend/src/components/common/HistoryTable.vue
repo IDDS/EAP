@@ -2,7 +2,7 @@
   <div class="history-table">
     <div class="history-filters">
       <el-input v-model="keyword" :placeholder="placeholder" clearable aria-label="搜索历史记录" />
-      <el-select v-model="status" aria-label="状态筛选"><el-option label="全部状态" value="" /><el-option v-for="item in statuses" :key="item" :label="statusLabels[item] || item" :value="item" /></el-select>
+      <el-select v-if="statuses.length" v-model="status" aria-label="状态筛选"><el-option label="全部状态" value="" /><el-option v-for="item in statuses" :key="item" :label="statusLabels[item] || item" :value="item" /></el-select>
       <el-date-picker v-model="range" type="datetimerange" start-placeholder="开始时间" end-placeholder="结束时间" aria-label="时间范围" />
       <el-select v-model="order" aria-label="时间排序"><el-option label="最新在前" value="desc"/><el-option label="最早在前" value="asc"/></el-select>
       <el-button @click="reload">刷新</el-button>
@@ -18,9 +18,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 export interface HistoryParams { page:number; size:number; keyword?:string; status?:string; order:string; from?:string; to?:string }
-const props=defineProps<{ fetchPage:(params:HistoryParams)=>Promise<{items:any[];totalElements:number}>; statuses:string[]; placeholder:string }>()
+const props=defineProps<{ fetchPage:(params:HistoryParams)=>Promise<{items:any[];totalElements:number}>; statuses:string[]; placeholder:string; resetKey?:string }>()
 defineEmits<{ 'row-click':[row:any] }>()
-const statusLabels:Record<string,string>={PENDING:'待运行',RUNNING:'运行中',SUCCEEDED:'执行成功',FAILED:'失败',CANCELLED:'已取消',SUCCESS:'成功'}
+const statusLabels:Record<string,string>={PENDING:'待运行',RUNNING:'运行中',SUCCEEDED:'执行成功',FAILED:'失败',CANCELLED:'已取消',SUCCESS:'成功',ALLOW:'允许',WARN:'警告',REDACT:'脱敏',BLOCK:'阻断',APPROVAL_REQUIRED:'需要审批'}
 const items=ref<any[]>([]), total=ref(0), page=ref(1), size=ref(10), keyword=ref(''), status=ref(''), order=ref('desc')
 const range=ref<[Date,Date] | null>(null), loading=ref(false), error=ref('')
 let generation=0, timer:ReturnType<typeof setTimeout> | undefined
@@ -43,7 +43,7 @@ function changed(){
   page.value=1
   timer=setTimeout(reload,300)
 }
-watch([keyword,status,order,range,size],changed)
+watch([keyword,status,order,range,size,()=>props.resetKey],changed)
 watch(page,()=>{clearTimeout(timer);timer=setTimeout(reload,0)})
 onMounted(reload)
 onBeforeUnmount(()=>{++generation;clearTimeout(timer)})

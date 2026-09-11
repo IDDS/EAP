@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-public interface GovernanceDataEventRepository extends JpaRepository<GovernanceDataEvent, Long> {
+public interface GovernanceDataEventRepository extends JpaRepository<GovernanceDataEvent, Long>, org.springframework.data.jpa.repository.JpaSpecificationExecutor<GovernanceDataEvent> {
     Optional<GovernanceDataEvent> findByEventKey(String eventKey);
 
     List<GovernanceDataEvent> findTop500ByOrderByObservedAtDesc();

@@ -540,10 +540,10 @@
       <template #header>
         <div class="panel-header">
           <span>价值事件记录</span>
-          <span class="muted">最近 {{ windowHours }} 小时的价值确认；原始知识正文不进入此界面</span>
+          <span class="muted">按下方时间范围检索历史，未选择时查询全部时间</span>
         </div>
       </template>
-      <PaginatedTable :reset-key="`${route.fullPath}:${windowHours}:${selectedCurrency}`" :data="visibleValueEvents" v-loading="loading" row-key="id">
+      <HistoryTable ref="eventHistory" :fetch-page="fetchValueHistory" :reset-key="`${route.fullPath}:${summary.currency}`" :statuses="[]" placeholder="搜索价值类型、来源、确认人、说明">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -585,13 +585,13 @@
         <el-table-column label="说明" min-width="240">
           <template #default="{ row }">{{ row.description || '—' }}</template>
         </el-table-column>
-      </PaginatedTable>
-      <el-empty v-if="visibleValueEvents.length === 0" description="尚未登记业务价值事件" />
+      </HistoryTable>
     </el-card>
   </section>
 </template>
 
 <script setup lang="ts">
+import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { CircleCheck, DataAnalysis, Money, Refresh, TrendCharts } from '@element-plus/icons-vue'
@@ -937,6 +937,8 @@ function clearDrilldown() {
   router.replace({ path: '/management', query: {} })
 }
 
+const eventHistory = ref<InstanceType<typeof HistoryTable>>()
+function fetchValueHistory(params:HistoryParams) { return EapApi.pageManagementValues({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,currency:summary.value.currency || undefined}) }
 async function load() {
   const requestId = ++loadRequestId
   loading.value = true
