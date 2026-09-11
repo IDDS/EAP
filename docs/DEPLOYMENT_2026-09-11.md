@@ -35,3 +35,12 @@ docker compose -p eap -f docker-compose.tencent.yml -f docker-compose.tencent.pr
 - 新后端启动日志未见ERROR/Exception；保留既有Flyway关于MySQL8.4高于验证版本的警告。
 - 原DEVELOPMENT、HTTP与控制派发关闭配置保持原状，未开启真实Runtime执行；没有创建测试事项或提交生产评估/认领/控制命令。
 - 线上截图仅放本地临时目录，未提交业务页面数据。此次为上线冒烟检查，不是长期压力测试。
+
+## 13:29 前端配色补丁 0.3.0.1
+
+- 前端提交/镜像 `2ddf166`，package版本0.3.1；前端buildId `2026-09-11T05:25:28.125Z` 与公网一致。背景与面板改为明亮蓝色，提亮文字/连线，指标增加细色条。
+- 仅更新前端，后端仍为6996472，启动时间仍为 `2026-09-11T04:07:17.083717524Z`，没有重启后端或数据库。
+- 前端54项测试和构建通过；公网大屏200、七接口通过、无失败提示、1080p无页面溢出；实际CSS背景变量为#102c49。
+- 发布产物 `/home/ubuntu/eap-releases/2ddf166`，旧Compose备份 `/home/ubuntu/eap-backups/frontend-2ddf166/docker-compose.release.yml`；原前端镜像6996472保留。
+- 首次解包使用umask077导致静态文件600，Nginx返回403并自动恢复旧前端。修正为tar --same-permissions，切换前增加以nginx用户检查静态文件可读，第二次发布成功。
+- 线上截图仍仅存本地临时目录；仓库截图为本地合成数据。
