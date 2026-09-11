@@ -12,5 +12,5 @@ const expired = computed(() => age.value >= 45)
 const ageLabel = computed(() => age.value < 60 ? `${age.value} 秒前` : age.value < 3600 ? `${Math.floor(age.value / 60)} 分钟前` : `${Math.floor(age.value / 3600)} 小时前`)
 </script>
 <style scoped>
-.source-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1.5;color:#9eb2c8;white-space:nowrap}.source-status i{width:5px;height:5px;border-radius:50%;background:#47d6b0;flex:none}.source-status.warning{color:#edba67}.source-status.warning i{background:#edba67}
+.source-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1.5;color:var(--cc-muted,#bdd2e7);white-space:nowrap}.source-status i{width:5px;height:5px;border-radius:50%;background:#47d6b0;flex:none}.source-status.warning{color:#edba67}.source-status.warning i{background:#edba67}
 </style>
