@@ -2,9 +2,9 @@
   <section class="page-grid agentops-workbench" :aria-busy="loading">
     <header class="agentops-page-header">
       <div>
-        <span class="interface-eyebrow">EAP · ACTION WORKBENCH</span>
+        <span class="interface-eyebrow">EAP · 工作入口</span>
         <h2>运营工作台</h2>
-        <p>优先处理影响运行、身份、治理和观测完整性的事项。按优先级查看证据、分派责任并跟进处置。</p>
+        <p>先查看待办，再跟进任务进展和业务结果。当前展示所选范围的事项，并非仅分配给你的事项。</p>
       </div>
       <div class="button-row">
         <span class="context-summary">{{ context.scopeLabel }} · {{ context.windowLabel }}</span>
@@ -17,6 +17,11 @@
 
 
     <el-alert v-if="dashboardError" type="error" :closable="false" show-icon :title="dashboardError" />
+    <nav class="workbench-start" aria-label="开始处理工作">
+      <button type="button" @click="openWorkQueue"><strong>处理待办</strong><span>查看异常、负责人和处理记录</span><small>{{ hasDashboard ? `${dashboard.workItems.totalOpen} 项待处理` : '查看待办列表' }} →</small></button>
+      <router-link to="/operations"><strong>跟进任务</strong><span>查看任务进展，阅读执行结果</span><small>打开任务列表 →</small></router-link>
+      <router-link to="/management"><strong>查看业务成果</strong><span>查看登记的收益和业务改善记录</span><small>打开业务价值 →</small></router-link>
+    </nav>
     <div class="workbench-priority-strip">
       <button class="priority-cell priority-critical" type="button" :aria-pressed="severityFilter === 'P0'" :class="{ 'is-selected': severityFilter === 'P0' }" @click="applySeverity('P0')">
         <span>P0 · 立即响应</span><strong>{{ hasDashboard ? dashboard.workItems.p0 : '—' }}</strong><small>关键安全或治理阻断</small>
@@ -28,7 +33,7 @@
         <span>P2 · 计划内处理</span><strong>{{ hasDashboard ? dashboard.workItems.p2 : '—' }}</strong><small>降级与观测完整性</small>
       </button>
       <button class="priority-cell priority-overdue" type="button" :aria-pressed="showOverdueOnly" :class="{ 'is-selected': showOverdueOnly }" @click="toggleOverdue">
-        <span>SLA · 已逾期</span><strong>{{ hasDashboard ? dashboard.workItems.overdue : '—' }}</strong><small>{{ showOverdueOnly ? '再次点击取消筛选' : '需要升级或重新分派' }}</small>
+        <span>处理时限 · 已逾期</span><strong>{{ hasDashboard ? dashboard.workItems.overdue : '—' }}</strong><small>{{ showOverdueOnly ? '再次点击取消筛选' : '需要升级或重新分派' }}</small>
       </button>
     </div>
 
@@ -216,7 +221,7 @@
       </template>
       <div v-if="severityFilter || showOverdueOnly" class="queue-filter-summary" role="status"><span>当前筛选：{{ severityFilter || '全部级别' }}{{ showOverdueOnly ? ' · 仅逾期' : '' }}</span><el-button link @click="clearFilters">重置</el-button></div>
       <el-empty v-if="!hasDashboard && !loading" description="事项数据尚未加载，请刷新重试" :image-size="64" />
-      <WorkItemTable v-else
+      <WorkItemTable id="work-queue-list" v-else
         :items="filteredWorkItems"
         :reset-key="`${severityFilter}:${showOverdueOnly}`"
         :loading="loading"
@@ -302,6 +307,10 @@ type NetworkViewMode = 'ALL' | 'CONTROL' | 'DATA' | 'EVIDENCE'
 
 const router = useRouter()
 const context = useAgentOpsContextStore()
+function openWorkQueue() {
+  workbenchTab.value = 'queue'
+  requestAnimationFrame(() => document.getElementById('work-queue-list')?.scrollIntoView({behavior:'smooth',block:'start'}))
+}
 const workbenchTab = ref('queue')
 const workbenchTabs = [{ key: 'queue', label: '待处理事项' }, { key: 'network', label: '拓扑与控制' }, { key: 'metrics', label: '观测指标' }]
 const hasDashboard = ref(false)
@@ -525,4 +534,8 @@ onMounted(() => { void Promise.all([load(), loadNetwork()]) })
 
 <style scoped>
 .command-center-link{color:#176b9b;text-decoration:none;border:1px solid #b8cede;border-radius:5px;padding:9px 14px;font-size:14px}.command-center-link:hover{background:#eef5fa}.command-center-link:focus-visible{outline:2px solid #2683b8;outline-offset:3px}
+</style>
+
+<style scoped>
+.workbench-start{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.workbench-start>a,.workbench-start>button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:18px;border:1px solid var(--soc-line,#dce3eb);border-radius:8px;background:var(--soc-surface,#fff);text-align:left;color:var(--el-text-color-primary);text-decoration:none;font:inherit;cursor:pointer}.workbench-start strong{font-size:16px}.workbench-start span{font-size:13px;color:var(--el-text-color-secondary)}.workbench-start small{color:var(--el-color-primary);font-size:12px}.workbench-start>a:hover,.workbench-start>button:hover{border-color:var(--el-color-primary)}@media(max-width:700px){.workbench-start{grid-template-columns:1fr}}
 </style>
