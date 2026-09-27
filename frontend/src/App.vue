@@ -142,7 +142,7 @@
           <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
           <el-button class="session-button" :title="hasAccessToken ? '更新企业认证凭证' : '连接企业认证'" @click="openAuthDialog">
             <span :class="['session-indicator', { connected: hasAccessToken }]" />
-            {{ hasAccessToken ? '企业认证' : '本地模式' }}
+            {{ hasAccessToken ? '企业认证' : platformStatus?.securityMode === 'DEVELOPMENT' ? '本地模式' : '登录' }}
           </el-button>
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
         </div>
@@ -179,8 +179,9 @@
       show-icon
       title="访问令牌仅保存在当前标签页，刷新后保留，关闭标签页即清除。"
     />
+    <el-button v-if="platformStatus?.oidc" type="primary" :loading="signingIn" style="margin-top: 18px" @click="signIn">企业账号登录</el-button>
     <el-form label-position="top" style="margin-top: 18px">
-      <el-form-item label="访问令牌">
+      <el-form-item label="手工访问令牌（备用）">
         <el-input
           v-model="authTokenDraft"
           type="password"
@@ -193,7 +194,7 @@
     </el-form>
     <template #footer>
       <el-button @click="authDialogVisible = false">取消</el-button>
-      <el-button type="primary" :disabled="!authTokenDraft.trim()" @click="saveAuthToken">保存并连接</el-button>
+      <el-button type="primary" :disabled="!authTokenDraft.trim()" :loading="savingToken" @click="saveAuthToken">保存并连接</el-button>
     </template>
   </el-dialog>
 
@@ -225,6 +226,8 @@ import { ArrowDown, ArrowRight, Connection, Cpu, DataAnalysis, DataBoard, Expand
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
+import { startOidcSignIn } from '@/api/oidc'
+import { loadCurrentUser } from '@/stores/permissions'
 import { useAgentOpsContextStore } from '@/stores/agentOps'
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
 
@@ -251,6 +254,8 @@ const sidebarCollapsed = ref(false)
 let compactViewportQuery: MediaQueryList | undefined
 const authDialogVisible = ref(false)
 const authTokenDraft = ref('')
+const signingIn = ref(false)
+const savingToken = ref(false)
 const hasAccessToken = ref(Boolean(getAccessToken()))
 const searchDialogVisible = ref(false)
 const globalSearchTerm = ref('')
@@ -325,22 +330,42 @@ function openAuthDialog() {
   authDialogVisible.value = true
 }
 
-function saveAuthToken() {
+async function signIn() {
+  signingIn.value = true
+  try {
+    const status = await EapApi.getPlatformStatus()
+    platformStatus.value = status
+    if (!status.oidc) throw new Error('平台尚未配置企业登录，请使用手工令牌')
+    await startOidcSignIn(status.oidc, route.fullPath)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '无法发起企业登录')
+  } finally { signingIn.value = false }
+}
+
+async function saveAuthToken() {
+  savingToken.value = true
   setAccessToken(authTokenDraft.value)
+  try {
+    if (!await loadCurrentUser()) return
+    authDialogVisible.value = false
+    authTokenDraft.value = ''
+    window.location.reload()
+  } catch {
+    clearAccessToken()
+  } finally { savingToken.value = false }
+}
+
+function syncAuthentication() {
   hasAccessToken.value = Boolean(getAccessToken())
-  authDialogVisible.value = false
-  authTokenDraft.value = ''
-  ElMessage.success('企业认证令牌已保存，后续请求将自动携带认证信息')
 }
 
 function logout() {
   clearAccessToken()
-  hasAccessToken.value = false
-  ElMessage.success('当前标签页的企业认证已清除')
+  window.location.reload()
 }
 
 function requireAuthentication() {
-  if (!hasAccessToken.value) openAuthDialog()
+  if (route.path !== '/auth/callback') openAuthDialog()
 }
 
 function openSearchDialog() {
@@ -444,6 +469,10 @@ async function loadPlatformStatus() {
   platformStatusLoading.value = true
   try {
     platformStatus.value = await EapApi.getPlatformStatus()
+    if (route.path !== '/auth/callback') {
+      if (platformStatus.value.securityMode === 'DEVELOPMENT' || getAccessToken()) await loadCurrentUser()
+      else requireAuthentication()
+    }
   } catch {
     // 状态端点不可用时不猜测环境，业务页面仍可继续使用。
   } finally {
@@ -471,6 +500,7 @@ onMounted(() => {
   compactViewportQuery.addEventListener('change', syncSidebarForViewport)
   syncOpenNavigationGroup()
   window.addEventListener('eap-auth-required', requireAuthentication)
+  window.addEventListener('eap-auth-changed', syncAuthentication)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   void checkForBuildUpdate()
   void loadPlatformStatus()
@@ -479,6 +509,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   window.removeEventListener('eap-auth-required', requireAuthentication)
+  window.removeEventListener('eap-auth-changed', syncAuthentication)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   compactViewportQuery?.removeEventListener('change', syncSidebarForViewport)
   if (versionCheckTimer) window.clearInterval(versionCheckTimer)

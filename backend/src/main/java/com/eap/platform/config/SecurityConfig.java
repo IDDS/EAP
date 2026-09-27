@@ -62,6 +62,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/platform/status").permitAll()
+                        // Any signed-in user may ask what they are allowed to do, even with no EAP role yet.
+                        .requestMatchers(HttpMethod.GET, "/api/platform/me").authenticated()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/discovery/v1/agent/**").permitAll()
                         // Machine-facing endpoints perform their own constant-time token validation.
@@ -84,23 +86,25 @@ public class SecurityConfig {
                                 "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/observability/content", "/api/observability/content/page")
-                            .hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.POST, "/api/discovery/v1/admin/agents/*/content-approval")
-                            .hasAnyRole("PLATFORM_ADMIN", "DATA_OWNER")
-                        .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole("VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.APPROVE_CONTENT.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers(HttpMethod.POST, "/api/evaluations/evaluators", "/api/evaluations/datasets", "/api/evaluations/datasets/*/items", "/api/evaluations/datasets/*/run", "/api/evaluations/results", "/api/evaluations/synchronize", "/api/evaluations/jobs")
-                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.MANAGE_EVALUATIONS.roles())
                         .requestMatchers(HttpMethod.PATCH, "/api/evaluations/datasets/*/items/*/annotation")
-                            .hasAnyRole("OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole("GOVERNANCE_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers("/api/control/**", "/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")
-                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.ANNOTATE_EVALUATIONS.roles())
+                        .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole(PlatformPermission.GOVERNANCE.roles())
+                        .requestMatchers("/api/control/**", "/api/agents/*/substrate/instances", "/api/agents/*/substrate/instances/**")
+                            .hasAnyRole(PlatformPermission.OPERATE_INSTANCES.roles())
+                        .requestMatchers("/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")
+                            .hasAnyRole(PlatformPermission.RUN_WORKFLOWS.roles())
                         .requestMatchers("/api/management/connectors/**")
-                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
                         .requestMatchers(HttpMethod.POST, "/api/agentops/**")
-                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
                         .requestMatchers("/api/agents/**", "/api/registry/**", "/api/discovery/**")
-                            .hasAnyRole("OPERATOR", "PLATFORM_ADMIN")
+                            .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
@@ -116,7 +120,9 @@ public class SecurityConfig {
         if (properties.getIssuerUri().isBlank() && properties.getJwkSetUri().isBlank()) {
             throw new IllegalStateException("JWT 模式必须配置 EAP_SECURITY_ISSUER_URI 或 EAP_SECURITY_JWK_SET_URI");
         }
-        JwtDecoder decoder = properties.getIssuerUri().isBlank()
+        // With both set, keys come from jwk-set-uri and iss must still equal issuer-uri. This covers an identity
+        // provider whose public issuer URL (what browsers and tokens use) is not reachable from the backend.
+        JwtDecoder decoder = !properties.getJwkSetUri().isBlank()
                 ? NimbusJwtDecoder.withJwkSetUri(properties.getJwkSetUri()).build()
                 : JwtDecoders.fromIssuerLocation(properties.getIssuerUri());
         if (decoder instanceof NimbusJwtDecoder nimbus) {

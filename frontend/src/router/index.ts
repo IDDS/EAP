@@ -19,6 +19,7 @@ const EvaluationView = () => import('@/views/EvaluationView.vue')
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/auth/callback', component: () => import('@/views/AuthCallbackView.vue'), meta: { title: '企业身份认证', standalone: true } },
     { path: '/command-center', component: () => import('@/views/CommandCenterView.vue'), meta: { title: '运行指挥大屏', standalone: true } },
     { path: '/', component: DashboardView, meta: { title: '运营工作台' } },
     { path: '/agents', component: AgentsView, meta: { title: '智能体目录' } },

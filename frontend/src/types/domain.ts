@@ -103,6 +103,7 @@ export interface DashboardNetwork {
 }
 
 export interface PlatformStatus {
+  oidc: import('@/api/oidc').OidcConfig | null
   securityMode: string
   controlDispatchEnabled: boolean
   controlDispatchMode: string

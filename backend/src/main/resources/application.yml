@@ -39,6 +39,9 @@ eap:
     jwk-set-uri: ${EAP_SECURITY_JWK_SET_URI:}
     audience: ${EAP_SECURITY_AUDIENCE:}
     roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
+    # Console sign-in (OIDC authorization code + PKCE) against issuer-uri; empty keeps manual token entry only.
+    oidc-client-id: ${EAP_SECURITY_OIDC_CLIENT_ID:}
+    oidc-scopes: ${EAP_SECURITY_OIDC_SCOPES:openid profile}
     allowed-origins: ${EAP_SECURITY_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   discovery:
     enabled: ${EAP_DISCOVERY_ENABLED:false}

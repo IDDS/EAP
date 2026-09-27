@@ -507,3 +507,32 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 同日完成前端部署：DeepSeek 经网关接入，平台通用 Agent Runner，Agent 详情“部署与运行”Tab（零代码/已有镜像、预检、进度、重试、实例管理、试运行），V48 迁移。实测全链路通过；后端 233/234（原有失败 1 项）、前端 66/66 通过。
 - 已完成：删除实例同时移除登记（不再产生离线事项）；Runner 上报 AGENT Span，并与网关的模型调用共用 traceId；v2 版本发布验证通过。
 - 同日完成：长任务（路由器 `--route-timeout=20m`，600 秒任务 SUCCEEDED）；JWT 部署权限测试（401/403/OPERATOR）；源码构建部署（kaniko Job、按 digest 固定、构建日志、从失败步骤重试），示例仓库部署成功。限制见集成设计文档第 9 节：GitHub 网络、WORKDIR 被忽略、普通 HTTP 只转发 80 端口。
+
+### 交接：Substrate 集成的下一步（2026-09-27，用户改用 Codex 编写代码）
+
+- **已提交（本地，未推送）：** `e45d522`（Substrate 运行时与前端部署）、`1789c55`（源码构建、长任务、JWT 部署权限测试）。分支为 `feat/galileo-evaluation-foundation`；推送前需用户同意。
+- **进行中、未提交、未测试：JWT 登录模式，要求前后端一致。** 目前只改了 3 个文件（见 `git diff`）：
+  - `SecurityProperties`：新增 `oidcClientId`、`oidcScopes`（`EAP_SECURITY_OIDC_CLIENT_ID` / `_SCOPES`）。
+  - `SecurityConfig`：同时配置 jwk-set-uri 与 issuer-uri 时，从 jwk-set-uri 取公钥，但仍校验 `iss` 等于 issuer-uri（适用于 IdP 公网地址后端访问不到的情况）；已放行 `GET /api/platform/me`，但**该接口尚未实现**。
+- **计划中的设计（尚未实现）：**
+  1. **后端是唯一的权限来源。**
+     - `/api/platform/status` 增加 `oidc`（issuer、clientId、scopes）；
+     - 新增 `/api/platform/me`，返回当前 subject、角色以及能力列表，例如 `deployAgents`、`operateInstances`、`viewContent`；
+     - 能力按 `SecurityConfig` 的实际规则计算。
+     - 前端不解码 JWT、不另写一套角色逻辑，只根据 `/me` 隐藏或禁用按钮；后端依然按原规则拦截。
+     - 需要测试保证 `/me` 给出的能力与 `SecurityConfig` 的实际拦截一致。
+  2. **前端登录：**
+     - 用 status 中的 oidc 配置走授权码 + PKCE 流程；
+     - 新增 `/auth/callback` 路由；令牌仍按现有 `api/auth.ts` 的做法存在 sessionStorage；
+     - 保留手工粘贴令牌作为兜底；401 时引导重新登录。
+  3. **PoC 身份提供方：** 在集群部署 Keycloak（realm `eap`），为 VIEWER、OPERATOR、GOVERNANCE_ADMIN、PLATFORM_ADMIN 各建一个测试用户，然后把 `eap-poc.yaml` 切到 `EAP_SECURITY_MODE=JWT`。
+  4. **切换前：** `AgentOpsIntegrationTests.excludesDevelopmentSeedAgentsFromJwtProductionViews` 的原有失败（JWT 视图仍返回 7 个种子 Agent）需要先确认原因，因为它直接关系到 JWT 模式。
+- **编译与测试只在远程 PoC 集群上进行**（用户要求，不在本机安装、编译）。步骤与脚本见 `…/联通/软件研究院/2026/K8Substrate/tools/eap/README.md`；集群环境与限制见本文件上一节，以及 `docs/SUBSTRATE_RUNTIME_INTEGRATION.md` 第 9 节。
+- **安全：** DeepSeek key 只存在集群 Secret `eap-gateway` 中，不得写入代码、文档或部署清单。
+
+#### Codex 进展（2026-09-27）
+
+- 已实现第 1、2 步：status 发布 OIDC 配置；`/me` 返回身份、角色及能力，DEVELOPMENT 全能力开启；`PlatformPermission` 与 SecurityConfig 共用角色规则。
+- 前端增加无新依赖的授权码 + PKCE 登录、一次性 state/有效期校验、`/auth/callback` 和权限 store；令牌仍存 sessionStorage，保留手工入口，401 清理权限并提示重登。Substrate 发布、重试、实例控制及聊天只依据 `/me` 能力门控，不解码 JWT 或按角色名授权。
+- 已编写 JWT 逐角色真实接口对照、DEVELOPMENT/status、PKCE、能力门控及登录竞态测试。**未编译、未测试**：本机未运行 mvn/java/npm/node；仅静态审阅与 `git diff --check`，待 Claude 在远程集群执行后端测试、前端测试和构建及真实 IdP 验证。
+- 未执行第 3、4 步；未提交、推送、切分支，未改密钥、.env 或部署清单。沿用已有 SecurityProperties/application.yml 改动。IdP 需允许控制台 origin 的 CORS，并登记 `<控制台 origin>/auth/callback` 为公共客户端回调。

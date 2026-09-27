@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { AxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types/domain'
-import { getAccessToken } from '@/api/auth'
+import { clearAccessToken, getAccessToken } from '@/api/auth'
 
 declare module 'axios' {
   interface AxiosRequestConfig { silentError?: boolean }
@@ -41,14 +41,21 @@ function showRequestError(message: string) {
 
 http.interceptors.request.use(config => {
   const accessToken = getAccessToken()
-  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`
+  if (accessToken && config.url !== '/platform/status') config.headers.Authorization = `Bearer ${accessToken}`
   return config
 })
 
 http.interceptors.response.use(
   response => response,
   (error: AxiosError<{ message?: string }>) => {
-    if (error?.response?.status === 401 && !error.config?.silentError) window.dispatchEvent(new Event('eap-auth-required'))
+    if (error?.response?.status === 401) {
+      const token = getAccessToken()
+      const authorization = error.config?.headers?.Authorization
+      if (authorization === (token ? `Bearer ${token}` : undefined)) {
+        clearAccessToken()
+        window.dispatchEvent(new Event('eap-auth-required'))
+      }
+    }
     if (!error.config?.silentError) showRequestError(requestErrorMessage(error))
     return Promise.reject(error)
   },

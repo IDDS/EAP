@@ -19,6 +19,10 @@ public class SecurityProperties {
     private String jwkSetUri = "";
     private String audience = "";
     private String rolesClaim = "roles";
+    // Public client the console signs in with; published by /api/platform/status so the console always uses
+    // the same identity provider (issuer-uri) whose tokens this backend accepts.
+    private String oidcClientId = "";
+    private String oidcScopes = "openid profile";
     private String allowedOrigins = "http://localhost:5173,http://127.0.0.1:5173";
 
     public Mode getMode() {
@@ -59,6 +63,22 @@ public class SecurityProperties {
 
     public void setRolesClaim(String rolesClaim) {
         this.rolesClaim = rolesClaim;
+    }
+
+    public String getOidcClientId() {
+        return oidcClientId == null ? "" : oidcClientId.trim();
+    }
+
+    public void setOidcClientId(String oidcClientId) {
+        this.oidcClientId = oidcClientId;
+    }
+
+    public String getOidcScopes() {
+        return oidcScopes == null || oidcScopes.isBlank() ? "openid profile" : oidcScopes.trim();
+    }
+
+    public void setOidcScopes(String oidcScopes) {
+        this.oidcScopes = oidcScopes;
     }
 
     public String getAllowedOrigins() {

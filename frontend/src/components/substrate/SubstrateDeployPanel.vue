@@ -7,7 +7,7 @@
       <template #header>
         <div class="panel-header"><span>部署新版本</span><span class="muted">发布后生成不可变版本；修改配置即发布新版本</span></div>
       </template>
-      <el-form label-width="120px" class="deploy-form" @submit.prevent>
+      <el-form :disabled="!actions.deploy" label-width="120px" class="deploy-form" @submit.prevent>
         <el-form-item label="部署方式">
           <el-radio-group v-model="form.sourceType">
             <el-radio-button value="RUNNER" :disabled="capabilities ? !capabilities.runnerAvailable : false">零代码配置</el-radio-button>
@@ -87,7 +87,7 @@
           <span class="field-hint">默认只允许访问 EAP 网关{{ capabilities?.gatewayHost ? `（${capabilities.gatewayHost}）` : '' }}</span>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="submitting" :disabled="capabilities ? !capabilities.enabled : false" @click="submit">发布部署</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!actions.deploy || !capabilities?.enabled" @click="submit">发布部署</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -109,7 +109,7 @@
         </el-steps>
         <p v-if="deployment.reason" class="deployment-reason">
           {{ deployment.reason }}
-          <el-button v-if="deployment.status === 'FAILED'" link type="primary" :loading="retrying === deployment.version"
+          <el-button v-if="deployment.status === 'FAILED' && actions.retry" link type="primary" :loading="retrying === deployment.version"
             @click="retry(deployment)">从失败步骤重试</el-button>
         </p>
         <el-collapse>
@@ -134,7 +134,7 @@
         <div class="panel-header">
           <span>运行实例</span>
           <span>
-            <el-button size="small" :loading="creating" :disabled="!hasReadyVersion" @click="createInstance">新建实例</el-button>
+            <el-button size="small" :loading="creating" :disabled="!actions.createInstance || !hasReadyVersion" @click="createInstance">新建实例</el-button>
             <el-button link type="primary" @click="loadInstances">刷新</el-button>
           </span>
         </div>
@@ -147,11 +147,11 @@
         </el-table-column>
         <el-table-column label="操作" min-width="300">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openChat(row)">试运行</el-button>
-            <el-button link :loading="busy === row.instanceKey + 'RESUME'" @click="control(row, 'RESUME')">唤醒</el-button>
-            <el-button link :loading="busy === row.instanceKey + 'PAUSE'" @click="control(row, 'PAUSE')">休眠</el-button>
-            <el-button v-if="row.state === 'CRASHED'" link type="warning" :loading="busy === row.instanceKey + 'REVERT'" @click="control(row, 'REVERT')">回退</el-button>
-            <el-button link type="danger" @click="remove(row)">删除</el-button>
+            <el-button link type="primary" :disabled="!actions.chat" @click="openChat(row)">试运行</el-button>
+            <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'RESUME'" @click="control(row, 'RESUME')">唤醒</el-button>
+            <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'PAUSE'" @click="control(row, 'PAUSE')">休眠</el-button>
+            <el-button v-if="row.state === 'CRASHED'" link type="warning" :disabled="!actions.control" :loading="busy === row.instanceKey + 'REVERT'" @click="control(row, 'REVERT')">回退</el-button>
+            <el-button link type="danger" :disabled="!actions.remove" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -167,9 +167,9 @@
       </div>
       <template #footer>
         <div class="chat-input">
-          <el-input v-model="chatText" type="textarea" :rows="2" maxlength="4000" placeholder="输入消息，Ctrl+Enter 发送"
+          <el-input :disabled="!actions.chat" v-model="chatText" type="textarea" :rows="2" maxlength="4000" placeholder="输入消息，Ctrl+Enter 发送"
             @keydown.ctrl.enter="sendChat" />
-          <el-button type="primary" :loading="chatting" @click="sendChat">发送</el-button>
+          <el-button type="primary" :loading="chatting" :disabled="!actions.chat" @click="sendChat">发送</el-button>
         </div>
       </template>
     </el-drawer>
@@ -180,6 +180,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { SubstrateApi } from '@/api/substrate'
+import { substrateActions } from '@/api/capabilities'
+import { usePermissions } from '@/stores/permissions'
 import type { SubstrateCapabilities, SubstrateDeployment, SubstrateInstance } from '@/api/substrate'
 import {
   ACTIVE_DEPLOYMENT_STATUSES, actorStateLabel, buildDeployPayload, defaultDeployForm, deployStages, failedStageIndex,
@@ -187,6 +189,8 @@ import {
 } from '@/api/substrateDeploy'
 
 const props = defineProps<{ agentId: number }>()
+const permissions = usePermissions()
+const actions = computed(() => substrateActions(permissions.state.user?.capabilities))
 const models = ['deepseek-flash', 'deepseek-v4-pro']
 const buildLogs = reactive<Record<number, string>>({})
 const logLoading = ref<number>()
@@ -242,6 +246,7 @@ function schedulePolling() {
 }
 
 async function submit() {
+  if (!actions.value.deploy) return
   const problem = validateDeployForm(form)
   if (problem) { ElMessage.warning(problem); return }
   pendingRequestKey ||= globalThis.crypto?.randomUUID?.().replace(/-/g, '') ?? `${Date.now()}${Math.random().toString(36).slice(2)}`
@@ -270,6 +275,7 @@ async function loadLog(deployment: SubstrateDeployment) {
 
 const retrying = ref<number>()
 async function retry(deployment: SubstrateDeployment) {
+  if (!actions.value.retry) return
   retrying.value = deployment.version
   try {
     await SubstrateApi.retry(props.agentId, deployment.version)
@@ -279,6 +285,7 @@ async function retry(deployment: SubstrateDeployment) {
 }
 
 async function createInstance() {
+  if (!actions.value.createInstance) return
   creating.value = true
   try {
     const instance = await SubstrateApi.createInstance(props.agentId)
@@ -288,6 +295,7 @@ async function createInstance() {
 }
 
 async function control(instance: SubstrateInstance, command: 'PAUSE' | 'RESUME' | 'REVERT') {
+  if (!actions.value.control) return
   busy.value = instance.instanceKey + command
   try {
     const result = await SubstrateApi.control(props.agentId, instance.instanceKey, command)
@@ -298,21 +306,25 @@ async function control(instance: SubstrateInstance, command: 'PAUSE' | 'RESUME' 
 }
 
 async function remove(instance: SubstrateInstance) {
+  if (!actions.value.remove) return
   try {
     await ElMessageBox.confirm(`删除实例 ${instance.name} 会丢弃它的会话状态，且无法恢复。`, '删除实例', { type: 'warning', confirmButtonText: '删除' })
   } catch { return }
+  if (!actions.value.remove) return
   await SubstrateApi.deleteInstance(props.agentId, instance.name)
   ElMessage.success('实例已删除')
   await loadInstances()
 }
 
 function openChat(instance: SubstrateInstance) {
+  if (!actions.value.chat) return
   if (chatInstance.value?.instanceKey !== instance.instanceKey) chatMessages.value = []
   chatInstance.value = instance
   chatOpen.value = true
 }
 
 async function sendChat() {
+  if (!actions.value.chat) return
   const text = chatText.value.trim()
   const instance = chatInstance.value
   if (!text || !instance || chatting.value) return
