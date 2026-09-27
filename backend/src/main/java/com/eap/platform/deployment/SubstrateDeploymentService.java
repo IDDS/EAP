@@ -46,6 +46,7 @@ import java.util.regex.Pattern;
  */
 @Service
 public class SubstrateDeploymentService {
+    static final String BUILDING_IMAGE = "BUILDING_IMAGE";
     static final String QUEUED = "QUEUED";
     static final String BUILDING = "BUILDING_GOLDEN";
     static final String CREATING = "CREATING_INSTANCE";
@@ -68,6 +69,9 @@ public class SubstrateDeploymentService {
     private static final Pattern DIGEST_REF = Pattern.compile("^[a-z0-9.:/_-]+@sha256:[a-f0-9]{64}$");
     private static final Pattern TAG_REF = Pattern.compile("^([a-z0-9._/-]+?)(?::([A-Za-z0-9._-]{1,128}))?$");
     private static final Pattern REQUEST_KEY = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
+    private static final Pattern GIT_URL = Pattern.compile("^(https?)://([A-Za-z0-9.-]+)(:\\d{1,5})?/[A-Za-z0-9._~/-]+$");
+    private static final Pattern GIT_REF = Pattern.compile("^(?!.*\\.\\.)[A-Za-z0-9._/-]{1,200}$");
+    private static final Pattern REPO_PATH = Pattern.compile("^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]{0,200}$");
     private static final Pattern INSTANCE_NAME = Pattern.compile("^a(\\d+)-v(\\d+)-[a-z0-9]{6}$");
 
     private final SubstrateDeploymentRepository repository;
@@ -79,6 +83,7 @@ public class SubstrateDeploymentService {
     private final WorkflowExecutionProperties workflow;
     private final GenseeSafetyService safety;
     private final AuditLogRepository audits;
+    private final ImageBuilder builder;
     private final ObjectMapper mapper;
     private final TransactionTemplate transaction;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
@@ -88,10 +93,11 @@ public class SubstrateDeploymentService {
                                       AgentRuntimeInstanceRepository runtimes, AgentRegistryService registry,
                                       SubstrateClient client, SubstrateProperties properties,
                                       WorkflowExecutionProperties workflow, GenseeSafetyService safety,
-                                      AuditLogRepository audits, ObjectMapper mapper, PlatformTransactionManager manager) {
+                                      AuditLogRepository audits, ImageBuilder builder, ObjectMapper mapper,
+                                      PlatformTransactionManager manager) {
         this.repository = repository; this.agents = agents; this.runtimes = runtimes; this.registry = registry;
         this.client = client; this.properties = properties; this.workflow = workflow; this.safety = safety;
-        this.audits = audits; this.mapper = mapper;
+        this.audits = audits; this.builder = builder; this.mapper = mapper;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -99,7 +105,7 @@ public class SubstrateDeploymentService {
     public SubstrateDeploymentDtos.CapabilityResponse capabilities() {
         return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank(),
                 !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
-                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()));
+                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled());
     }
 
     @Transactional(readOnly = true)
@@ -125,7 +131,10 @@ public class SubstrateDeploymentService {
                 return response(existing.get());
             }
         }
-        String image = resolveImage("RUNNER".equals(config.get("sourceType")) ? properties.getRunnerImage() : (String) config.get("image"));
+        boolean source = "SOURCE".equals(config.get("sourceType"));
+        // A source build is pinned to the digest it pushes; there is nothing to resolve before it runs.
+        String image = source ? null
+                : resolveImage("RUNNER".equals(config.get("sourceType")) ? properties.getRunnerImage() : (String) config.get("image"));
         int version = repository.findFirstByAgentIdOrderByVersionDesc(agentId).map(d -> d.version + 1).orElse(1);
         SubstrateDeployment deployment = new SubstrateDeployment();
         deployment.deploymentKey = "dep-" + UUID.randomUUID();
@@ -138,8 +147,9 @@ public class SubstrateDeploymentService {
         deployment.templateName = "eap-a" + agentId + "-v" + version;
         deployment.requestedBy = requester == null || requester.isBlank() ? "console" : requester.substring(0, Math.min(128, requester.length()));
         deployment.submissionKey = submissionKey;
-        deployment.status = QUEUED;
-        addStep(deployment, "VALIDATE", "DONE", "配置校验通过，镜像固定为 " + image);
+        deployment.status = source ? BUILDING_IMAGE : QUEUED;
+        addStep(deployment, "VALIDATE", "DONE", source ? "配置校验通过，将从 " + config.get("gitUrl") + " 构建镜像"
+                : "配置校验通过，镜像固定为 " + image);
         String decision = preflight(deployment, config);
         if (!"ALLOW".equals(decision)) {
             deployment.status = "DENY".equals(decision) ? BLOCKED : WAITING;
@@ -163,11 +173,15 @@ public class SubstrateDeploymentService {
         List<SubstrateDeploymentDtos.Step> history = steps(deployment);
         String failedStep = history.isEmpty() ? QUEUED : history.get(history.size() - 1).step();
         deployment.status = switch (failedStep) {
+            case BUILDING_IMAGE, "BUILD_IMAGE" -> BUILDING_IMAGE;
             case CREATING -> CREATING;
             case BUILDING, "GOLDEN_SNAPSHOT" -> BUILDING;
             default -> QUEUED;
         };
         deployment.reason = null;
+        if (BUILDING_IMAGE.equals(deployment.status)) {
+            try { builder.delete(buildName(deployment)); } catch (ImageBuilder.BuildException ignored) { }
+        }
         // The golden timeout counts from submission; a retried build gets a fresh window.
         if (BUILDING.equals(deployment.status)) deployment.createdAt = Instant.now();
         addStep(deployment, "RETRY", "DONE", "由 " + requester + " 重试，从 " + deployment.status + " 继续");
@@ -179,10 +193,11 @@ public class SubstrateDeploymentService {
     public void processNext() {
         if (!properties.isEnabled()) return;
         SubstrateDeployment deployment = transaction.execute(ignored ->
-                repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(List.of(QUEUED, BUILDING, CREATING)).orElse(null));
+                repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(List.of(BUILDING_IMAGE, QUEUED, BUILDING, CREATING)).orElse(null));
         if (deployment == null) return;
         try {
             switch (deployment.status) {
+                case BUILDING_IMAGE -> buildStep(deployment);
                 case QUEUED -> {
                     client.ensureAtespace(deployment.atespace);
                     try {
@@ -213,7 +228,64 @@ public class SubstrateDeploymentService {
             }
         } catch (SubstrateClient.SubstrateException exception) {
             fail(deployment, deployment.status, "Substrate " + exception.code() + "：" + truncate(exception.getMessage(), 300));
+        } catch (ImageBuilder.BuildException exception) {
+            fail(deployment, deployment.status, truncate(exception.getMessage(), 300));
         }
+    }
+
+    /** Starts the build once (re-issuing is harmless), then waits for it and pins the pushed digest. */
+    private void buildStep(SubstrateDeployment deployment) {
+        String name = buildName(deployment);
+        ImageBuilder.BuildStatus status = builder.status(name);
+        switch (status.state()) {
+            case "MISSING" -> {
+                Map<String, Object> config = config(deployment);
+                builder.start(new ImageBuilder.BuildSpec(name, (String) config.get("gitUrl"), (String) config.get("gitRef"),
+                        (String) config.get("contextPath"), (String) config.get("dockerfile"),
+                        builder.destination(deployment.agentId, deployment.version)));
+                touch(deployment);
+            }
+            case "SUCCEEDED" -> {
+                deployment.imageRef = builder.repository(deployment.agentId) + "@" + status.digest();
+                transaction.executeWithoutResult(ignored -> repository.findById(deployment.id).ifPresent(current -> {
+                    current.imageRef = deployment.imageRef;
+                    repository.save(current);
+                }));
+                advance(deployment, QUEUED, "BUILD_IMAGE", "镜像构建完成：" + deployment.imageRef);
+            }
+            case "FAILED" -> fail(deployment, "BUILD_IMAGE", status.reason() + lastLogLine(name));
+            default -> touch(deployment);
+        }
+    }
+
+    public String buildLog(Long agentId, Integer version) {
+        SubstrateDeployment deployment = repository.findByAgentIdAndVersion(agentId, version)
+                .orElseThrow(() -> new BusinessException("部署版本不存在"));
+        if (!"SOURCE".equals(deployment.sourceType)) throw new BusinessException("该版本不是源码构建");
+        try {
+            return builder.logTail(buildName(deployment), 200);
+        } catch (ImageBuilder.BuildException exception) {
+            throw new BusinessException(exception.getMessage());
+        }
+    }
+
+    private String lastLogLine(String name) {
+        try {
+            // kaniko prints its usage text after a fatal error; the "Error:" line is the actual cause.
+            String[] lines = builder.logTail(name, 80).replaceAll("\u001B\\[[;\\d]*m", "").strip().split("\n");
+            String cause = "";
+            for (String line : lines) {
+                if (line.strip().startsWith("Error:") || line.contains("error building image")) cause = line.strip();
+            }
+            if (cause.isEmpty()) cause = lines[lines.length - 1].strip();
+            return cause.isEmpty() ? "" : "：" + truncate(cause, 200);
+        } catch (RuntimeException exception) {
+            return "";
+        }
+    }
+
+    private static String buildName(SubstrateDeployment deployment) {
+        return "eap-build-a" + deployment.agentId + "-v" + deployment.version;
     }
 
     public List<SubstrateDeploymentDtos.InstanceResponse> instances(Long agentId) {
@@ -321,7 +393,9 @@ public class SubstrateDeploymentService {
     private Map<String, Object> normalize(SubstrateDeploymentDtos.DeployRequest request) {
         Map<String, Object> config = new LinkedHashMap<>();
         String source = upper(request.sourceType());
-        if (!Set.of("RUNNER", "IMAGE").contains(source)) throw new BusinessException("部署来源只能是 RUNNER（零代码）或 IMAGE（已有镜像）");
+        if (!Set.of("RUNNER", "IMAGE", "SOURCE").contains(source)) {
+            throw new BusinessException("部署来源只能是 RUNNER（零代码）、IMAGE（已有镜像）或 SOURCE（源码构建）");
+        }
         config.put("sourceType", source);
         if ("RUNNER".equals(source)) {
             if (properties.getRunnerImage().isBlank()) throw new BusinessException("平台通用 Agent 镜像未配置");
@@ -335,13 +409,33 @@ public class SubstrateDeploymentService {
             config.put("readinessPath", "/readyz");
             config.put("command", List.of());
         } else {
-            String image = request.image() == null ? "" : request.image().trim();
-            if (image.isEmpty()) throw new BusinessException("请填写镜像地址");
+            if ("SOURCE".equals(source)) {
+                if (!builder.enabled()) throw new BusinessException("源码构建未启用");
+                String gitUrl = request.gitUrl() == null ? "" : request.gitUrl().trim().replaceAll("/+$", "");
+                Matcher git = GIT_URL.matcher(gitUrl);
+                if (!git.matches() || "http".equals(git.group(1))
+                        && !properties.buildHttpGitHosts().contains(git.group(2).toLowerCase(Locale.ROOT))) {
+                    throw new BusinessException("Git 地址必须是不含账号、参数的 https 地址（http 仅限已登记的内部 Git 服务）");
+                }
+                String gitRef = request.gitRef() == null || request.gitRef().isBlank() ? "main" : request.gitRef().trim();
+                if (!GIT_REF.matcher(gitRef).matches()) throw new BusinessException("分支、标签或提交号格式无效");
+                String contextPath = request.contextPath() == null ? "" : request.contextPath().trim().replaceAll("^\\./|/+$", "");
+                String dockerfile = request.dockerfile() == null || request.dockerfile().isBlank() ? "Dockerfile" : request.dockerfile().trim();
+                if (!REPO_PATH.matcher(contextPath).matches() || !REPO_PATH.matcher(dockerfile).matches() || dockerfile.isEmpty()) {
+                    throw new BusinessException("构建目录或 Dockerfile 路径无效");
+                }
+                config.put("gitUrl", gitUrl);
+                config.put("gitRef", gitRef);
+                config.put("contextPath", contextPath);
+                config.put("dockerfile", dockerfile);
+            }
+            String image = "SOURCE".equals(source) ? "" : request.image() == null ? "" : request.image().trim();
+            if (!"SOURCE".equals(source) && image.isEmpty()) throw new BusinessException("请填写镜像地址");
             int port = request.port() == null ? 80 : request.port();
             if (port < 1 || port > 65535) throw new BusinessException("端口必须在 1–65535 之间");
             String path = request.readinessPath() == null || request.readinessPath().isBlank() ? "/" : request.readinessPath().trim();
             if (!PROBE_PATH.matcher(path).matches()) throw new BusinessException("就绪检查路径必须以 / 开头，且不含查询参数");
-            config.put("image", image);
+            if (!image.isEmpty()) config.put("image", image);
             config.put("port", port);
             config.put("readinessPath", path);
             config.put("command", request.command() == null ? List.of() : request.command().stream().filter(Objects::nonNull).toList());
@@ -384,8 +478,10 @@ public class SubstrateDeploymentService {
                 "部署 Agent 版本 v" + deployment.version));
         List<SafetyDtos.SafetyEventRequest> events = new ArrayList<>();
         events.add(new SafetyDtos.SafetyEventRequest(deployment.deploymentKey, deployment.agentId, null, SafetyEventType.POLICY_CHECK,
-                "deploy_agent", truncate(deployment.imageRef, 256), "Substrate 部署：" + deployment.sourceType + " / " + config.get("sandboxClass"),
-                json(Map.of("image", deployment.imageRef, "size", config.get("size"), "sandbox", config.get("sandboxClass")))));
+                "deploy_agent", truncate(deployment.imageRef != null ? deployment.imageRef : (String) config.get("gitUrl"), 256),
+                "Substrate 部署：" + deployment.sourceType + " / " + config.get("sandboxClass"),
+                json(Map.of("image", Objects.toString(deployment.imageRef, ""), "source", Objects.toString(config.get("gitUrl"), ""),
+                        "size", config.get("size"), "sandbox", config.get("sandboxClass")))));
         for (Object host : (List<?>) config.get("egressHosts")) {
             events.add(new SafetyDtos.SafetyEventRequest(deployment.deploymentKey, deployment.agentId, null, SafetyEventType.DATA_ACCESS,
                     "egress_allow", String.valueOf(host), "允许 Agent 出站访问 " + host, null));

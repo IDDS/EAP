@@ -39,6 +39,11 @@ public class SubstrateDeploymentController {
         return ApiResponse.ok(service.retry(agentId, version, requester(authentication)));
     }
 
+    @GetMapping("/{agentId}/substrate/deployments/{version}/build-log")
+    public ApiResponse<String> buildLog(@PathVariable Long agentId, @PathVariable Integer version) {
+        return ApiResponse.ok(service.buildLog(agentId, version));
+    }
+
     @GetMapping("/{agentId}/substrate/instances")
     public ApiResponse<List<SubstrateDeploymentDtos.InstanceResponse>> instances(@PathVariable Long agentId) {
         return ApiResponse.ok(service.instances(agentId));

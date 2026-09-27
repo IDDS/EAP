@@ -40,6 +40,7 @@ class SubstrateDeploymentServiceTests {
     private final AgentRegistryService registry = mock(AgentRegistryService.class);
     private final SubstrateClient client = mock(SubstrateClient.class);
     private final GenseeSafetyService safety = mock(GenseeSafetyService.class);
+    private final ImageBuilder builder = mock(ImageBuilder.class);
     private final SubstrateProperties properties = new SubstrateProperties();
     private final WorkflowExecutionProperties workflow = new WorkflowExecutionProperties();
     private SubstrateDeploymentService service;
@@ -71,7 +72,7 @@ class SubstrateDeploymentServiceTests {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service = new SubstrateDeploymentService(repository, agents, runtimes, registry, client,
-                properties, workflow, safety, mock(AuditLogRepository.class), new ObjectMapper().registerModule(new JavaTimeModule()), transactions);
+                properties, workflow, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions);
     }
 
     @Test
@@ -180,10 +181,86 @@ class SubstrateDeploymentServiceTests {
     }
 
     @Test
+    void sourceDeploymentBuildsFirstAndPinsThePushedDigest() {
+        when(builder.enabled()).thenReturn(true);
+        when(builder.repository(7L)).thenReturn("localhost:5001/eap-src-a7");
+        when(builder.destination(7L, 1)).thenReturn("10.0.0.1:5001/eap-src-a7:v1");
+        when(builder.status("eap-build-a7-v1")).thenReturn(new ImageBuilder.BuildStatus("MISSING", null, null),
+                new ImageBuilder.BuildStatus("RUNNING", null, null),
+                new ImageBuilder.BuildStatus("SUCCEEDED", "sha256:" + "c".repeat(64), null));
+
+        var response = service.submit(7L, source("https://gitee.com/org/agent.git/", "release", "./agent/"), "operator");
+        assertThat(response.status()).isEqualTo("BUILDING_IMAGE");
+        assertThat(response.imageRef()).isNull();
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
+
+        service.processNext();
+        ArgumentCaptor<ImageBuilder.BuildSpec> spec = ArgumentCaptor.forClass(ImageBuilder.BuildSpec.class);
+        verify(builder).start(spec.capture());
+        assertThat(spec.getValue().gitUrl()).isEqualTo("https://gitee.com/org/agent.git");
+        assertThat(spec.getValue().gitRef()).isEqualTo("release");
+        assertThat(spec.getValue().contextPath()).isEqualTo("agent");
+        assertThat(spec.getValue().destination()).isEqualTo("10.0.0.1:5001/eap-src-a7:v1");
+        service.processNext();
+        assertThat(stored.status).isEqualTo("BUILDING_IMAGE");
+        service.processNext();
+
+        assertThat(stored.status).isEqualTo("QUEUED");
+        assertThat(stored.imageRef).isEqualTo("localhost:5001/eap-src-a7@sha256:" + "c".repeat(64));
+        verify(client, never()).createTemplate(any());
+    }
+
+    @Test
+    void sourceInputsAreValidatedAndFailedBuildsRetryFromTheBuild() {
+        when(builder.enabled()).thenReturn(true);
+        for (String bad : new String[]{"http://gitee.com/a/b", "https://user:pw@gitee.com/a/b", "https://gitee.com/a/b?x=1", "git://gitee.com/a/b"}) {
+            assertThatThrownBy(() -> service.submit(7L, source(bad, "main", ""), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("https");
+        }
+        assertThatThrownBy(() -> service.submit(7L, source("https://gitee.com/a/b", "main", "../etc"), "operator"))
+                .isInstanceOf(BusinessException.class);
+
+        when(builder.status(any())).thenReturn(new ImageBuilder.BuildStatus("FAILED", null, "构建失败"));
+        when(builder.logTail(any(), org.mockito.ArgumentMatchers.anyInt())).thenReturn("step 1\nError: base image not found\n\nUsage:\n  executor [flags]\nUse \"executor [command] --help\" for more information about a command.\n");
+        service.submit(7L, source("https://gitee.com/a/b", "main", ""), "operator");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
+        service.processNext();
+        assertThat(stored.status).isEqualTo("FAILED");
+        assertThat(stored.reason).contains("base image not found");
+        when(repository.findByAgentIdAndVersion(7L, 1)).thenReturn(Optional.of(stored));
+
+        assertThat(service.retry(7L, 1, "operator").status()).isEqualTo("BUILDING_IMAGE");
+        verify(builder).delete("eap-build-a7-v1");
+    }
+
+    @Test
+    void plainHttpGitIsOnlyAcceptedForRegisteredInternalHosts() {
+        when(builder.enabled()).thenReturn(true);
+        assertThatThrownBy(() -> service.submit(7L, source("http://git.eap-git.svc/a.git", "main", ""), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("内部 Git");
+        properties.setBuildHttpGitHosts("git.eap-git.svc");
+        assertThat(service.submit(7L, source("http://git.eap-git.svc/a.git", "main", ""), "operator").status()).isEqualTo("BUILDING_IMAGE");
+        assertThatThrownBy(() -> service.submit(7L, source("http://evil.example.com/a.git", "main", ""), "operator"))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void sourceBuildRequiresTheBuilder() {
+        when(builder.enabled()).thenReturn(false);
+        assertThatThrownBy(() -> service.submit(7L, source("https://gitee.com/a/b", "main", ""), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("未启用");
+    }
+
+    @Test
     void foreignImagesMustBePinnedByDigest() {
         assertThatThrownBy(() -> service.resolveImage("docker.io/library/nginx:latest"))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("sha256");
         assertThat(service.resolveImage("ghcr.io/org/agent@sha256:" + "b".repeat(64))).endsWith("b".repeat(64));
+    }
+
+    private static SubstrateDeploymentDtos.DeployRequest source(String gitUrl, String gitRef, String contextPath) {
+        return new SubstrateDeploymentDtos.DeployRequest("SOURCE", null, null, 8080, "/healthz", Map.of(), null, null,
+                "GVISOR", "SMALL", List.of(), null, gitUrl, gitRef, contextPath, null);
     }
 
     private static SubstrateDeploymentDtos.DeployRequest runner(Map<String, String> env, List<String> hosts) {

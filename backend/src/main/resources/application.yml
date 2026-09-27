@@ -167,6 +167,17 @@ eap:
     gateway-host: ${EAP_SUBSTRATE_GATEWAY_HOST:}
     gateway-token: ${EAP_GATEWAY_INGESTION_TOKEN:}
     golden-timeout-seconds: ${EAP_SUBSTRATE_GOLDEN_TIMEOUT_SECONDS:900}
+    # Source builds run the repository's Dockerfile with kaniko in build-namespace; the backend service account
+    # needs jobs create/get/delete and pods/pods-log get/list there. build-push-prefix is how build pods reach
+    # the registry that templates reference as local-registry-prefix.
+    build-enabled: ${EAP_SUBSTRATE_BUILD_ENABLED:false}
+    build-namespace: ${EAP_SUBSTRATE_BUILD_NAMESPACE:eap-builds}
+    build-image: ${EAP_SUBSTRATE_BUILD_IMAGE:gcr.io/kaniko-project/executor:v1.23.2}
+    build-registry-mirror: ${EAP_SUBSTRATE_BUILD_REGISTRY_MIRROR:}
+    build-push-prefix: ${EAP_SUBSTRATE_BUILD_PUSH_PREFIX:}
+    build-timeout-seconds: ${EAP_SUBSTRATE_BUILD_TIMEOUT_SECONDS:1800}
+    # Comma-separated internal Git hosts allowed over plain http (e.g. an in-cluster mirror); all others need https.
+    build-http-git-hosts: ${EAP_SUBSTRATE_BUILD_HTTP_GIT_HOSTS:}
   observability:
     enabled: ${EAP_OBSERVABILITY_ENABLED:true}
     # Metadata-only model-call projection; independent from heuristic task evaluation.

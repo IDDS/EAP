@@ -1,12 +1,16 @@
 // Pure helpers for console deployment onto Agent Substrate; no imports so node tests can load them directly.
 
-export type DeploySource = 'RUNNER' | 'IMAGE'
+export type DeploySource = 'RUNNER' | 'IMAGE' | 'SOURCE'
 export type EnvRow = { name: string; value: string }
 export type DeployForm = {
   sourceType: DeploySource
   systemPrompt: string
   model: string
   image: string
+  gitUrl: string
+  gitRef: string
+  contextPath: string
+  dockerfile: string
   port: number
   readinessPath: string
   command: string
@@ -21,6 +25,10 @@ export type DeployPayload = {
   systemPrompt?: string
   model?: string
   image?: string
+  gitUrl?: string
+  gitRef?: string
+  contextPath?: string
+  dockerfile?: string
   port?: number
   readinessPath?: string
   command?: string[]
@@ -31,11 +39,12 @@ export type DeployPayload = {
   requestKey: string
 }
 
-export const ACTIVE_DEPLOYMENT_STATUSES = ['QUEUED', 'BUILDING_GOLDEN', 'CREATING_INSTANCE']
+export const ACTIVE_DEPLOYMENT_STATUSES = ['BUILDING_IMAGE', 'QUEUED', 'BUILDING_GOLDEN', 'CREATING_INSTANCE']
 
 export function defaultDeployForm(): DeployForm {
   return {
-    sourceType: 'RUNNER', systemPrompt: '', model: 'deepseek-flash', image: '', port: 80, readinessPath: '/readyz',
+    sourceType: 'RUNNER', systemPrompt: '', model: 'deepseek-flash', image: '', gitUrl: '', gitRef: 'main', contextPath: '',
+    dockerfile: 'Dockerfile', port: 80, readinessPath: '/readyz',
     command: '', sandboxClass: 'GVISOR', size: 'SMALL', env: [], egressHosts: '',
   }
 }
@@ -59,7 +68,13 @@ export function buildDeployPayload(form: DeployForm, requestKey: string): Deploy
     payload.systemPrompt = form.systemPrompt.trim()
     payload.model = form.model.trim()
   } else {
-    payload.image = form.image.trim()
+    if (form.sourceType === 'IMAGE') payload.image = form.image.trim()
+    else {
+      payload.gitUrl = form.gitUrl.trim()
+      payload.gitRef = form.gitRef.trim() || 'main'
+      payload.contextPath = form.contextPath.trim()
+      payload.dockerfile = form.dockerfile.trim() || 'Dockerfile'
+    }
     payload.port = form.port
     payload.readinessPath = form.readinessPath.trim() || '/'
     payload.command = form.command.split('\n').map(arg => arg.trim()).filter(Boolean)
@@ -73,7 +88,13 @@ export function validateDeployForm(form: DeployForm): string | null {
     if (!form.systemPrompt.trim()) return '请填写系统提示词'
     if (!form.model.trim()) return '请选择模型'
   } else {
-    if (!form.image.trim()) return '请填写镜像地址'
+    if (form.sourceType === 'IMAGE' && !form.image.trim()) return '请填写镜像地址'
+    if (form.sourceType === 'SOURCE') {
+      const url = form.gitUrl.trim()
+      // http is accepted here only syntactically; the server allows it for registered internal Git hosts alone.
+      if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?\/[A-Za-z0-9._~/-]+$/.test(url)) return 'Git 地址必须是不含账号、参数的 https 地址'
+      if (form.contextPath.includes('..') || form.dockerfile.includes('..')) return '构建目录和 Dockerfile 路径不能包含 ..'
+    }
     if (!(form.port >= 1 && form.port <= 65535)) return '端口必须在 1–65535 之间'
     if (form.readinessPath.trim() && !form.readinessPath.trim().startsWith('/')) return '就绪检查路径必须以 / 开头'
   }
@@ -88,19 +109,39 @@ export function validateDeployForm(form: DeployForm): string | null {
 }
 
 export const DEPLOY_STAGES = ['校验与治理预检', '创建模板', '生成快照', '创建实例', '可运行']
+const SOURCE_STAGES = ['校验与治理预检', '构建镜像', '创建模板', '生成快照', '创建实例', '可运行']
 
-/** Maps a deployment status onto DEPLOY_STAGES for a progress indicator. */
-export function deploymentProgress(status: string): { active: number; state: 'process' | 'finish' | 'error' | 'wait'; label: string; tone: string } {
+export function deployStages(sourceType: string): string[] {
+  return sourceType === 'SOURCE' ? SOURCE_STAGES : DEPLOY_STAGES
+}
+
+/** Maps a deployment status onto deployStages(sourceType) for a progress indicator. */
+export function deploymentProgress(status: string, sourceType = 'RUNNER'): { active: number; state: 'process' | 'finish' | 'error' | 'wait'; label: string; tone: string } {
+  const offset = sourceType === 'SOURCE' ? 1 : 0
   switch (status) {
-    case 'QUEUED': return { active: 1, state: 'process', label: '排队中', tone: 'info' }
-    case 'BUILDING_GOLDEN': return { active: 2, state: 'process', label: '生成快照', tone: 'warning' }
-    case 'CREATING_INSTANCE': return { active: 3, state: 'process', label: '创建实例', tone: 'warning' }
-    case 'READY': return { active: 5, state: 'finish', label: '可运行', tone: 'success' }
+    case 'BUILDING_IMAGE': return { active: 1, state: 'process', label: '构建镜像', tone: 'warning' }
+    case 'QUEUED': return { active: 1 + offset, state: 'process', label: '排队中', tone: 'info' }
+    case 'BUILDING_GOLDEN': return { active: 2 + offset, state: 'process', label: '生成快照', tone: 'warning' }
+    case 'CREATING_INSTANCE': return { active: 3 + offset, state: 'process', label: '创建实例', tone: 'warning' }
+    case 'READY': return { active: 5 + offset, state: 'finish', label: '可运行', tone: 'success' }
     case 'WAITING_APPROVAL': return { active: 0, state: 'wait', label: '待治理审批', tone: 'warning' }
     case 'BLOCKED': return { active: 0, state: 'error', label: '策略拒绝', tone: 'danger' }
     case 'FAILED': return { active: 0, state: 'error', label: '失败', tone: 'danger' }
     default: return { active: 0, state: 'wait', label: status, tone: 'info' }
   }
+}
+
+const FAILED_STEP_STAGE: Record<string, string> = {
+  VALIDATE: '校验与治理预检', PREFLIGHT: '校验与治理预检', BUILD_IMAGE: '构建镜像', BUILDING_IMAGE: '构建镜像',
+  QUEUED: '创建模板', CREATE_TEMPLATE: '创建模板', GOLDEN_SNAPSHOT: '生成快照', BUILDING_GOLDEN: '生成快照',
+  CREATING_INSTANCE: '创建实例', CREATE_INSTANCE: '创建实例',
+}
+
+/** For a failed deployment, the index in deployStages(sourceType) of the stage whose step failed. */
+export function failedStageIndex(steps: { step: string; status: string }[], sourceType: string): number {
+  const failed = [...steps].reverse().find(step => step.status === 'FAILED' || step.status === 'DENY')
+  const index = failed ? deployStages(sourceType).indexOf(FAILED_STEP_STAGE[failed.step] ?? '') : -1
+  return index < 0 ? 0 : index
 }
 
 export function actorStateLabel(state: string): { label: string; tone: string } {

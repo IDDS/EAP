@@ -7,7 +7,7 @@ import ts from 'typescript'
 const source = readFileSync(new URL('../src/api/substrateDeploy.ts', import.meta.url), 'utf8')
 const scope = vm.createContext({ exports: {} })
 vm.runInContext(ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }), scope)
-const { buildDeployPayload, defaultDeployForm, validateDeployForm, deploymentProgress, actorStateLabel } = scope.exports
+const { buildDeployPayload, defaultDeployForm, validateDeployForm, deploymentProgress, actorStateLabel, deployStages, failedStageIndex } = scope.exports
 
 test('runner payload carries only runner fields, drops blank env rows and normalizes hosts', () => {
   const form = { ...defaultDeployForm(), systemPrompt: '  你是助手  ', image: 'ignored', env: [{ name: 'TONE', value: 'formal' }, { name: ' ', value: 'x' }],
@@ -45,4 +45,41 @@ test('status labels', () => {
   assert.equal(deploymentProgress('FAILED').state, 'error')
   assert.equal(actorStateLabel('SUSPENDED').label, '休眠')
   assert.equal(actorStateLabel('weird').label, '未知')
+})
+
+test('source payload carries git fields with defaults and no image', () => {
+  const form = { ...defaultDeployForm(), sourceType: 'SOURCE', gitUrl: ' https://gitee.com/org/agent.git ', gitRef: ' ', dockerfile: '', port: 8080 }
+  const payload = buildDeployPayload(form, 'k3')
+  assert.equal(payload.gitUrl, 'https://gitee.com/org/agent.git')
+  assert.equal(payload.gitRef, 'main')
+  assert.equal(payload.dockerfile, 'Dockerfile')
+  assert.equal(payload.image, undefined)
+  assert.equal(payload.port, 8080)
+})
+
+test('source validation rejects credentials, queries and path traversal', () => {
+  const base = { ...defaultDeployForm(), sourceType: 'SOURCE', gitUrl: 'https://gitee.com/org/agent.git' }
+  assert.equal(validateDeployForm(base), null)
+  assert.match(validateDeployForm({ ...base, gitUrl: 'https://u:p@gitee.com/a/b' }), /https/)
+  assert.equal(validateDeployForm({ ...base, gitUrl: 'http://git.internal/a/b' }), null)
+  assert.match(validateDeployForm({ ...base, gitUrl: 'ftp://gitee.com/a/b' }), /https/)
+  assert.match(validateDeployForm({ ...base, contextPath: '../x' }), /\.\./)
+})
+
+test('source deployments show a build stage before the template', () => {
+  assert.equal(deployStages('SOURCE').length, 6)
+  assert.equal(deployStages('RUNNER').length, 5)
+  assert.equal(deploymentProgress('BUILDING_IMAGE', 'SOURCE').active, 1)
+  assert.equal(deploymentProgress('QUEUED', 'SOURCE').active, 2)
+  assert.equal(deploymentProgress('READY', 'SOURCE').active, 6)
+  assert.equal(deploymentProgress('READY').active, 5)
+})
+
+test('a failed deployment marks the stage that actually failed', () => {
+  const golden = [{ step: 'VALIDATE', status: 'DONE' }, { step: 'BUILD_IMAGE', status: 'DONE' }, { step: 'CREATE_TEMPLATE', status: 'DONE' },
+    { step: 'GOLDEN_SNAPSHOT', status: 'FAILED' }]
+  assert.equal(failedStageIndex(golden, 'SOURCE'), 3)
+  assert.equal(failedStageIndex([{ step: 'BUILD_IMAGE', status: 'FAILED' }], 'SOURCE'), 1)
+  assert.equal(failedStageIndex([{ step: 'CREATING_INSTANCE', status: 'FAILED' }], 'RUNNER'), 3)
+  assert.equal(failedStageIndex([{ step: 'PREFLIGHT', status: 'DENY' }], 'RUNNER'), 0)
 })

@@ -26,6 +26,14 @@ public class SubstrateProperties {
     private String gatewayHost = "";
     private String gatewayToken = "";
     private long goldenTimeoutSeconds = 900;
+    // Source builds (deployment source SOURCE): kaniko Jobs in their own namespace.
+    private boolean buildEnabled = false;
+    private String buildNamespace = "eap-builds";
+    private String buildImage = "gcr.io/kaniko-project/executor:v1.23.2";
+    private String buildRegistryMirror = "";
+    private String buildPushPrefix = "";
+    private int buildTimeoutSeconds = 1800;
+    private String buildHttpGitHosts = "";
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -63,6 +71,27 @@ public class SubstrateProperties {
     public void setGatewayToken(String gatewayToken) { this.gatewayToken = gatewayToken; }
     public long getGoldenTimeoutSeconds() { return Math.max(60, goldenTimeoutSeconds); }
     public void setGoldenTimeoutSeconds(long goldenTimeoutSeconds) { this.goldenTimeoutSeconds = goldenTimeoutSeconds; }
+
+    public boolean isBuildEnabled() { return buildEnabled; }
+    public void setBuildEnabled(boolean buildEnabled) { this.buildEnabled = buildEnabled; }
+    public String getBuildNamespace() { return buildNamespace; }
+    public void setBuildNamespace(String buildNamespace) { this.buildNamespace = buildNamespace; }
+    public String getBuildImage() { return buildImage; }
+    public void setBuildImage(String buildImage) { this.buildImage = buildImage; }
+    public String getBuildRegistryMirror() { return buildRegistryMirror == null ? "" : buildRegistryMirror; }
+    public void setBuildRegistryMirror(String buildRegistryMirror) { this.buildRegistryMirror = buildRegistryMirror; }
+    /** Registry prefix build pods push to; the same repository is referenced as local-registry-prefix in templates. */
+    public String getBuildPushPrefix() { return buildPushPrefix == null || buildPushPrefix.isBlank() ? localRegistryPrefix : buildPushPrefix; }
+    public void setBuildPushPrefix(String buildPushPrefix) { this.buildPushPrefix = buildPushPrefix; }
+    /** Internal Git hosts (e.g. an in-cluster mirror) whose repositories may be cloned over plain http. */
+    public java.util.Set<String> buildHttpGitHosts() {
+        return java.util.Arrays.stream(buildHttpGitHosts == null ? new String[0] : buildHttpGitHosts.split(","))
+                .map(host -> host.trim().toLowerCase(java.util.Locale.ROOT)).filter(host -> !host.isEmpty())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+    public void setBuildHttpGitHosts(String buildHttpGitHosts) { this.buildHttpGitHosts = buildHttpGitHosts; }
+    public int getBuildTimeoutSeconds() { return Math.max(120, buildTimeoutSeconds); }
+    public void setBuildTimeoutSeconds(int buildTimeoutSeconds) { this.buildTimeoutSeconds = buildTimeoutSeconds; }
 
     public java.util.Map<String, String> workerLabels() {
         String[] parts = workerLabel.split("=", 2);

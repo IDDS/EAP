@@ -101,10 +101,17 @@
 - EAP 出站白名单只需加入路由器主机名。私网开关改为按“路由器服务名”精确放行，不整体放开私网。
 - 派发前先调用 `ResumeActor`，这样唤醒失败可以明确记为 FAILED，不会落入 `EXECUTION_UNKNOWN`。
 
-超时兼容 [待验证，优先级最高]：
+超时兼容（2026-09-27 实测）：
 - 路由器的请求排队预算默认 5 秒；超出预算、没有空闲 worker 时返回 503 [已验证]。
-- 请求一旦建立连接，路由器和 Envoy 对长请求的空闲超时、总时长上限目前不清楚。
-- 如果无法稳定支持 900 秒同步请求，将协议升级为“提交后返回 202，再轮询状态”。这需要 EAP 新增异步任务状态查询，属于 `EAP_HTTP_TASK_V2`。
+- 路由器默认 `--route-timeout=5m`：直接请求 30 秒、120 秒成功，300 秒与 960 秒都在 300 秒整返回 504 `upstream request timeout` [已验证]。
+  - 源码注释说明它同时覆盖 Envoy 的流空闲超时，默认值针对“模型生成期间一直占着请求”的 agent 场景。
+- 处理：
+  - atenet-router 加参数 `--route-timeout=20m`；
+  - EAP 设置 `EAP_WORKFLOW_EXECUTION_READ_TIMEOUT_MS=900000`，原默认 10 秒不足以等待模型回答。
+  - 调整后，EAP 工作流派发一个 600 秒任务，经路由器同步等待，10 分 1 秒后 SUCCEEDED [已验证]。
+- 注意：路由器滚动升级或重启时，只有约 10 秒排空时间，正在执行的长任务会被中断，EAP 记为 `EXECUTION_UNKNOWN`（源码注释：长请求不随升级保留）。
+  - 当前同步协议可以支持 15 分钟以内的任务，暂不需要 V2 异步协议。
+  - 若任务更长，或者需要跨过路由器升级，再改为 `EAP_HTTP_TASK_V2`：提交后返回 202，再轮询状态。
 
 ### 4.3 观测：OTLP 汇入 EAP，并带上身份
 
@@ -281,8 +288,25 @@
   - Agent Runner 每次任务或对话都以 OTLP/HTTP 上报一个 AGENT Span（`agent.task` / `agent.turn`），并把同一 trace ID 通过 `X-EAP-Trace-Id` 传给网关，Trace 与模型调用记录可以互相关联 [已验证]。
     - Span 名称和属性刻意避开 `gen_ai.*` 模型字段以及含 “chat” 的名称，否则 EAP 会把它当作模型调用再记一次。
   - 以控制台发布 v2 验证版本管理：v1、v2 并存，各自的实例使用各自固定的镜像 digest [已验证]。
+- **第三批（同日）：长任务、权限、源码构建：**
+  - 长任务：见第 4.2 节。路由器超时调至 20 分钟后，600 秒的工作流任务成功；直接经路由器 1000 秒的请求也成功 [已验证]。
+  - JWT 权限：新增 `SubstrateDeploymentSecurityTests`，覆盖 4 组情况 [已验证]：
+    - 未登录返回 401；
+    - VIEWER 只能读，部署、实例操作、试运行、重试都返回 403；
+    - GOVERNANCE_ADMIN 不能部署；
+    - OPERATOR 可以部署，并以令牌中的 subject 记为申请人。
+  - 源码构建（方式 C）：
+    - 流程：EAP 后端用自己的服务账号，在独立命名空间 `eap-builds` 创建 kaniko Job。该服务账号只有这个命名空间内 jobs、pods、pods/log 的权限，`kubectl auth can-i` 核对通过。
+    - 镜像固定：kaniko 把推送后的 digest 写入终止信息，EAP 按 digest 固定镜像，不信任 tag。
+    - 构建 Pod 不挂载服务账号令牌，设有资源上限与超时。
+    - 前端：可查看构建日志，失败时可从构建步骤重试。
+  - 实测：示例仓库 docker/welcome-to-docker（固定到某个提交）→ kaniko 构建 → 按 digest 固定 → golden 快照 → 实例可运行；经 CONNECT 隧道访问 3000 端口，返回页面 “Welcome to Docker” [已验证]。
+  - 实测中发现的限制：
+    - 本机房访问 GitHub 很不稳定（TLS 中断），克隆常常失败。PoC 在集群内搭了只读 Git 镜像（命名空间 `eap-git`，git http-backend）。http 仓库地址只允许 `EAP_SUBSTRATE_BUILD_HTTP_GIT_HOSTS` 中登记的内部主机，其余一律要求 https。
+    - kaniko 按提交号拉取时，Git 服务端要允许按 SHA 获取（`uploadpack.allowReachableSHA1InWant`）；GitHub、Gitee 默认允许。
+    - Substrate 总是以 `/` 为工作目录启动进程，不使用镜像的 WORKDIR（`internal/ocispec` 写死 `Cwd: "/"`）。依赖相对路径的程序需要在启动命令里写绝对路径，前端已加提示。
+    - 路由器的普通 HTTP 请求只转发到 actor 的 80 端口，其他端口只能经 CONNECT 隧道访问。任务派发和试运行都走普通 HTTP，所以部署的 agent 应监听 80，前端已加提示。
 - **未完成：**
-  - 方式 C（源码构建）；
   - 长任务超时实测；
   - agent 的任务令牌目前以明文写在 ActorTemplate 中（Substrate 限制，见第 8 节），PoC 可接受，生产环境需改用第 4.4 节的注入方案。
 

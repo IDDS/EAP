@@ -12,6 +12,7 @@
           <el-radio-group v-model="form.sourceType">
             <el-radio-button value="RUNNER" :disabled="capabilities ? !capabilities.runnerAvailable : false">零代码配置</el-radio-button>
             <el-radio-button value="IMAGE">已有镜像</el-radio-button>
+            <el-radio-button value="SOURCE" :disabled="capabilities ? !capabilities.sourceBuildAvailable : false">源码构建</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
@@ -28,15 +29,32 @@
           </el-form-item>
         </template>
         <template v-else>
-          <el-form-item label="镜像地址">
+          <el-form-item v-if="form.sourceType === 'IMAGE'" label="镜像地址">
             <el-input v-model="form.image" placeholder="localhost:5001/my-agent:latest 或 registry/repo@sha256:…" />
           </el-form-item>
+          <template v-else>
+            <el-form-item label="Git 仓库">
+              <el-input v-model="form.gitUrl" placeholder="https://gitee.com/org/agent.git（公开仓库）" />
+            </el-form-item>
+            <el-form-item label="分支 / 提交">
+              <el-input v-model="form.gitRef" class="short-input" placeholder="main、refs/tags/v1 或 40 位提交号" />
+              <el-input v-model="form.contextPath" class="inline-input" placeholder="构建目录（默认仓库根目录）" />
+              <el-input v-model="form.dockerfile" class="inline-input" placeholder="Dockerfile" />
+            </el-form-item>
+            <el-form-item>
+              <span class="field-hint no-margin">在集群内用 kaniko 构建；Docker Hub 基础镜像经镜像加速拉取，推送后按摘要固定。仓库需可匿名克隆。</span>
+            </el-form-item>
+          </template>
           <el-form-item label="服务端口">
             <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" />
             <el-input v-model="form.readinessPath" class="inline-input" placeholder="就绪检查路径，如 /readyz" />
+            <span v-if="form.port !== 80" class="field-hint no-margin">
+              路由器的普通 HTTP 请求（任务派发、试运行）只转发到端口 80；其他端口只能经 CONNECT 隧道访问。建议让服务监听 80。
+            </span>
           </el-form-item>
           <el-form-item label="启动命令">
             <el-input v-model="form.command" type="textarea" :rows="2" placeholder="每行一个参数；留空使用镜像默认命令" />
+            <span class="field-hint no-margin">注意：Substrate 始终在根目录 / 启动进程，不使用镜像的 WORKDIR；依赖相对路径的程序请在命令中写绝对路径，例如 serve -s /app/build。</span>
           </el-form-item>
         </template>
 
@@ -81,12 +99,13 @@
       <div v-for="deployment in deployments" :key="deployment.deploymentKey" class="deployment-item">
         <div class="deployment-head">
           <strong>v{{ deployment.version }}</strong>
-          <el-tag size="small" effect="plain">{{ deployment.sourceType === 'RUNNER' ? '零代码' : '镜像' }}</el-tag>
-          <el-tag size="small" :type="progress(deployment.status).tone">{{ progress(deployment.status).label }}</el-tag>
+          <el-tag size="small" effect="plain">{{ sourceLabel(deployment.sourceType) }}</el-tag>
+          <el-tag size="small" :type="progress(deployment.status, deployment.sourceType).tone">{{ progress(deployment.status, deployment.sourceType).label }}</el-tag>
           <span class="muted">{{ deployment.requestedBy }} · {{ formatTime(deployment.createdAt) }}</span>
         </div>
-        <el-steps :active="progress(deployment.status).active" :process-status="progress(deployment.status).state" finish-status="success" simple>
-          <el-step v-for="stage in stages" :key="stage" :title="stage" />
+        <el-steps :active="deployment.status === 'FAILED' ? failedStageIndex(deployment.steps, deployment.sourceType) : progress(deployment.status, deployment.sourceType).active"
+          :process-status="progress(deployment.status, deployment.sourceType).state" finish-status="success" simple>
+          <el-step v-for="stage in deployStages(deployment.sourceType)" :key="stage" :title="stage" />
         </el-steps>
         <p v-if="deployment.reason" class="deployment-reason">
           {{ deployment.reason }}
@@ -99,7 +118,11 @@
               <el-tag size="small" :type="step.status === 'DONE' || step.status === 'ALLOW' ? 'success' : step.status === 'FAILED' || step.status === 'DENY' ? 'danger' : 'warning'">{{ step.status }}</el-tag>
               <span class="mono">{{ step.step }}</span><span>{{ step.detail }}</span><small class="muted">{{ formatTime(step.at) }}</small>
             </div>
-            <div class="mono small">模板 {{ deployment.templateName }} · 镜像 {{ deployment.imageRef }}</div>
+            <div class="mono small">模板 {{ deployment.templateName }} · 镜像 {{ deployment.imageRef || '构建中' }}</div>
+          </el-collapse-item>
+          <el-collapse-item v-if="deployment.sourceType === 'SOURCE'" :name="`log-${deployment.version}`" title="构建日志">
+            <el-button link type="primary" :loading="logLoading === deployment.version" @click="loadLog(deployment)">刷新日志</el-button>
+            <pre class="build-log">{{ buildLogs[deployment.version] || '点击“刷新日志”查看最近 200 行' }}</pre>
           </el-collapse-item>
         </el-collapse>
       </div>
@@ -159,13 +182,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { SubstrateApi } from '@/api/substrate'
 import type { SubstrateCapabilities, SubstrateDeployment, SubstrateInstance } from '@/api/substrate'
 import {
-  ACTIVE_DEPLOYMENT_STATUSES, DEPLOY_STAGES, actorStateLabel, buildDeployPayload, defaultDeployForm,
+  ACTIVE_DEPLOYMENT_STATUSES, actorStateLabel, buildDeployPayload, defaultDeployForm, deployStages, failedStageIndex,
   deploymentProgress, validateDeployForm,
 } from '@/api/substrateDeploy'
 
 const props = defineProps<{ agentId: number }>()
 const models = ['deepseek-flash', 'deepseek-v4-pro']
-const stages = DEPLOY_STAGES
+const buildLogs = reactive<Record<number, string>>({})
+const logLoading = ref<number>()
 const capabilities = ref<SubstrateCapabilities>()
 const form = reactive(defaultDeployForm())
 const deployments = ref<SubstrateDeployment[]>([])
@@ -232,6 +256,16 @@ async function submit() {
     const response = (error as { response?: unknown }).response
     if (response) pendingRequestKey = ''
   } finally { submitting.value = false }
+}
+
+function sourceLabel(source: string) {
+  return source === 'RUNNER' ? '零代码' : source === 'SOURCE' ? '源码' : '镜像'
+}
+
+async function loadLog(deployment: SubstrateDeployment) {
+  logLoading.value = deployment.version
+  try { buildLogs[deployment.version] = (await SubstrateApi.buildLog(props.agentId, deployment.version)) || '（暂无日志）' }
+  finally { logLoading.value = undefined }
 }
 
 const retrying = ref<number>()
@@ -316,6 +350,10 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .deployment-reason { margin: 0; color: var(--el-color-danger); }
 .step-line { display: flex; align-items: center; gap: 8px; padding: 3px 0; flex-wrap: wrap; }
 .small { font-size: 12px; margin-top: 6px; word-break: break-all; }
+.short-input { width: 220px; }
+.no-margin { margin-left: 0; }
+.build-log { max-height: 320px; overflow: auto; margin: 8px 0 0; padding: 10px; background: var(--el-fill-color-darker); color: var(--el-text-color-primary);
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; border-radius: 4px; }
 .chat-log { display: flex; flex-direction: column; gap: 10px; }
 .chat-message { max-width: 85%; padding: 8px 12px; border-radius: 8px; white-space: pre-wrap; line-height: 1.6; }
 .chat-message.user { align-self: flex-end; background: var(--el-color-primary-light-9); }
@@ -324,6 +362,6 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .chat-input { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 @media (max-width: 640px) {
   .env-row { grid-template-columns: 1fr; }
-  .inline-input { width: 100%; margin: 8px 0 0; }
+  .inline-input, .short-input { width: 100%; margin: 8px 0 0; }
 }
 </style>

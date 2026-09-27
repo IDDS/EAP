@@ -9,13 +9,14 @@ export type SubstrateCapabilities = {
   atespace: string
   gatewayHost: string
   sizes: string[]
+  sourceBuildAvailable: boolean
 }
 export type DeploymentStep = { step: string; status: string; detail: string; at: string }
 export type SubstrateDeployment = {
   deploymentKey: string
   agentId: number
   version: number
-  sourceType: 'RUNNER' | 'IMAGE'
+  sourceType: 'RUNNER' | 'IMAGE' | 'SOURCE'
   status: string
   imageRef?: string
   templateName: string
@@ -44,6 +45,8 @@ export const SubstrateApi = {
     data<SubstrateDeployment>(http.post(`${base(agentId)}/deployments`, payload, { timeout: 30000 })),
   retry: (agentId: number, version: number) =>
     data<SubstrateDeployment>(http.post(`${base(agentId)}/deployments/${version}/retry`, {})),
+  buildLog: (agentId: number, version: number) =>
+    data<string>(http.get(`${base(agentId)}/deployments/${version}/build-log`, { timeout: 30000 })),
   instances: (agentId: number) => data<SubstrateInstance[]>(http.get(`${base(agentId)}/instances`, { timeout: 30000 })),
   createInstance: (agentId: number) => data<SubstrateInstance>(http.post(`${base(agentId)}/instances`, {}, { timeout: 60000 })),
   deleteInstance: (agentId: number, name: string) =>
