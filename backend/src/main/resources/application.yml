@@ -143,6 +143,30 @@ eap:
       max-response-bytes: ${EAP_CONTROL_DISPATCH_MAX_RESPONSE_BYTES:65536}
       max-attempts: ${EAP_CONTROL_DISPATCH_MAX_ATTEMPTS:3}
       allow-private-networks: ${EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS:false}
+  # Agent Substrate runtime (docs/SUBSTRATE_RUNTIME_INTEGRATION.md). Only for a backend running in the
+  # Substrate cluster: the token file is a projected service account token with audience api.ate-system.svc,
+  # the CA file the servicedns.podcert.ate.dev ClusterTrustBundle.
+  substrate:
+    enabled: ${EAP_SUBSTRATE_ENABLED:false}
+    api-target: ${EAP_SUBSTRATE_API_TARGET:api.ate-system.svc:443}
+    api-authority: ${EAP_SUBSTRATE_API_AUTHORITY:api.ate-system.svc}
+    token-file: ${EAP_SUBSTRATE_TOKEN_FILE:/var/run/secrets/ate-api/token}
+    ca-file: ${EAP_SUBSTRATE_CA_FILE:/var/run/secrets/ate-api/ca.crt}
+    call-timeout-ms: ${EAP_SUBSTRATE_CALL_TIMEOUT_MS:60000}
+    router-url: ${EAP_SUBSTRATE_ROUTER_URL:http://atenet-router.ate-system.svc}
+    task-path: ${EAP_SUBSTRATE_TASK_PATH:/eap/task}
+    # Console deployment. The runner image is the platform's configuration-driven agent; gateway-token is the
+    # EAP gateway ingestion token injected into deployed agents (the provider key never leaves the gateway).
+    deploy-atespace: ${EAP_SUBSTRATE_DEPLOY_ATESPACE:eap-agents}
+    worker-label: ${EAP_SUBSTRATE_WORKER_LABEL:workload=eap-agents}
+    snapshot-location: ${EAP_SUBSTRATE_SNAPSHOT_LOCATION:gs://ate-snapshots/eap/}
+    runner-image: ${EAP_SUBSTRATE_RUNNER_IMAGE:}
+    local-registry-prefix: ${EAP_SUBSTRATE_LOCAL_REGISTRY_PREFIX:localhost:5001/}
+    local-registry-url: ${EAP_SUBSTRATE_LOCAL_REGISTRY_URL:}
+    gateway-url: ${EAP_SUBSTRATE_GATEWAY_URL:}
+    gateway-host: ${EAP_SUBSTRATE_GATEWAY_HOST:}
+    gateway-token: ${EAP_GATEWAY_INGESTION_TOKEN:}
+    golden-timeout-seconds: ${EAP_SUBSTRATE_GOLDEN_TIMEOUT_SECONDS:900}
   observability:
     enabled: ${EAP_OBSERVABILITY_ENABLED:true}
     # Metadata-only model-call projection; independent from heuristic task evaluation.

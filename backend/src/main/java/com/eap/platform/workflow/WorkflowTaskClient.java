@@ -1,6 +1,9 @@
 package com.eap.platform.workflow;
 
 import com.eap.platform.registry.AgentRuntimeInstance;
+import com.eap.platform.substrate.SubstrateActorRef;
+import com.eap.platform.substrate.SubstrateClient;
+import com.eap.platform.substrate.SubstrateProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import java.net.*;
@@ -16,15 +19,19 @@ import java.util.Map;
 public class WorkflowTaskClient {
     private final WorkflowExecutionProperties properties;
     private final ObjectMapper mapper;
+    private final SubstrateProperties substrate;
+    private final SubstrateClient substrateClient;
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("workflow-http-deadline").factory());
-    public WorkflowTaskClient(WorkflowExecutionProperties properties, ObjectMapper mapper) {
-        this.properties = properties; this.mapper = mapper;
+    public WorkflowTaskClient(WorkflowExecutionProperties properties, ObjectMapper mapper,
+                              SubstrateProperties substrate, SubstrateClient substrateClient) {
+        this.properties = properties; this.mapper = mapper; this.substrate = substrate; this.substrateClient = substrateClient;
     }
     public record Receipt(String status, String reason, Integer httpStatus) {}
 
     public Receipt invoke(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline) {
         if (!properties.ready()) return new Receipt("FAILED", "工作流执行未启用或未配置认证与目标白名单", null);
+        if (SubstrateActorRef.isSubstrate(runtime.getProtocol())) return invokeSubstrate(runtime, payload, executionDeadline);
         URI uri;
         try {
             uri = URI.create(runtime.getEndpoint());
@@ -42,6 +49,35 @@ public class WorkflowTaskClient {
                 }
             }
         } catch (Exception exception) { return new Receipt("FAILED", "Runtime 地址无效或无法解析", null); }
+        return post(uri, null, payload, executionDeadline);
+    }
+
+    /**
+     * Substrate actors are reached only through the operator-configured router; the registered endpoint
+     * names the actor and never becomes a URL, so the target allowlist does not apply to it. The actor is
+     * woken first so a failed wakeup is reported as FAILED before any task side effect can occur.
+     */
+    private Receipt invokeSubstrate(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline) {
+        if (!substrate.isEnabled()) return new Receipt("FAILED", "Substrate Runtime 集成未启用", null);
+        SubstrateActorRef actor;
+        URI uri;
+        try {
+            actor = SubstrateActorRef.parse(runtime.getEndpoint());
+            uri = URI.create(substrate.getRouterUrl().replaceAll("/+$", "") + substrate.getTaskPath());
+            if (uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null || uri.getFragment() != null
+                    || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                return new Receipt("FAILED", "Substrate 路由器地址配置无效", null);
+            }
+        } catch (IllegalArgumentException exception) { return new Receipt("FAILED", "Substrate Runtime 地址无效", null); }
+        try {
+            substrateClient.resume(actor);
+        } catch (SubstrateClient.SubstrateException exception) {
+            return new Receipt("FAILED", "唤醒 Actor 失败（" + exception.code() + "），未派发任务", null);
+        }
+        return post(uri, actor.routingValue(), payload, executionDeadline);
+    }
+
+    private Receipt post(URI uri, String targetActor, Map<String, Object> payload, Instant executionDeadline) {
         HttpURLConnection connection = null;
         ScheduledFuture<?> deadline = null;
         try {
@@ -61,6 +97,7 @@ public class WorkflowTaskClient {
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Authorization", "Bearer " + properties.getToken());
             connection.setRequestProperty("Idempotency-Key", String.valueOf(payload.get("taskKey")));
+            if (targetActor != null) connection.setRequestProperty(SubstrateActorRef.ROUTING_HEADER, targetActor);
             byte[] body = mapper.writeValueAsBytes(payload);
             connection.setFixedLengthStreamingMode(body.length);
             try (var output = connection.getOutputStream()) { output.write(body); }

@@ -18,8 +18,12 @@ public final class AgentControlDtos {
             @NotNull Long agentId,
             @NotBlank @Size(max = 64) String commandType,
             @Size(max = 65536) String payloadJson,
-            @Size(max = 128) String issuedBy
+            @Size(max = 128) String issuedBy,
+            @Size(max = 128) String runtimeInstanceKey
     ) {
+        public CommandRequest(Long agentId, String commandType, String payloadJson, String issuedBy) {
+            this(agentId, commandType, payloadJson, issuedBy, null);
+        }
     }
 
     public record CommandResponse(

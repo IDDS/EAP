@@ -87,7 +87,7 @@ public class WorkflowExecutionService {
                 throw new BusinessException("不支持的执行节点类型");
             }
             if (isTaskNode(node) && (node.agentId() == null || selectRuntime(node.agentId()) == null)) {
-                throw new BusinessException("节点缺少有效 Agent 或新鲜的 EAP_HTTP_TASK_V1 Runtime：" + node.label());
+                throw new BusinessException("节点缺少有效 Agent 或可用的 EAP_HTTP_TASK_V1 / SUBSTRATE Runtime：" + node.label());
             }
         }
         WorkflowExecution run = new WorkflowExecution();
@@ -188,8 +188,11 @@ public class WorkflowExecutionService {
     private AgentRuntimeInstance selectRuntime(Long id) {
         if (id == null || agents.findById(id).filter(agent -> agent.getLifecycleStatus() == AgentLifecycleStatus.ACTIVE).isEmpty()) return null;
         Instant cutoff = lease.cutoff();
+        // Suspended Substrate actors send no heartbeats; the task client wakes them before dispatch.
         return runtimes.findByAgentId(id).stream().filter(runtime -> "EAP_HTTP_TASK_V1".equals(runtime.getProtocol())
-                        && lease.effectiveStatus(runtime, cutoff) == RuntimeStatus.ONLINE)
+                        && lease.effectiveStatus(runtime, cutoff) == RuntimeStatus.ONLINE
+                        || com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())
+                        && runtime.getStatus() != RuntimeStatus.OFFLINE)
                 .min(Comparator.comparing(AgentRuntimeInstance::getLoadScore)).orElse(null);
     }
     private boolean isTaskNode(WorkflowDtos.NodeResponse node) {

@@ -1,0 +1,557 @@
+package com.eap.platform.deployment;
+
+import com.eap.platform.agent.AgentLifecycleStatus;
+import com.eap.platform.agent.AgentRepository;
+import com.eap.platform.audit.AuditLog;
+import com.eap.platform.audit.AuditLogRepository;
+import com.eap.platform.common.BusinessException;
+import com.eap.platform.common.ConflictException;
+import com.eap.platform.common.TraceContext;
+import com.eap.platform.registry.AgentRegistryDtos;
+import com.eap.platform.registry.AgentRegistryService;
+import com.eap.platform.registry.AgentRuntimeInstance;
+import com.eap.platform.registry.AgentRuntimeInstanceRepository;
+import com.eap.platform.registry.RuntimeStatus;
+import com.eap.platform.safety.GenseeSafetyService;
+import com.eap.platform.safety.SafetyDecision;
+import com.eap.platform.safety.SafetyDtos;
+import com.eap.platform.safety.SafetyEventType;
+import com.eap.platform.substrate.SubstrateActorRef;
+import com.eap.platform.substrate.SubstrateClient;
+import com.eap.platform.substrate.SubstrateProperties;
+import com.eap.platform.workflow.WorkflowExecutionProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Console deployment of agents onto Agent Substrate: validate and preflight a request, then advance it
+ * step by step (template, golden snapshot, first instance). External calls run outside database
+ * transactions; every step is persisted before the next one starts, so a restart resumes where it stopped.
+ */
+@Service
+public class SubstrateDeploymentService {
+    static final String QUEUED = "QUEUED";
+    static final String BUILDING = "BUILDING_GOLDEN";
+    static final String CREATING = "CREATING_INSTANCE";
+    static final String READY = "READY";
+    static final String FAILED = "FAILED";
+    static final String BLOCKED = "BLOCKED";
+    static final String WAITING = "WAITING_APPROVAL";
+
+    private static final Map<String, String[]> SIZES = new LinkedHashMap<>();
+    static {
+        SIZES.put("SMALL", new String[]{"500m", "256Mi"});
+        SIZES.put("MEDIUM", new String[]{"1", "512Mi"});
+        SIZES.put("LARGE", new String[]{"2", "1Gi"});
+    }
+    private static final Pattern HOST = Pattern.compile("^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$");
+    private static final Pattern ENV_NAME = Pattern.compile("^[A-Z_][A-Z0-9_]{0,63}$");
+    private static final Pattern SECRET_NAME = Pattern.compile(".*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL).*");
+    private static final Pattern MODEL = Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
+    private static final Pattern PROBE_PATH = Pattern.compile("^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$");
+    private static final Pattern DIGEST_REF = Pattern.compile("^[a-z0-9.:/_-]+@sha256:[a-f0-9]{64}$");
+    private static final Pattern TAG_REF = Pattern.compile("^([a-z0-9._/-]+?)(?::([A-Za-z0-9._-]{1,128}))?$");
+    private static final Pattern REQUEST_KEY = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
+    private static final Pattern INSTANCE_NAME = Pattern.compile("^a(\\d+)-v(\\d+)-[a-z0-9]{6}$");
+
+    private final SubstrateDeploymentRepository repository;
+    private final AgentRepository agents;
+    private final AgentRuntimeInstanceRepository runtimes;
+    private final AgentRegistryService registry;
+    private final SubstrateClient client;
+    private final SubstrateProperties properties;
+    private final WorkflowExecutionProperties workflow;
+    private final GenseeSafetyService safety;
+    private final AuditLogRepository audits;
+    private final ObjectMapper mapper;
+    private final TransactionTemplate transaction;
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+            .followRedirects(HttpClient.Redirect.NEVER).build();
+
+    public SubstrateDeploymentService(SubstrateDeploymentRepository repository, AgentRepository agents,
+                                      AgentRuntimeInstanceRepository runtimes, AgentRegistryService registry,
+                                      SubstrateClient client, SubstrateProperties properties,
+                                      WorkflowExecutionProperties workflow, GenseeSafetyService safety,
+                                      AuditLogRepository audits, ObjectMapper mapper, PlatformTransactionManager manager) {
+        this.repository = repository; this.agents = agents; this.runtimes = runtimes; this.registry = registry;
+        this.client = client; this.properties = properties; this.workflow = workflow; this.safety = safety;
+        this.audits = audits; this.mapper = mapper;
+        transaction = new TransactionTemplate(manager);
+        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
+
+    public SubstrateDeploymentDtos.CapabilityResponse capabilities() {
+        return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank(),
+                !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
+                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<SubstrateDeploymentDtos.DeploymentResponse> list(Long agentId) {
+        return repository.findTop20ByAgentIdOrderByVersionDesc(agentId).stream().map(this::response).toList();
+    }
+
+    @Transactional
+    public SubstrateDeploymentDtos.DeploymentResponse submit(Long agentId, SubstrateDeploymentDtos.DeployRequest request, String requester) {
+        var agent = agents.findById(agentId).orElseThrow(() -> new BusinessException("智能体不存在"));
+        if (agent.getLifecycleStatus() == AgentLifecycleStatus.RETIRED) throw new BusinessException("已退役智能体不能部署");
+        if (!properties.isEnabled()) throw new BusinessException("Substrate Runtime 集成未启用");
+        if (!workflow.ready()) throw new BusinessException("部署需要先启用工作流任务派发（EAP_WORKFLOW_EXECUTION_*），Agent 以其令牌接收任务");
+        Map<String, Object> config = normalize(request);
+        String configJson = json(config);
+        String submissionKey = null;
+        if (request.requestKey() != null) {
+            if (!REQUEST_KEY.matcher(request.requestKey()).matches()) throw new BusinessException("requestKey 必须是 1–64 位字母、数字、下划线或短横线");
+            submissionKey = request.requestKey();
+            var existing = repository.findByAgentIdAndSubmissionKey(agentId, submissionKey);
+            if (existing.isPresent()) {
+                if (!existing.get().configJson.equals(configJson)) throw new ConflictException("同一 requestKey 的部署配置已改变，请核对原部署记录");
+                return response(existing.get());
+            }
+        }
+        String image = resolveImage("RUNNER".equals(config.get("sourceType")) ? properties.getRunnerImage() : (String) config.get("image"));
+        int version = repository.findFirstByAgentIdOrderByVersionDesc(agentId).map(d -> d.version + 1).orElse(1);
+        SubstrateDeployment deployment = new SubstrateDeployment();
+        deployment.deploymentKey = "dep-" + UUID.randomUUID();
+        deployment.agentId = agentId;
+        deployment.version = version;
+        deployment.sourceType = (String) config.get("sourceType");
+        deployment.configJson = configJson;
+        deployment.imageRef = image;
+        deployment.atespace = properties.getDeployAtespace();
+        deployment.templateName = "eap-a" + agentId + "-v" + version;
+        deployment.requestedBy = requester == null || requester.isBlank() ? "console" : requester.substring(0, Math.min(128, requester.length()));
+        deployment.submissionKey = submissionKey;
+        deployment.status = QUEUED;
+        addStep(deployment, "VALIDATE", "DONE", "配置校验通过，镜像固定为 " + image);
+        String decision = preflight(deployment, config);
+        if (!"ALLOW".equals(decision)) {
+            deployment.status = "DENY".equals(decision) ? BLOCKED : WAITING;
+            deployment.reason = "DENY".equals(decision) ? "治理策略拒绝部署" : "部署需要治理审批；审批后请重新提交";
+        }
+        deployment = repository.save(deployment);
+        audit(deployment.requestedBy, "SUBMIT_SUBSTRATE_DEPLOYMENT", agentId, deployment.deploymentKey + " v" + version + " " + deployment.status,
+                !FAILED.equals(deployment.status) && !BLOCKED.equals(deployment.status));
+        return response(deployment);
+    }
+
+    /**
+     * Resumes a failed deployment from the step that failed. The template name and version are unchanged,
+     * so a retry never produces a second version; a template that already exists is reused.
+     */
+    @Transactional
+    public SubstrateDeploymentDtos.DeploymentResponse retry(Long agentId, Integer version, String requester) {
+        SubstrateDeployment deployment = repository.findByAgentIdAndVersion(agentId, version)
+                .orElseThrow(() -> new BusinessException("部署版本不存在"));
+        if (!FAILED.equals(deployment.status)) throw new BusinessException("只有失败的部署可以重试");
+        List<SubstrateDeploymentDtos.Step> history = steps(deployment);
+        String failedStep = history.isEmpty() ? QUEUED : history.get(history.size() - 1).step();
+        deployment.status = switch (failedStep) {
+            case CREATING -> CREATING;
+            case BUILDING, "GOLDEN_SNAPSHOT" -> BUILDING;
+            default -> QUEUED;
+        };
+        deployment.reason = null;
+        // The golden timeout counts from submission; a retried build gets a fresh window.
+        if (BUILDING.equals(deployment.status)) deployment.createdAt = Instant.now();
+        addStep(deployment, "RETRY", "DONE", "由 " + requester + " 重试，从 " + deployment.status + " 继续");
+        audit(requester, "RETRY_SUBSTRATE_DEPLOYMENT", agentId, deployment.deploymentKey, true);
+        return response(repository.save(deployment));
+    }
+
+    /** Advances at most one deployment by one step. Called by {@link SubstrateDeploymentWorker}. */
+    public void processNext() {
+        if (!properties.isEnabled()) return;
+        SubstrateDeployment deployment = transaction.execute(ignored ->
+                repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(List.of(QUEUED, BUILDING, CREATING)).orElse(null));
+        if (deployment == null) return;
+        try {
+            switch (deployment.status) {
+                case QUEUED -> {
+                    client.ensureAtespace(deployment.atespace);
+                    try {
+                        client.createTemplate(spec(deployment));
+                    } catch (SubstrateClient.SubstrateException exception) {
+                        if (!"ALREADY_EXISTS".equals(exception.code())) throw exception;
+                    }
+                    advance(deployment, BUILDING, "CREATE_TEMPLATE", "已创建模板 " + deployment.templateName + "，正在生成 golden 快照");
+                }
+                case BUILDING -> {
+                    var golden = client.goldenStatus(deployment.atespace, deployment.templateName);
+                    if (golden.error() != null) {
+                        fail(deployment, "GOLDEN_SNAPSHOT", "golden 快照失败：" + truncate(golden.error(), 300));
+                    } else if (golden.ready()) {
+                        advance(deployment, CREATING, "GOLDEN_SNAPSHOT", "golden 快照已生成");
+                    } else if (deployment.createdAt.plusSeconds(properties.getGoldenTimeoutSeconds()).isBefore(Instant.now())) {
+                        fail(deployment, "GOLDEN_SNAPSHOT", "golden 快照超时；请检查镜像能否启动以及就绪检查路径");
+                    } else {
+                        touch(deployment);
+                    }
+                }
+                case CREATING -> {
+                    String instanceKey = createActor(deployment);
+                    deployment.instanceKey = instanceKey;
+                    advance(deployment, READY, "CREATE_INSTANCE", "已创建实例 " + instanceKey + "（休眠，首个请求时唤醒）");
+                }
+                default -> { }
+            }
+        } catch (SubstrateClient.SubstrateException exception) {
+            fail(deployment, deployment.status, "Substrate " + exception.code() + "：" + truncate(exception.getMessage(), 300));
+        }
+    }
+
+    public List<SubstrateDeploymentDtos.InstanceResponse> instances(Long agentId) {
+        return runtimes.findByAgentId(agentId).stream()
+                .filter(runtime -> SubstrateActorRef.isSubstrate(runtime.getProtocol()) && runtime.getStatus() != RuntimeStatus.OFFLINE)
+                .map(runtime -> {
+                    SubstrateActorRef ref = SubstrateActorRef.parse(runtime.getEndpoint());
+                    Matcher name = INSTANCE_NAME.matcher(ref.name());
+                    Integer version = name.matches() ? Integer.valueOf(name.group(2)) : null;
+                    try {
+                        return new SubstrateDeploymentDtos.InstanceResponse(runtime.getInstanceKey(), ref.name(), version,
+                                client.get(ref).state(), runtime.getStatus().name(), null);
+                    } catch (SubstrateClient.SubstrateException exception) {
+                        return new SubstrateDeploymentDtos.InstanceResponse(runtime.getInstanceKey(), ref.name(), version,
+                                "UNKNOWN", runtime.getStatus().name(), exception.code());
+                    }
+                }).toList();
+    }
+
+    /** Creates another session instance from the newest ready version. */
+    public SubstrateDeploymentDtos.InstanceResponse createInstance(Long agentId, String requester) {
+        SubstrateDeployment deployment = repository.findFirstByAgentIdAndStatusOrderByVersionDesc(agentId, READY)
+                .orElseThrow(() -> new BusinessException("该智能体还没有部署成功的版本"));
+        try {
+            String key = createActor(deployment);
+            audit(requester, "CREATE_SUBSTRATE_INSTANCE", agentId, key, true);
+            return new SubstrateDeploymentDtos.InstanceResponse(key, key.substring(key.indexOf('/') + 1), deployment.version,
+                    "SUSPENDED", RuntimeStatus.ONLINE.name(), null);
+        } catch (SubstrateClient.SubstrateException exception) {
+            throw new BusinessException("创建实例失败（" + exception.code() + "）：" + truncate(exception.getMessage(), 200));
+        }
+    }
+
+    public void deleteInstance(Long agentId, String name, String requester) {
+        AgentRuntimeInstance runtime = substrateRuntime(agentId, name);
+        try {
+            client.deleteActor(SubstrateActorRef.parse(runtime.getEndpoint()));
+        } catch (SubstrateClient.SubstrateException exception) {
+            throw new BusinessException("删除实例失败（" + exception.code() + "）：" + truncate(exception.getMessage(), 200));
+        }
+        // The actor no longer exists, so its registration goes too: an OFFLINE row would keep raising
+        // "runtime offline" work items and inflate instance counts. The audit log keeps the history.
+        runtimes.delete(runtime);
+        audit(requester, "DELETE_SUBSTRATE_INSTANCE", agentId, runtime.getInstanceKey(), true);
+    }
+
+    /** Console trial run: one message into the instance's ongoing conversation (platform runner agents). */
+    public SubstrateDeploymentDtos.ChatResponse chat(Long agentId, String name, String message) {
+        AgentRuntimeInstance runtime = substrateRuntime(agentId, name);
+        SubstrateActorRef ref = SubstrateActorRef.parse(runtime.getEndpoint());
+        try {
+            client.resume(ref);
+        } catch (SubstrateClient.SubstrateException exception) {
+            throw new BusinessException("RESOURCE_EXHAUSTED".equals(exception.code())
+                    ? "没有空闲 worker，请先挂起其他实例或扩容" : "唤醒实例失败（" + exception.code() + "）");
+        }
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getRouterUrl().replaceAll("/+$", "") + "/chat"))
+                    .timeout(Duration.ofSeconds(150))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + workflow.getToken())
+                    .header(SubstrateActorRef.ROUTING_HEADER, ref.routingValue())
+                    .POST(HttpRequest.BodyPublishers.ofString(json(Map.of("message", message)))).build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404) throw new BusinessException("该实例不支持对话试运行（仅平台通用 Agent 提供 /chat）");
+            if (response.statusCode() != 200) {
+                throw new BusinessException("Agent 返回 HTTP " + response.statusCode() + "：" + truncate(response.body(), 200));
+            }
+            JsonNode body = mapper.readTree(response.body());
+            return new SubstrateDeploymentDtos.ChatResponse(body.path("reply").asText(), body.path("turns").asInt(), runtime.getInstanceKey());
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("试运行被中断");
+        } catch (Exception exception) {
+            throw new BusinessException("试运行请求失败：" + truncate(String.valueOf(exception.getMessage()), 200));
+        }
+    }
+
+    private String createActor(SubstrateDeployment deployment) {
+        String name = "a" + deployment.agentId + "-v" + deployment.version + "-"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 6);
+        SubstrateActorRef ref = new SubstrateActorRef(deployment.atespace, name);
+        client.createActor(ref, deployment.templateName);
+        try {
+            client.setEgressHostnames(ref, egressHosts(config(deployment)));
+        } catch (SubstrateClient.SubstrateException exception) {
+            // An actor without its intended policy must not linger: its egress would be denied or wrong.
+            try { client.deleteActor(ref); } catch (SubstrateClient.SubstrateException ignored) { }
+            throw exception;
+        }
+        registry.registerRuntime(deployment.agentId, new AgentRegistryDtos.RuntimeInstanceRequest(
+                ref.routingValue(), "substrate://" + ref.routingValue(), SubstrateActorRef.PROTOCOL, false));
+        return ref.routingValue();
+    }
+
+    private AgentRuntimeInstance substrateRuntime(Long agentId, String name) {
+        return runtimes.findByInstanceKey(properties.getDeployAtespace() + "/" + name)
+                .filter(runtime -> agentId.equals(runtime.getAgentId()) && SubstrateActorRef.isSubstrate(runtime.getProtocol())
+                        && runtime.getStatus() != RuntimeStatus.OFFLINE)
+                .orElseThrow(() -> new BusinessException("实例不存在"));
+    }
+
+    private Map<String, Object> normalize(SubstrateDeploymentDtos.DeployRequest request) {
+        Map<String, Object> config = new LinkedHashMap<>();
+        String source = upper(request.sourceType());
+        if (!Set.of("RUNNER", "IMAGE").contains(source)) throw new BusinessException("部署来源只能是 RUNNER（零代码）或 IMAGE（已有镜像）");
+        config.put("sourceType", source);
+        if ("RUNNER".equals(source)) {
+            if (properties.getRunnerImage().isBlank()) throw new BusinessException("平台通用 Agent 镜像未配置");
+            String prompt = request.systemPrompt() == null ? "" : request.systemPrompt().trim();
+            if (prompt.isEmpty()) throw new BusinessException("请填写系统提示词");
+            String model = request.model() == null ? "" : request.model().trim();
+            if (!MODEL.matcher(model).matches()) throw new BusinessException("模型名称无效");
+            config.put("systemPrompt", prompt);
+            config.put("model", model);
+            config.put("port", 80);
+            config.put("readinessPath", "/readyz");
+            config.put("command", List.of());
+        } else {
+            String image = request.image() == null ? "" : request.image().trim();
+            if (image.isEmpty()) throw new BusinessException("请填写镜像地址");
+            int port = request.port() == null ? 80 : request.port();
+            if (port < 1 || port > 65535) throw new BusinessException("端口必须在 1–65535 之间");
+            String path = request.readinessPath() == null || request.readinessPath().isBlank() ? "/" : request.readinessPath().trim();
+            if (!PROBE_PATH.matcher(path).matches()) throw new BusinessException("就绪检查路径必须以 / 开头，且不含查询参数");
+            config.put("image", image);
+            config.put("port", port);
+            config.put("readinessPath", path);
+            config.put("command", request.command() == null ? List.of() : request.command().stream().filter(Objects::nonNull).toList());
+        }
+        Map<String, String> env = new TreeMap<>();
+        if (request.env() != null) {
+            request.env().forEach((name, value) -> {
+                String key = name == null ? "" : name.trim();
+                if (!ENV_NAME.matcher(key).matches()) throw new BusinessException("环境变量名无效：" + key);
+                if (key.startsWith("EAP_") || key.startsWith("AGENT_")) throw new BusinessException("EAP_、AGENT_ 前缀由平台保留：" + key);
+                if (SECRET_NAME.matcher(key).matches()) {
+                    throw new BusinessException("不能通过环境变量传递密钥（" + key + "）：模板以明文保存；模型调用请经 EAP 网关");
+                }
+                env.put(key, value == null ? "" : value);
+            });
+        }
+        config.put("env", env);
+        String sandbox = request.sandboxClass() == null ? "GVISOR" : upper(request.sandboxClass());
+        if (!Set.of("GVISOR", "MICROVM").contains(sandbox)) throw new BusinessException("沙箱类型只能是 GVISOR 或 MICROVM");
+        config.put("sandboxClass", sandbox);
+        String size = request.size() == null ? "SMALL" : upper(request.size());
+        if (!SIZES.containsKey(size)) throw new BusinessException("资源规格只能是 " + SIZES.keySet());
+        config.put("size", size);
+        List<String> hosts = new ArrayList<>();
+        if (request.egressHosts() != null) {
+            for (String host : request.egressHosts()) {
+                String value = host == null ? "" : host.trim().toLowerCase(Locale.ROOT);
+                if (value.isEmpty()) continue;
+                if (!HOST.matcher(value).matches()) throw new BusinessException("出站主机名无效：" + value);
+                if (!hosts.contains(value) && !value.equals(properties.getGatewayHost())) hosts.add(value);
+            }
+        }
+        config.put("egressHosts", hosts);
+        return config;
+    }
+
+    /** Each extra egress host is a data-access decision; the image itself is a deployment policy check. */
+    private String preflight(SubstrateDeployment deployment, Map<String, Object> config) {
+        safety.createSession(new SafetyDtos.SessionRequest(deployment.deploymentKey, deployment.agentId,
+                "部署 Agent 版本 v" + deployment.version));
+        List<SafetyDtos.SafetyEventRequest> events = new ArrayList<>();
+        events.add(new SafetyDtos.SafetyEventRequest(deployment.deploymentKey, deployment.agentId, null, SafetyEventType.POLICY_CHECK,
+                "deploy_agent", truncate(deployment.imageRef, 256), "Substrate 部署：" + deployment.sourceType + " / " + config.get("sandboxClass"),
+                json(Map.of("image", deployment.imageRef, "size", config.get("size"), "sandbox", config.get("sandboxClass")))));
+        for (Object host : (List<?>) config.get("egressHosts")) {
+            events.add(new SafetyDtos.SafetyEventRequest(deployment.deploymentKey, deployment.agentId, null, SafetyEventType.DATA_ACCESS,
+                    "egress_allow", String.valueOf(host), "允许 Agent 出站访问 " + host, null));
+        }
+        String result = "ALLOW";
+        for (var event : events) {
+            SafetyDecision decision = safety.evaluate(event).decision().decision();
+            addStep(deployment, "PREFLIGHT", decision.name(), event.action() + " → " + event.target());
+            if (decision == SafetyDecision.DENY) return "DENY";
+            if (decision != SafetyDecision.ALLOW) result = "ASK";
+        }
+        return result;
+    }
+
+    private SubstrateClient.TemplateSpec spec(SubstrateDeployment deployment) {
+        Map<String, Object> config = config(deployment);
+        Map<String, String> env = new TreeMap<>();
+        @SuppressWarnings("unchecked") Map<String, String> userEnv = (Map<String, String>) config.getOrDefault("env", Map.of());
+        env.putAll(userEnv);
+        // Platform variables are injected last so user input can never override them.
+        env.put("EAP_AGENT_ID", String.valueOf(deployment.agentId));
+        env.put("EAP_TASK_TOKEN", workflow.getToken());
+        if (!properties.getGatewayUrl().isBlank()) {
+            env.put("EAP_GATEWAY_URL", properties.getGatewayUrl());
+            env.put("EAP_GATEWAY_TOKEN", properties.getGatewayToken());
+        }
+        if ("RUNNER".equals(deployment.sourceType)) {
+            env.put("AGENT_MODEL", (String) config.get("model"));
+            env.put("AGENT_SYSTEM_PROMPT", (String) config.get("systemPrompt"));
+        }
+        String[] size = SIZES.get((String) config.get("size"));
+        @SuppressWarnings("unchecked") List<String> command = (List<String>) config.getOrDefault("command", List.of());
+        return new SubstrateClient.TemplateSpec(deployment.atespace, deployment.templateName, deployment.imageRef, command, env,
+                (String) config.get("readinessPath"), ((Number) config.get("port")).intValue(), size[0], size[1],
+                "MICROVM".equals(config.get("sandboxClass")), properties.workerLabels(),
+                properties.getSnapshotLocation().replaceAll("/*$", "/") + deployment.agentId + "/");
+    }
+
+    private List<String> egressHosts(Map<String, Object> config) {
+        List<String> hosts = new ArrayList<>();
+        if (!properties.getGatewayHost().isBlank()) hosts.add(properties.getGatewayHost());
+        for (Object host : (List<?>) config.getOrDefault("egressHosts", List.of())) hosts.add(String.valueOf(host));
+        return hosts;
+    }
+
+    /** Pins an image by digest. Tags are only resolved against the cluster-local registry. */
+    String resolveImage(String image) {
+        String value = image == null ? "" : image.trim();
+        if (DIGEST_REF.matcher(value).matches()) return value;
+        String prefix = properties.getLocalRegistryPrefix();
+        if (!value.startsWith(prefix) || properties.getLocalRegistryUrl().isBlank()) {
+            throw new BusinessException("镜像必须以 @sha256 摘要固定，或位于集群本地仓库 " + prefix);
+        }
+        Matcher ref = TAG_REF.matcher(value.substring(prefix.length()));
+        if (!ref.matches()) throw new BusinessException("镜像地址格式无效");
+        String repository = ref.group(1);
+        String tag = ref.group(2) == null ? "latest" : ref.group(2);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getLocalRegistryUrl().replaceAll("/+$", "")
+                            + "/v2/" + repository + "/manifests/" + tag))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, "
+                            + "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json")
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
+            HttpResponse<Void> response = http.send(request, HttpResponse.BodyHandlers.discarding());
+            String digest = response.headers().firstValue("Docker-Content-Digest").orElse("");
+            if (response.statusCode() != 200 || !digest.matches("sha256:[a-f0-9]{64}")) {
+                throw new BusinessException("本地仓库中找不到镜像 " + value + "（HTTP " + response.statusCode() + "）");
+            }
+            return prefix + repository + "@" + digest;
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("查询镜像摘要被中断");
+        } catch (Exception exception) {
+            throw new BusinessException("无法访问集群本地镜像仓库");
+        }
+    }
+
+    private void advance(SubstrateDeployment deployment, String status, String step, String detail) {
+        transaction.executeWithoutResult(ignored -> {
+            SubstrateDeployment current = repository.findById(deployment.id).orElseThrow();
+            addStep(current, step, "DONE", detail);
+            current.status = status;
+            current.instanceKey = deployment.instanceKey != null ? deployment.instanceKey : current.instanceKey;
+            current.updatedAt = Instant.now();
+            repository.save(current);
+        });
+        if (READY.equals(status)) audit("system", "SUBSTRATE_DEPLOYMENT_READY", deployment.agentId, deployment.deploymentKey, true);
+    }
+
+    private void fail(SubstrateDeployment deployment, String step, String reason) {
+        transaction.executeWithoutResult(ignored -> {
+            SubstrateDeployment current = repository.findById(deployment.id).orElseThrow();
+            addStep(current, step, "FAILED", reason);
+            current.status = FAILED;
+            current.reason = truncate(reason, 512);
+            current.updatedAt = Instant.now();
+            repository.save(current);
+        });
+        audit("system", "SUBSTRATE_DEPLOYMENT_FAILED", deployment.agentId, deployment.deploymentKey + " " + reason, false);
+    }
+
+    /** Moves a still-building deployment to the back of the queue so others advance too. */
+    private void touch(SubstrateDeployment deployment) {
+        transaction.executeWithoutResult(ignored -> repository.findById(deployment.id).ifPresent(current -> {
+            current.updatedAt = Instant.now();
+            repository.save(current);
+        }));
+    }
+
+    private void addStep(SubstrateDeployment deployment, String step, String status, String detail) {
+        List<SubstrateDeploymentDtos.Step> steps = new ArrayList<>(steps(deployment));
+        steps.add(new SubstrateDeploymentDtos.Step(step, status, truncate(detail, 300), Instant.now()));
+        deployment.stepsJson = json(steps);
+    }
+
+    private List<SubstrateDeploymentDtos.Step> steps(SubstrateDeployment deployment) {
+        try {
+            return mapper.readValue(deployment.stepsJson, new TypeReference<List<SubstrateDeploymentDtos.Step>>() { });
+        } catch (Exception exception) {
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> config(SubstrateDeployment deployment) {
+        try {
+            return mapper.readValue(deployment.configJson, new TypeReference<Map<String, Object>>() { });
+        } catch (Exception exception) {
+            throw new BusinessException("部署配置无法读取");
+        }
+    }
+
+    private SubstrateDeploymentDtos.DeploymentResponse response(SubstrateDeployment deployment) {
+        return new SubstrateDeploymentDtos.DeploymentResponse(deployment.deploymentKey, deployment.agentId, deployment.version,
+                deployment.sourceType, deployment.status, deployment.imageRef, deployment.templateName, deployment.instanceKey,
+                deployment.reason, deployment.requestedBy, steps(deployment), config(deployment), deployment.createdAt, deployment.updatedAt);
+    }
+
+    private void audit(String actor, String action, Long agentId, String detail, boolean success) {
+        AuditLog log = new AuditLog();
+        log.setActor(actor == null || actor.isBlank() ? "console" : actor);
+        log.setAction(action);
+        log.setResourceType("AGENT");
+        log.setResourceId(String.valueOf(agentId));
+        log.setAfterJson(json(Map.of("detail", truncate(detail, 500))));
+        log.setResult(success ? "SUCCESS" : "FAILED");
+        log.setTraceId(TraceContext.traceId());
+        log.setCreatedAt(Instant.now());
+        audits.save(log);
+    }
+
+    private String json(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new BusinessException("部署数据无法序列化");
+        }
+    }
+
+    private static String upper(String value) {
+        return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String truncate(String value, int max) {
+        return value == null ? "" : value.length() <= max ? value : value.substring(0, max);
+    }
+}

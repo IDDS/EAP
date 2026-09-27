@@ -10,12 +10,16 @@ import com.eap.platform.registry.AgentRuntimeInstance;
 import com.eap.platform.registry.AgentRuntimeInstanceRepository;
 import com.eap.platform.registry.RuntimeStatus;
 import com.eap.platform.registry.RuntimeLeaseProperties;
+import com.eap.platform.substrate.SubstrateActorRef;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -27,7 +31,8 @@ public class AgentControlService {
             "RELOAD_POLICY",
             "UPDATE_CONFIG",
             "RUN_HEALTH_CHECK",
-            "SET_RATE_LIMIT"
+            "SET_RATE_LIMIT",
+            "REVERT"
     );
 
     private final AgentControlCommandRepository commandRepository;
@@ -36,6 +41,7 @@ public class AgentControlService {
     private final AuditLogRepository auditLogRepository;
     private final ControlDispatchProperties dispatchProperties;
     private final AgentControlAdapter httpAdapter;
+    private final AgentControlAdapter substrateAdapter;
     private final RuntimeLeaseProperties leaseProperties;
 
     public AgentControlService(
@@ -44,7 +50,8 @@ public class AgentControlService {
             AgentRuntimeInstanceRepository runtimeRepository,
             AuditLogRepository auditLogRepository,
             ControlDispatchProperties dispatchProperties,
-            AgentControlAdapter httpAdapter,
+            @Qualifier("httpAgentControlAdapter") AgentControlAdapter httpAdapter,
+            @Qualifier("substrateControlAdapter") AgentControlAdapter substrateAdapter,
             RuntimeLeaseProperties leaseProperties
     ) {
         this.commandRepository = commandRepository;
@@ -53,6 +60,7 @@ public class AgentControlService {
         this.auditLogRepository = auditLogRepository;
         this.dispatchProperties = dispatchProperties;
         this.httpAdapter = httpAdapter;
+        this.substrateAdapter = substrateAdapter;
         this.leaseProperties = leaseProperties;
     }
 
@@ -82,6 +90,8 @@ public class AgentControlService {
         command.payloadJson = request.payloadJson();
         command.issuedBy = request.issuedBy() == null || request.issuedBy().isBlank() ? "platform-admin" : request.issuedBy();
         command.dispatchMode = "CONTROL_PLANE_OUTBOX";
+        command.runtimeInstanceKey = request.runtimeInstanceKey() == null || request.runtimeInstanceKey().isBlank()
+                ? null : request.runtimeInstanceKey();
         command.status = ControlCommandStatus.QUEUED;
         command.attemptCount = 0;
         command.resultMessage = dispatchProperties.isEnabled()
@@ -113,8 +123,14 @@ public class AgentControlService {
 
     private void dispatch(AgentControlCommand command) {
         command.attemptCount = (command.attemptCount == null ? 0 : command.attemptCount) + 1;
-        AgentRuntimeInstance runtime = runtimeRepository
+        // A command issued for a specific instance never falls back to another instance.
+        AgentRuntimeInstance runtime = command.runtimeInstanceKey != null
+                ? runtimeRepository.findByInstanceKey(command.runtimeInstanceKey)
+                        .filter(candidate -> command.agentId.equals(candidate.getAgentId()) && candidate.getStatus() != RuntimeStatus.OFFLINE)
+                        .orElse(null)
+                : runtimeRepository
                 .findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(command.agentId, RuntimeStatus.ONLINE, leaseProperties.cutoff())
+                .or(() -> substrateRuntime(command.agentId))
                 .orElse(null);
         if (runtime == null) {
             command.status = ControlCommandStatus.FAILED;
@@ -123,11 +139,18 @@ public class AgentControlService {
             commandRepository.save(command);
             return;
         }
+        boolean substrate = SubstrateActorRef.isSubstrate(runtime.getProtocol());
         command.runtimeInstanceKey = runtime.getInstanceKey();
-        command.dispatchMode = "HTTP_RUNTIME";
+        command.dispatchMode = substrate ? SubstrateControlAdapter.DISPATCH_MODE : "HTTP_RUNTIME";
         command.dispatchedAt = Instant.now();
+        if (!substrate && "REVERT".equals(command.commandType)) {
+            command.status = ControlCommandStatus.FAILED;
+            command.resultMessage = "REVERT 仅适用于 Substrate Runtime。";
+            commandRepository.save(command);
+            return;
+        }
         try {
-            AgentControlAdapter.DispatchResult result = httpAdapter.dispatch(command, runtime);
+            AgentControlAdapter.DispatchResult result = (substrate ? substrateAdapter : httpAdapter).dispatch(command, runtime);
             command.status = result.status();
             command.dispatchMode = result.dispatchMode();
             command.resultMessage = result.resultMessage();
@@ -138,6 +161,16 @@ public class AgentControlService {
             command.resultMessage = exception.getMessage() == null ? "控制适配器执行失败" : exception.getMessage();
         }
         commandRepository.save(command);
+    }
+
+    /**
+     * Suspended Substrate actors send no heartbeats, so the heartbeat lease cannot tell whether they exist;
+     * Substrate itself is the authority. Only an operator-set OFFLINE status excludes them.
+     */
+    private Optional<AgentRuntimeInstance> substrateRuntime(Long agentId) {
+        return runtimeRepository.findByAgentId(agentId).stream()
+                .filter(runtime -> SubstrateActorRef.isSubstrate(runtime.getProtocol()) && runtime.getStatus() != RuntimeStatus.OFFLINE)
+                .min(Comparator.comparing(AgentRuntimeInstance::getLoadScore));
     }
 
     private void writeAudit(AgentControlCommand command) {

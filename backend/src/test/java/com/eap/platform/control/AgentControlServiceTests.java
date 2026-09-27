@@ -36,7 +36,7 @@ class AgentControlServiceTests {
         when(commandRepository.save(any(AgentControlCommand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.issue(new AgentControlDtos.CommandRequest(
                 7L, "pause", "{\"reason\":\"policy\"}", "operator"));
 
@@ -61,7 +61,7 @@ class AgentControlServiceTests {
         when(commandRepository.save(any(AgentControlCommand.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.issue(new AgentControlDtos.CommandRequest(
                 7L, "resume", null, null));
 
@@ -96,7 +96,7 @@ class AgentControlServiceTests {
                 .thenReturn(Optional.of(runtime));
 
         AgentControlService service = new AgentControlService(
-                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, new com.eap.platform.registry.RuntimeLeaseProperties());
+                commandRepository, agentRepository, runtimeRepository, auditLogRepository, properties, adapter, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
         AgentControlDtos.CommandResponse response = service.retry("CTRL-retry");
 
         assertThat(response.status()).isEqualTo(ControlCommandStatus.ACKED);
@@ -121,7 +121,7 @@ class AgentControlServiceTests {
         when(runtimes.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
                 .thenReturn(Optional.empty());
         var service = new AgentControlService(commands, mock(AgentRepository.class), runtimes,
-                mock(AuditLogRepository.class), properties, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
+                mock(AuditLogRepository.class), properties, mock(AgentControlAdapter.class), mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
 
         assertThat(service.retry(command.commandKey).attemptCount()).isEqualTo(2);
         assertThat(service.retry(command.commandKey).attemptCount()).isEqualTo(3);
@@ -131,4 +131,58 @@ class AgentControlServiceTests {
         assertThat(command.status).isEqualTo(ControlCommandStatus.FAILED);
     }
 
+    @Test
+    void routesSuspendedSubstrateActorWithoutHeartbeatToSubstrateAdapter() {
+        var commands = mock(AgentControlCommandRepository.class);
+        var agents = mock(AgentRepository.class);
+        var runtimes = mock(AgentRuntimeInstanceRepository.class);
+        var properties = new ControlDispatchProperties();
+        properties.setEnabled(true);
+        when(agents.findById(7L)).thenReturn(Optional.of(new Agent()));
+        when(commands.save(any(AgentControlCommand.class))).thenAnswer(call -> call.getArgument(0));
+        when(runtimes.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
+                .thenReturn(Optional.empty());
+        AgentRuntimeInstance actor = mock(AgentRuntimeInstance.class);
+        when(actor.getProtocol()).thenReturn("SUBSTRATE");
+        when(actor.getStatus()).thenReturn(RuntimeStatus.ONLINE);
+        when(actor.getLoadScore()).thenReturn(0);
+        when(actor.getInstanceKey()).thenReturn("eap-demo/session-1");
+        when(runtimes.findByAgentId(7L)).thenReturn(java.util.List.of(actor));
+        AgentControlAdapter http = mock(AgentControlAdapter.class);
+        AgentControlAdapter substrate = (command, runtime) -> new AgentControlAdapter.DispatchResult(
+                ControlCommandStatus.ACKED, "SUBSTRATE_RUNTIME", "RUNNING", null, Instant.now());
+        var service = new AgentControlService(commands, agents, runtimes, mock(AuditLogRepository.class), properties,
+                http, substrate, new com.eap.platform.registry.RuntimeLeaseProperties());
+
+        var response = service.issue(new AgentControlDtos.CommandRequest(7L, "resume", null, "operator"));
+
+        assertThat(response.status()).isEqualTo(ControlCommandStatus.ACKED);
+        assertThat(response.dispatchMode()).isEqualTo("SUBSTRATE_RUNTIME");
+        assertThat(response.runtimeInstanceKey()).isEqualTo("eap-demo/session-1");
+        org.mockito.Mockito.verifyNoInteractions(http);
+    }
+
+    @Test
+    void revertIsRejectedForHttpRuntimes() {
+        var commands = mock(AgentControlCommandRepository.class);
+        var agents = mock(AgentRepository.class);
+        var runtimes = mock(AgentRuntimeInstanceRepository.class);
+        var properties = new ControlDispatchProperties();
+        properties.setEnabled(true);
+        when(agents.findById(7L)).thenReturn(Optional.of(new Agent()));
+        when(commands.save(any(AgentControlCommand.class))).thenAnswer(call -> call.getArgument(0));
+        AgentRuntimeInstance runtime = mock(AgentRuntimeInstance.class);
+        when(runtime.getProtocol()).thenReturn("HTTP");
+        when(runtimes.findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq(RuntimeStatus.ONLINE), any(Instant.class)))
+                .thenReturn(Optional.of(runtime));
+        AgentControlAdapter http = mock(AgentControlAdapter.class);
+        var service = new AgentControlService(commands, agents, runtimes, mock(AuditLogRepository.class), properties,
+                http, mock(AgentControlAdapter.class), new com.eap.platform.registry.RuntimeLeaseProperties());
+
+        var response = service.issue(new AgentControlDtos.CommandRequest(7L, "revert", null, "operator"));
+
+        assertThat(response.status()).isEqualTo(ControlCommandStatus.FAILED);
+        assertThat(response.resultMessage()).contains("仅适用于 Substrate");
+        org.mockito.Mockito.verifyNoInteractions(http);
+    }
 }

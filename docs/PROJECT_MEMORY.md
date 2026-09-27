@@ -493,3 +493,17 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 ### 普通用户使用路径优化（2026-09-12）
 
 首页增加待办/任务/成果入口；任务使用中文执行进展与独立业务结果，技术管理操作折叠。详情优先说明任务、结果和下一步，支持业务结果确认，证据默认折叠。前端62项测试及浏览器手机交互通过，详见 [交付记录](USER_EXPERIENCE_2026-09-12.md)。
+
+### Agent Substrate 运行时集成 PoC（2026-09-27，未提交）
+
+- 用户决定把 Agent Substrate 作为 EAP 的真实运行时，并要求能在前端部署 agent。设计见 [SUBSTRATE_RUNTIME_INTEGRATION.md](SUBSTRATE_RUNTIME_INTEGRATION.md)。
+- PoC 环境：独立的 Substrate 两节点集群（10.186.133.66/.44，经跳板机访问；该集群不属于腾讯云演示环境）。EAP 部署在 `eap` 命名空间；访问脚本与部署清单在 `K8Substrate/tools/`。
+- 新增 `protocol=SUBSTRATE`：
+  - 控制命令 PAUSE/RESUME/REVERT/RUN_HEALTH_CHECK 通过 gRPC 调用 Substrate Control API；
+  - 工作流任务经 atenet-router 派发，派发前先唤醒 actor；
+  - SUBSTRATE 实例不参与心跳过期。
+  - 实测控制、派发、挂起后状态保留均通过。
+- 后端测试 228 项中 227 项通过。唯一失败项在 HEAD 上同样失败（JWT 视图排除种子 Agent），属原有问题，未修复。
+- 同日完成前端部署：DeepSeek 经网关接入，平台通用 Agent Runner，Agent 详情“部署与运行”Tab（零代码/已有镜像、预检、进度、重试、实例管理、试运行），V48 迁移。实测全链路通过；后端 233/234（原有失败 1 项）、前端 66/66 通过。
+- 已完成：删除实例同时移除登记（不再产生离线事项）；Runner 上报 AGENT Span，并与网关的模型调用共用 traceId；v2 版本发布验证通过。
+- 后续：源码构建部署、长任务超时实测、JWT 模式下的权限实测。
