@@ -18,7 +18,7 @@ public interface AgentRuntimeInstanceRepository extends JpaRepository<AgentRunti
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update AgentRuntimeInstance r set r.status = :offline, r.updatedAt = :now "
             + "where r.status in :active and (r.lastHeartbeatAt is null or r.lastHeartbeatAt <= :cutoff) "
-            + "and upper(r.protocol) not in ('SUBSTRATE', 'SUBSTRATE_OBSERVED')")
+            + "and upper(r.protocol) not in ('SUBSTRATE', 'SUBSTRATE_OBSERVED', 'SUBSTRATE_TASK')")
     int expireSilentRuntimes(@Param("active") List<RuntimeStatus> active, @Param("offline") RuntimeStatus offline,
                             @Param("cutoff") Instant cutoff, @Param("now") Instant now);
 

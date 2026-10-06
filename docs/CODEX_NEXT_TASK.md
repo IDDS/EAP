@@ -1,3 +1,21 @@
+# 当前任务：T5-D1已验收，继续T5-D2剩余入口与旧共享凭证迁移（2026-10-07）
+
+### Codex 进展：T5-D1任务入口专属身份已部署、真实验收与证据导出通过（2026-10-07）
+
+**主线尚未全部完成。** 本轮完成新任务入口的有界实例身份阶段；T5其他入口和旧共享凭证迁移、T6通用恢复/发布取消、T7分级观测、T8策略，以及调度公平/老化/阶段画像继续待办。没有确认Agent调优稳定收益。当前状态清单见docs/MAINLINE_STATUS.md，下一步T5-D2先盘点剩余入口与旧共享凭证，逐批设计迁移验收；不能改写已完成/UNKNOWN原意图或预算。
+
+- 修复原生任务登记被通用心跳清理误标OFFLINE：批量JPQL排除SUBSTRATE_TASK，缺失/陈旧心跳、普通HTTP过期与显式OFFLINE边界覆盖。正确新回归在旧实现3项/1失败，V8夹具自动补心跳失败保留；V9定向62项/7类、完整523项/91类零失败、错误、跳过并打包通过。源码691摘要与实际Secret内存扫描PASS，精确2文件安装。前端190/类型/构建、任务执行器race12顶层、原生68顶层/135含子项沿未变源码保持有效，不称本次重新全部测试。
+- 当前backend固定10.186.133.66:5001/eap-backend@sha256:5a989a8bea5b7b2c91da0be6a34da0bf5d83c40369168400ebbdb001f8c42f00，实际PodUID a00021b9-048d-42a8-86d1-e7b018f24190；其余4镜像保持本阶段首次发布摘要，V63成功，新任务身份能力开启。认证持久Pod原UID、旧emptyDir replicas0、不可变配送Secret及默认900秒、旧任务Runner和通用Runner不变。公开清单仅同步当前摘要与身份配置，没有整份应用历史清单。
+- 独立Agent50/模型总上限1/输出1024。回显原任务ax-82cb1041-e7f2-4fb3-aafd-ce2f6fa1df51、UID d7dd465c-873b-405f-a9bc-87cee1d79659；模型原任务ax-633e5361-a1f9-497c-a84f-992e8169b895、UID ded65903-7752-4cca-ac9a-0f6d2776a672。模型恰好1次，SETTLED、根used1/reserved0/cap1；实际网关、预算、任务回执和Agent Span的隔离Trace一致，runtimeTraceId保留原执行器编号，traceId已被后端隔离，不二次散列。
+- 原回显真实空闲跨900秒自然到期、旧凭证401、UID/原生版本/身份周期不变。仅本轮确证误清理的一条登记按原UID/时戳/批准/租约CAS修ONLINE并同事务审计RECONCILE_TASK_LEASE_BUG，未重置凭证/预算，任意OFFLINE不恢复。修复后首次resume400产生原待配送c3163618-9f0f-453c-bd63-e1b37166db4d；客体readyz200后仅核对同一操作成功，首400原因没有栈证据，不猜测。周期不变、serial1→2，旧凭证401；原Task24h与旧时区错误首连接缩短16h期限均保持，不倒填延长。
+- 原所有者CLI恢复同UID/原快照，当前凭证读取旧客体401；原任务重装同一当前租约后读取原SUCCEEDED回执200，再休眠。回执SHA保持、没有业务重派、没有模型消费。只证明本轮原实例快照重装，不表示EAP通用恢复/T6完成。
+- Workflow18原运行wf-exec-a9c27901-59c7-488c-bd6b-f1a91efbde97成功；first UID7a1dec03-7d1e-4b8d-96f2-a623a5d19785，second UID9925941b-8b82-47da-b5c9-da04ef83df22，两个原任务实际串行传递第一步回执，模型新增0。缺Task头/跨任务/终态/不同调用标识/人工凭证/不支持入口被拒绝；原提交重复返回同Taskkey，改参数409；跨凭证401。共4独立UID且都跨180秒心跳超时仍ONLINE，最终SUSPENDED/REVOKED，原恢复409且原生version不变，模型1/预算不清零；旧Workflow15原EXECUTION_UNKNOWN保留。
+- 四角色真实API和1500/390px浏览器通过，runId feb59e41-817f-42ff-9fef-e627f5b00d2e，20截图、业务写入0、页面异常0、失败API0。已查看admin桌面/手机/公开配置，长UID及公钥换行，无横裁。模板验收初次误排原生公开AX_TASK_YAML、卷名identity与实际eap-identity不同，按原源码合同修正，未改应用绕断言。收尾首门禁因浏览器脚本写旧状态覆盖工作流汇总标记被阻断，业务回执未变；只读核对原运行后恢复证据，非阻塞阶段锁和原子保存使写证据阶段串行。失败史留acceptance-diagnostics.json。
+- 归档artifacts/eap-task-identity-20261006/index.html及同名tar.gz，7993584bytes，SHA2567229a231ac4b842b9b8396bf7d725cae8aa3dd73f1cf6637e0424422296376e5；本地1085文件摘要、25链接、20截图核验一致，实际Secret及原/续期机器凭证内存扫描PASS，合成日志凭证2处导出脱敏且原SHA保留。导出最初误估39变更被门禁挡住；固定基线676→V5变36，V7新增投影及原未变Repository共2，V9共2，最终精确40路径/691源码核对通过，不改测试源码凑数。通过后已镜像/root/eap-src691；节点eap-t5d-evidence.json completed=true及所有阶段键保留，禁止重跑prepare/submit/workflow或换意图重放。
+- 已正常推送工程底座38300900ad93806bb8acf58a76ba6d0861bc419c及时区修复fcf3904ecc2fbf82b49dd8c77cc0b6e5fe5c320f；本轮另提交心跳修复和工程交接。用户“别忘记提交gitee”授权正常commit/push；BP、其他研究和AGENTS不带入，PROJECT_MEMORY工作区只追加，提交只用原HEAD加本工程条目。全部依赖/测试/构建/部署/浏览器在远程，本机仅文本/摘要/脱敏证据；旧演示视频未重录，内部PoC不等于生产mTLS/原生分配栅栏/完整灾备。
+
+---
+
 # Current task: T5-D1 timezone fix deployed; native task heartbeat recovery pending (2026-10-07)
 
 ### Codex 进展：T5-D1已提交并部署，时区修复上线、原实例恢复仍待验收（2026-10-07）
@@ -498,3 +516,7 @@ Rules:
 tools/eap-poc.yaml只同步前后端及未来默认Runner三个摘要，旧模板和Secret引用/900秒保持；没有整份应用历史/root/eap-poc.yaml。导出后收尾脚本/状态独立保存，不重跑依赖已删除Job的build/deploy/export。节点eap-t5c-evidence.json completed=true及所有阶段键保留，禁止重新prepare/workflow/model/budget_model/new_version或换意图重放。
 
 主线及整个T5仍未完成，继续T5-D其他执行入口/旧共享凭证迁移，再T6/T7/T8及调度公平/老化/阶段画像；没有确认Agent调优收益，旧演示视频未重录。全部测试构建部署浏览器远程，本机仅文本/摘要/脱敏证据，无commit/push。
+
+#### T5-D1收尾确认
+
+归档接收与本地1085摘要/25链接核对通过、admin桌面/手机/公钥配置已查看。按冻结UID和DeleteOptions UID前置条件仅清理本轮20个测试Job及26个测试Pod，剩余0；保护状态、4原生实例休眠/撤销及旧Workflow15 UNKNOWN再次确认通过。清理脚本与最终状态另留K8Substrate tools/eap/task-identity和节点，原归档SHA不再更换。
