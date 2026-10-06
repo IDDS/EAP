@@ -14,6 +14,9 @@ public final class AgentControlDtos {
     private AgentControlDtos() {
     }
 
+    public record Target(String instanceKey, String status, java.util.List<String> commands, String unavailableReason) {}
+    public record Targets(java.util.List<Target> instances, boolean dispatchEnabled, int maxAttempts) {}
+
     public record CommandRequest(
             @NotNull Long agentId,
             @NotBlank @Size(max = 64) String commandType,

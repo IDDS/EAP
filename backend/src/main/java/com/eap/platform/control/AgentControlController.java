@@ -20,18 +20,24 @@ public class AgentControlController {
         this.controlService = controlService;
     }
 
+    @GetMapping("/agents/{agentId}/targets")
+    public ApiResponse<AgentControlDtos.Targets> targets(@PathVariable Long agentId) {
+        return ApiResponse.ok(controlService.targets(agentId));
+    }
+
     @GetMapping("/commands")
     public ApiResponse<List<AgentControlDtos.CommandResponse>> recent() {
         return ApiResponse.ok(controlService.recent());
     }
 
     @PostMapping("/commands")
-    public ApiResponse<AgentControlDtos.CommandResponse> issue(@Valid @RequestBody AgentControlDtos.CommandRequest request) {
-        return ApiResponse.ok(controlService.issue(request));
+    public ApiResponse<AgentControlDtos.CommandResponse> issue(@Valid @RequestBody AgentControlDtos.CommandRequest request, org.springframework.security.core.Authentication authentication) {
+        return ApiResponse.ok(controlService.issue(new AgentControlDtos.CommandRequest(request.agentId(), request.commandType(), request.payloadJson(),
+                authentication == null ? "console" : authentication.getName(), request.runtimeInstanceKey())));
     }
 
     @PostMapping("/commands/{commandKey}/retry")
-    public ApiResponse<AgentControlDtos.CommandResponse> retry(@PathVariable String commandKey) {
-        return ApiResponse.ok(controlService.retry(commandKey));
+    public ApiResponse<AgentControlDtos.CommandResponse> retry(@PathVariable String commandKey, org.springframework.security.core.Authentication authentication) {
+        return ApiResponse.ok(controlService.retry(commandKey, authentication == null ? "console" : authentication.getName()));
     }
 }

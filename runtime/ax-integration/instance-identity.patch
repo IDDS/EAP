@@ -1,0 +1,1305 @@
+--- /dev/null
++++ b/internal/controller/actor_identity.go
+@@ -0,0 +1,121 @@
++package controller
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/google/ax/internal/store"
++	"github.com/google/ax/internal/substrate"
++	"github.com/google/ax/pkg/apis/v1alpha1"
++)
++
++const ActorIdentityCondition = "EAPActorIdentity"
++
++func identityEnv(task *v1alpha1.Task) (map[string]string, error) {
++	env := map[string]string{}
++	for _, e := range task.GetSpec().GetEnv() {
++		if e.GetName() == "" {
++			continue
++		}
++		if _, exists := env[e.Name]; exists && e.Name == "EAP_IDENTITY_MODE" {
++			return nil, errors.New("duplicate task identity mode")
++		}
++		env[e.Name] = e.Value
++	}
++	if env["EAP_IDENTITY_MODE"] != "" {
++		seen := map[string]bool{}
++		for _, e := range task.GetSpec().GetEnv() {
++			if seen[e.Name] {
++				return nil, errors.New("duplicate instance identity configuration")
++			}
++			seen[e.Name] = true
++		}
++		if err := substrate.ValidateIdentityConfig(task.GetMetadata().GetName(), task.GetSpec().GetImage(), env); err != nil {
++			return nil, err
++		}
++		if len(task.GetSpec().GetCommand()) != 0 || task.GetSpec().GetDebug() || len(task.GetSpec().WorkspaceRefs()) != 0 {
++			return nil, errors.New("instance task uses the frozen EAP runner contract")
++		}
++	}
++	return env, nil
++}
++
++// Bind the receipt before any actor lifecycle command. A persistent claim with
++// no UID is intentionally terminal for creation: a restart cannot retry it.
++func (r *TaskReconciler) ensureOwnedActor(ctx context.Context, task *v1alpha1.Task, templateSpace, templateName string) (store.ActorIdentity, error) {
++	var empty store.ActorIdentity
++	if r.identityStore == nil {
++		return empty, errors.New("task identity store unavailable")
++	}
++	space, name := task.Metadata.Atespace, task.Metadata.Name
++	frozen := templateSpace + "/" + templateName
++	identity, err := r.identityStore.GetTaskActorIdentity(ctx, space, name)
++	if err != nil && !errors.Is(err, store.ErrNotFound) {
++		return empty, err
++	}
++	if errors.Is(err, store.ErrNotFound) {
++		claimed, e := r.identityStore.ClaimTaskActorCreation(ctx, space, name, frozen)
++		if e != nil {
++			return empty, e
++		}
++		if !claimed {
++			return empty, errors.New("another worker owns the durable actor create intent")
++		}
++		actor, e := r.client.CreateOwnedActor(ctx, space, name, templateSpace, templateName)
++		if e != nil {
++			return empty, e
++		}
++		value := store.ActorIdentity{Template: frozen, UID: actor.GetMetadata().GetUid()}
++		if e = r.identityStore.RecordTaskActorIdentity(ctx, space, name, value); e != nil {
++			return empty, e
++		}
++		identity = &value
++	}
++	if identity.Template != frozen || identity.UID == "" {
++		return empty, errors.New("native actor creation result unknown; replay and name adoption disabled")
++	}
++	if _, err = r.client.GetOwnedActor(ctx, space, name, templateSpace, templateName, identity.UID); err != nil {
++		return empty, err
++	}
++	if r.taskStore != nil {
++		latest, e := r.taskStore.GetTask(ctx, space, name)
++		if e != nil {
++			return empty, e
++		}
++		if latest.GetStatus().GetPhase() == v1alpha1.PhaseTerminating {
++			return empty, errors.New("task is terminating; actor lifecycle change blocked")
++		}
++	}
++	raw, _ := json.Marshal(identity)
++	r.setCondition(task, ActorIdentityCondition, "True", "CreateReceiptBound", string(raw), time.Now())
++	return *identity, nil
++}
++
++// Deletion also requires the original UID. Unknown ownership never authorizes
++// deleting an actor that happens to have the same task name.
++func (r *TaskReconciler) reconcileOwnedDelete(ctx context.Context, task *v1alpha1.Task) error {
++	if r.identityStore == nil {
++		return errors.New("task identity store unavailable")
++	}
++	identity, err := r.identityStore.GetTaskActorIdentity(ctx, task.Metadata.Atespace, task.Metadata.Name)
++	if err != nil || identity.UID == "" {
++		return errors.New("task actor ownership unconfirmed; deletion blocked")
++	}
++	parts := strings.Split(identity.Template, "/")
++	if len(parts) != 2 {
++		return errors.New("invalid frozen task template")
++	}
++	if _, err = r.client.GetOwnedActor(ctx, task.Metadata.Atespace, task.Metadata.Name, parts[0], parts[1], identity.UID); err != nil {
++		return fmt.Errorf("task actor identity changed; deletion blocked: %w", err)
++	}
++	if err = r.client.DeleteActor(ctx, task.Metadata.Atespace, task.Metadata.Name); err != nil {
++		return err
++	}
++	// A dedicated task template is removed by its exact frozen reference. Do not
++	// enumerate/delete other templates sharing a truncated task-name prefix.
++	return r.client.DeleteActorTemplate(ctx, parts[0], parts[1])
++}
+--- /dev/null
++++ b/internal/controller/actor_identity_test.go
+@@ -0,0 +1,239 @@
++package controller
++
++import (
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/json"
++	"net"
++	"os"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
++	"github.com/google/ax/internal/store"
++	"github.com/google/ax/internal/store/memory"
++	"github.com/google/ax/internal/substrate"
++	"github.com/google/ax/pkg/apis/v1alpha1"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/credentials/insecure"
++	"google.golang.org/grpc/status"
++	"google.golang.org/protobuf/proto"
++)
++
++type identityControl struct {
++	ateapipb.UnimplementedControlServer
++	mu                                  sync.Mutex
++	actor                               *ateapipb.Actor
++	template                            *ateapipb.ActorTemplate
++	creates, resumes, suspends, deletes int
++	lost                                bool
++	claims                              store.TaskActorIdentityStore
++}
++
++func (m *identityControl) CreateAtespace(context.Context, *ateapipb.CreateAtespaceRequest) (*ateapipb.Atespace, error) {
++	return &ateapipb.Atespace{}, nil
++}
++func (m *identityControl) GetActorTemplate(context.Context, *ateapipb.GetActorTemplateRequest) (*ateapipb.ActorTemplate, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.template == nil {
++		return nil, status.Error(codes.NotFound, "missing")
++	}
++	return proto.Clone(m.template).(*ateapipb.ActorTemplate), nil
++}
++func (m *identityControl) CreateActorTemplate(_ context.Context, q *ateapipb.CreateActorTemplateRequest) (*ateapipb.ActorTemplate, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.template = proto.Clone(q.ActorTemplate).(*ateapipb.ActorTemplate)
++	return proto.Clone(m.template).(*ateapipb.ActorTemplate), nil
++}
++func (m *identityControl) CreateActor(ctx context.Context, q *ateapipb.CreateActorRequest) (*ateapipb.Actor, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.creates++
++	id, err := m.claims.GetTaskActorIdentity(ctx, q.Actor.Metadata.Atespace, q.Actor.Metadata.Name)
++	if err != nil || id.UID != "" {
++		return nil, status.Error(codes.FailedPrecondition, "create intent not durable before native call")
++	}
++	m.actor = proto.Clone(q.Actor).(*ateapipb.Actor)
++	m.actor.Metadata.Uid = "56592f45-ed6b-4d34-8d20-909957c16946"
++	m.actor.Status = &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}
++	if m.lost {
++		return nil, status.Error(codes.DeadlineExceeded, "synthetic lost create receipt")
++	}
++	return proto.Clone(m.actor).(*ateapipb.Actor), nil
++}
++func (m *identityControl) GetActor(context.Context, *ateapipb.GetActorRequest) (*ateapipb.Actor, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.actor == nil {
++		return nil, status.Error(codes.NotFound, "missing")
++	}
++	return proto.Clone(m.actor).(*ateapipb.Actor), nil
++}
++func (m *identityControl) SuspendActor(context.Context, *ateapipb.SuspendActorRequest) (*ateapipb.SuspendActorResponse, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.suspends++
++	return &ateapipb.SuspendActorResponse{}, nil
++}
++func (m *identityControl) ResumeActor(context.Context, *ateapipb.ResumeActorRequest) (*ateapipb.ResumeActorResponse, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.resumes++
++	return &ateapipb.ResumeActorResponse{Actor: proto.Clone(m.actor).(*ateapipb.Actor)}, nil
++}
++func (m *identityControl) DeleteActor(context.Context, *ateapipb.DeleteActorRequest) (*ateapipb.Actor, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.deletes++
++	return proto.Clone(m.actor).(*ateapipb.Actor), nil
++}
++func fixture(t *testing.T) (*TaskReconciler, *memory.MemoryStore, *identityControl, *v1alpha1.Task) {
++	t.Helper()
++	ctx := context.Background()
++	s := memory.NewStore()
++	m := &identityControl{claims: s}
++	lis, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	server := grpc.NewServer()
++	ateapipb.RegisterControlServer(server, m)
++	go server.Serve(lis)
++	t.Cleanup(server.Stop)
++	c, err := substrate.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { c.Close() })
++	r := NewTaskReconciler(c, "default", "ax-system")
++	NewWorker(s, r, "test", "test")
++	r.SecretResolver = func(context.Context, string, string, string) (string, error) {
++		t.Error("instance task looked up provider credential")
++		return "", nil
++	}
++	r.WorkspaceReadyTimeout = time.Millisecond
++	public, _, _ := ed25519.GenerateKey(rand.Reader)
++	der, _ := x509.MarshalPKIXPublicKey(public)
++	env := map[string]string{"EAP_IDENTITY_MODE": substrate.IdentityMode, "EAP_IDENTITY_DIR": substrate.IdentityDirectory, "EAP_IDENTITY_PUBLIC_KEY": base64.StdEncoding.EncodeToString(der), "EAP_AGENT_ID": "50", "EAP_AX_TASK_KEY": "task", "EAP_GATEWAY_URL": "http://backend.eap.svc:8080"}
++	task := &v1alpha1.Task{Metadata: &v1alpha1.ObjectMeta{Atespace: "eap-ax", Name: "task"}, Spec: &v1alpha1.TaskSpec{Image: "registry/eap-task@sha256:" + strings.Repeat("a", 64)}, Status: &v1alpha1.TaskStatus{Phase: "Suspended"}}
++	for k, v := range env {
++		task.Spec.Env = append(task.Spec.Env, &v1alpha1.EnvVar{Name: k, Value: v})
++	}
++	if err := s.SaveTask(ctx, task); err != nil {
++		t.Fatal(err)
++	}
++	return r, s, m, task
++}
++func TestIdentityReconcileBindsOnlyNativeCreateReceipt(t *testing.T) {
++	r, s, m, task := fixture(t)
++	ctx := context.Background()
++	first, err := r.Reconcile(ctx, task)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.creates != 1 || m.suspends != 1 {
++		t.Fatal("native create/suspend contract failed")
++	}
++	id, _ := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	if id.UID == "" || id.Template == "" {
++		t.Fatal("native UID was not persisted")
++	}
++	found := false
++	for _, c := range first.Status.Conditions {
++		if c.Type == ActorIdentityCondition {
++			var v store.ActorIdentity
++			if c.Status != "True" || json.Unmarshal([]byte(c.Message), &v) != nil || v != *id {
++				t.Fatal("wire identity does not match native receipt")
++			}
++			found = true
++		}
++	}
++	if !found {
++		t.Fatal("native identity not exposed through existing status protocol")
++	}
++	if path := os.Getenv("EAP_TEST_WIRE_PATH"); path != "" {
++		raw, err := proto.Marshal(first)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err = os.WriteFile(path, raw, 0600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, err = r.Reconcile(ctx, task); err != nil {
++		t.Fatal(err)
++	}
++	if m.creates != 1 {
++		t.Fatal("bound task recreated actor")
++	}
++	// The template and its embedded task YAML contain public metadata only.
++	for _, e := range m.template.Containers[0].Env {
++		if strings.Contains(e.Name, "TOKEN") || e.Name == "GEMINI_API_KEY" {
++			t.Fatal("shared credential in template")
++		}
++	}
++}
++func TestIdentityLostCreateReceiptCannotReplayAfterRestart(t *testing.T) {
++	r, s, m, task := fixture(t)
++	m.lost = true
++	ctx := context.Background()
++	if _, err := r.Reconcile(ctx, task); err == nil {
++		t.Fatal("lost create receipt accepted")
++	}
++	id, _ := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	if id.UID != "" {
++		t.Fatal("name lookup adopted unknown native actor")
++	}
++	restarted := NewTaskReconciler(r.client, "default", "ax-system")
++	NewWorker(s, restarted, "test", "restart")
++	restarted.SecretResolver = r.SecretResolver
++	// Even if the original actor later disappears, its original intent cannot recreate it.
++	m.mu.Lock()
++	m.actor = nil
++	m.lost = false
++	m.mu.Unlock()
++	if _, err := restarted.Reconcile(ctx, task); err == nil {
++		t.Fatal("unknown create recovered by retry")
++	}
++	if m.creates != 1 || m.resumes != 0 || m.suspends != 0 {
++		t.Fatal("restart repeated create or touched unowned actor")
++	}
++}
++func TestIdentityReplacementUIDBlocksResumeAndDelete(t *testing.T) {
++	r, _, m, task := fixture(t)
++	ctx := context.Background()
++	if _, err := r.Reconcile(ctx, task); err != nil {
++		t.Fatal(err)
++	}
++	m.mu.Lock()
++	m.actor.Metadata.Uid = "77c266aa-e65e-4c66-ac08-02fcf07499c2"
++	m.mu.Unlock()
++	task.Status.Phase = "Running"
++	if _, err := r.Reconcile(ctx, task); err == nil {
++		t.Fatal("replacement UID accepted")
++	}
++	if err := r.reconcileOwnedDelete(ctx, task); err == nil {
++		t.Fatal("foreign replacement deleted")
++	}
++	if m.creates != 1 || m.resumes != 0 || m.deletes != 0 || m.suspends != 1 {
++		t.Fatal("identity mismatch changed native actor")
++	}
++}
++func TestIdentityInvalidSecretConfigHasNoNativeSideEffects(t *testing.T) {
++	r, _, m, task := fixture(t)
++	task.Spec.Env = append(task.Spec.Env, &v1alpha1.EnvVar{Name: "EAP_TASK_TOKEN", Value: "synthetic-denied-value"})
++	if _, err := r.Reconcile(context.Background(), task); err == nil {
++		t.Fatal("shared secret task accepted")
++	}
++	if m.creates != 0 || m.template != nil {
++		t.Fatal("invalid config created native resources")
++	}
++}
+--- a/internal/controller/reconciler.go
++++ b/internal/controller/reconciler.go
+@@ -29,6 +29,7 @@
+ 	"time"
+ 
+ 	"github.com/google/ax/internal/model"
++	"github.com/google/ax/internal/store"
+ 	"github.com/google/ax/internal/substrate"
+ 	"github.com/google/ax/pkg/apis/v1alpha1"
+ 	"google.golang.org/grpc/codes"
+@@ -60,6 +61,8 @@
+ // sandboxed Actors on Agent Substrate.
+ type TaskReconciler struct {
+ 	client                  *substrate.Client
++	identityStore           store.TaskActorIdentityStore
++	taskStore               store.Store
+ 	httpClient              *http.Client
+ 	defaultTemplate         string
+ 	defaultTemplateAtespace string
+@@ -111,6 +114,11 @@
+ 	if task.Spec.Image == "" {
+ 		task.Spec.Image = v1alpha1.DefaultTaskImage
+ 	}
++	publicEnv, configError := identityEnv(task)
++	if configError != nil {
++		r.setNotReady(task, "IdentityConfigurationInvalid", "Task identity configuration rejected", time.Now())
++		return task, configError
++	}
+ 
+ 	slog.Info("reconciling task", "name", task.Metadata.Name, "atespace", atespace, "image", task.Spec.Image)
+ 
+@@ -150,8 +158,10 @@
+ 		}
+ 	}
+ 
+-	if geminiKey := r.lookupGeminiKey(ctx, atespace); geminiKey != "" {
+-		extraEnv[geminiSecretKey] = geminiKey
++	if !substrate.IsIdentityTask(publicEnv) {
++		if geminiKey := r.lookupGeminiKey(ctx, atespace); geminiKey != "" {
++			extraEnv[geminiSecretKey] = geminiKey
++		}
+ 	}
+ 
+ 	// Only launch configuration belongs in the template; status changes
+@@ -182,8 +192,16 @@
+ 		}
+ 	}
+ 
+-	_, err := r.client.EnsureActor(ctx, atespace, actorName, templateAtespace, templateName)
++	var err error
++	if substrate.IsIdentityTask(publicEnv) {
++		_, err = r.ensureOwnedActor(ctx, task, templateAtespace, templateName)
++	} else {
++		_, err = r.client.EnsureActor(ctx, atespace, actorName, templateAtespace, templateName)
++	}
+ 	if err != nil {
++		if substrate.IsIdentityTask(publicEnv) {
++			r.setCondition(task, ActorIdentityCondition, "False", "IdentityUnconfirmed", "Native create receipt is unknown or no longer matches", now)
++		}
+ 		r.setNotReady(task, "ActorCreationFailed", err.Error(), now)
+ 		task.Status.Phase = "Failed"
+ 		return task, fmt.Errorf("ensuring actor: %w", err)
+@@ -210,6 +228,13 @@
+ 		r.setNotReady(task, "ActorResumeFailed", err.Error(), now)
+ 		task.Status.Phase = "Failed"
+ 		return task, fmt.Errorf("resuming actor: %w", err)
++	}
++	if substrate.IsIdentityTask(publicEnv) {
++		if _, err = r.ensureOwnedActor(ctx, task, templateAtespace, templateName); err != nil {
++			r.setCondition(task, ActorIdentityCondition, "False", "IdentityUnconfirmed", "Native identity changed during resume", now)
++			r.setNotReady(task, "ActorIdentityChanged", "Native identity changed during resume", now)
++			return task, err
++		}
+ 	}
+ 
+ 	task.Status.WorkerIp = workerIP
+--- a/internal/controller/worker.go
++++ b/internal/controller/worker.go
+@@ -53,6 +53,8 @@
+ 		hostname, _ := os.Hostname()
+ 		consumer = fmt.Sprintf("%s-%d", hostname, time.Now().UnixNano()%10000)
+ 	}
++	reconciler.identityStore, _ = s.(store.TaskActorIdentityStore)
++	reconciler.taskStore = s
+ 	return &Worker{
+ 		store:      s,
+ 		reconciler: reconciler,
+@@ -107,7 +109,24 @@
+ func (w *Worker) processEvent(ctx context.Context, ev store.TaskEvent) error {
+ 	if ev.Action == "delete" {
+ 		slog.Info("handling task deletion event", "atespace", ev.Atespace, "name", ev.Name)
+-		if err := w.reconciler.ReconcileDelete(ctx, ev.Atespace, ev.Name); err != nil {
++		task, getErr := w.store.GetTask(ctx, ev.Atespace, ev.Name)
++		if errors.Is(getErr, store.ErrNotFound) {
++			return nil
++		}
++		if getErr != nil {
++			return getErr
++		}
++		env, configErr := identityEnv(task)
++		if configErr != nil {
++			return configErr
++		}
++		var deleteErr error
++		if env["EAP_IDENTITY_MODE"] != "" {
++			deleteErr = w.reconciler.reconcileOwnedDelete(ctx, task)
++		} else {
++			deleteErr = w.reconciler.ReconcileDelete(ctx, ev.Atespace, ev.Name)
++		}
++		if err := deleteErr; err != nil {
+ 			// Leave the record in Terminating so the failure is visible; re-running
+ 			// `ax delete` republishes the event and retries the cleanup.
+ 			return fmt.Errorf("cleaning up task %s/%s: %w", ev.Atespace, ev.Name, err)
+--- /dev/null
++++ b/internal/server/actor_identity_test.go
+@@ -0,0 +1,21 @@
++package server
++
++import (
++	"context"
++	"testing"
++
++	"github.com/google/ax/internal/store/memory"
++	"github.com/google/ax/pkg/apis/v1alpha1"
++)
++
++func TestCreateTaskDiscardsCallerActorEvidence(t *testing.T) {
++	s := NewServer(memory.NewStore())
++	task := &v1alpha1.Task{ApiVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindTask, Metadata: &v1alpha1.ObjectMeta{Atespace: "eap-ax", Name: "task"}, Spec: &v1alpha1.TaskSpec{Image: "test-image"}, Status: &v1alpha1.TaskStatus{Id: "caller-id", Actor: "foreign", Conditions: []*v1alpha1.Condition{{Type: "EAPActorIdentity", Status: "True", Reason: "CreateReceiptBound", Message: "caller supplied identity"}}}}
++	created, err := s.CreateTask(context.Background(), &v1alpha1.CreateTaskRequest{Task: task})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if created.Status.Phase != "Suspended" || created.Status.Id != "" || created.Status.Actor != "" || len(created.Status.Conditions) != 0 {
++		t.Fatal("submitter supplied native ownership evidence")
++	}
++}
+--- a/internal/server/server.go
++++ b/internal/server/server.go
+@@ -135,9 +135,8 @@
+ 	if task.Metadata.CreationTimestamp == nil {
+ 		task.Metadata.CreationTimestamp = timestamppb.Now()
+ 	}
+-	if task.Status == nil {
+-		task.Status = &v1alpha1.TaskStatus{}
+-	}
++	// Status is control-plane evidence, never supplied by the task submitter.
++	task.Status = &v1alpha1.TaskStatus{}
+ 	task.Status.Phase = "Suspended"
+ 	if err := s.store.SaveTask(ctx, task); err != nil {
+ 		return nil, status.Errorf(codes.Internal, "saving task: %v", err)
+@@ -253,7 +252,6 @@
+ 	}
+ }
+ 
+-
+ // --- Workspaces ---
+ 
+ func (s *Server) GetWorkspace(ctx context.Context, req *v1alpha1.GetWorkspaceRequest) (*v1alpha1.Workspace, error) {
+--- /dev/null
++++ b/internal/store/actor_identity.go
+@@ -0,0 +1,27 @@
++package store
++
++import (
++	"context"
++	"errors"
++)
++
++// ActorIdentity is an irreversible create intent followed by a native CreateActor
++// receipt. It contains public metadata only; it is never a bearer credential.
++// The intent outlives task deletion and has no TTL, so a recycled task name cannot
++// recreate or silently adopt a different actor after an uncertain native call.
++type ActorIdentity struct {
++	Template string `json:"actorTemplate"`
++	UID      string `json:"actorUid"`
++}
++
++var ErrActorIdentityConflict = errors.New("task actor identity conflict")
++
++// TaskActorIdentityStore is separate from the legacy task status update API.
++// Claim returns true for exactly one caller. Recording requires the same frozen
++// template and may only bind the UID once. Ordinary status updates cannot clear
++// either the intent or the receipt.
++type TaskActorIdentityStore interface {
++	GetTaskActorIdentity(context.Context, string, string) (*ActorIdentity, error)
++	ClaimTaskActorCreation(context.Context, string, string, string) (bool, error)
++	RecordTaskActorIdentity(context.Context, string, string, ActorIdentity) error
++}
+--- /dev/null
++++ b/internal/store/memory/actor_identity.go
+@@ -0,0 +1,61 @@
++package memory
++
++import (
++	"context"
++
++	"github.com/google/ax/internal/store"
++)
++
++func (s *MemoryStore) GetTaskActorIdentity(ctx context.Context, space, name string) (*store.ActorIdentity, error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	x, ok := s.actorIdentities[taskKey(space, name)]
++	if !ok {
++		return nil, store.ErrNotFound
++	}
++	return &x, nil
++}
++
++func (s *MemoryStore) ClaimTaskActorCreation(ctx context.Context, space, name, template string) (bool, error) {
++	if err := ctx.Err(); err != nil {
++		return false, err
++	}
++	if template == "" {
++		return false, store.ErrActorIdentityConflict
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	key := taskKey(space, name)
++	if _, ok := s.tasks[key]; !ok {
++		return false, store.ErrNotFound
++	}
++	if s.tasks[key].GetStatus().GetPhase() == "Terminating" {
++		return false, store.ErrActorIdentityConflict
++	}
++	if _, ok := s.actorIdentities[key]; ok {
++		return false, nil
++	}
++	s.actorIdentities[key] = store.ActorIdentity{Template: template}
++	return true, nil
++}
++
++func (s *MemoryStore) RecordTaskActorIdentity(ctx context.Context, space, name string, value store.ActorIdentity) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if value.UID == "" || value.Template == "" {
++		return store.ErrActorIdentityConflict
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	key := taskKey(space, name)
++	previous, ok := s.actorIdentities[key]
++	if !ok || previous.Template != value.Template || previous.UID != "" && previous.UID != value.UID {
++		return store.ErrActorIdentityConflict
++	}
++	s.actorIdentities[key] = value
++	return nil
++}
+--- /dev/null
++++ b/internal/store/memory/actor_identity_test.go
+@@ -0,0 +1,95 @@
++package memory
++
++import (
++	"context"
++	"errors"
++	"sync"
++	"sync/atomic"
++	"testing"
++
++	"github.com/google/ax/internal/store"
++	"github.com/google/ax/pkg/apis/v1alpha1"
++)
++
++func identityTask(t *testing.T, s *MemoryStore) {
++	t.Helper()
++	if err := s.SaveTask(context.Background(), &v1alpha1.Task{Metadata: &v1alpha1.ObjectMeta{Atespace: "eap-ax", Name: "task"}}); err != nil {
++		t.Fatal(err)
++	}
++}
++func TestActorCreateClaimIsSingleAndSticky(t *testing.T) {
++	s := NewStore()
++	identityTask(t, s)
++	ctx := context.Background()
++	var winners atomic.Int32
++	var wg sync.WaitGroup
++	for i := 0; i < 16; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			ok, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "eap-ax/template")
++			if err != nil {
++				t.Error(err)
++			}
++			if ok {
++				winners.Add(1)
++			}
++		}()
++	}
++	wg.Wait()
++	if winners.Load() != 1 {
++		t.Fatalf("create intent winners=%d", winners.Load())
++	}
++	if err := s.UpdateTaskStatus(ctx, "eap-ax", "task", &v1alpha1.TaskStatus{}); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.DeleteTask(ctx, "eap-ax", "task"); err != nil {
++		t.Fatal(err)
++	}
++	identityTask(t, s)
++	if claimed, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "eap-ax/another"); err != nil || claimed {
++		t.Fatal("recycled task name regained create authority")
++	}
++	id, err := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	if err != nil || id.Template != "eap-ax/template" || id.UID != "" {
++		t.Fatal("unknown create intent changed")
++	}
++}
++func TestActorReceiptCannotRebindOrMutateStoredValue(t *testing.T) {
++	s := NewStore()
++	identityTask(t, s)
++	ctx := context.Background()
++	s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "eap-ax/template")
++	value := store.ActorIdentity{Template: "eap-ax/template", UID: "56592f45-ed6b-4d34-8d20-909957c16946"}
++	if err := s.RecordTaskActorIdentity(ctx, "eap-ax", "task", value); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.RecordTaskActorIdentity(ctx, "eap-ax", "task", value); err != nil {
++		t.Fatal("identical receipt replay rejected", err)
++	}
++	for _, x := range []store.ActorIdentity{{Template: value.Template, UID: "different"}, {Template: "other", UID: value.UID}, {Template: value.Template}} {
++		if !errors.Is(s.RecordTaskActorIdentity(ctx, "eap-ax", "task", x), store.ErrActorIdentityConflict) {
++			t.Fatal("receipt changed ownership")
++		}
++	}
++	id, _ := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	id.UID = "changed"
++	now, _ := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	if now.UID != value.UID {
++		t.Fatal("caller mutated durable identity")
++	}
++}
++func TestActorClaimRejectsMissingAndTerminatingTask(t *testing.T) {
++	s := NewStore()
++	ctx := context.Background()
++	if _, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "t"); !errors.Is(err, store.ErrNotFound) {
++		t.Fatal(err)
++	}
++	identityTask(t, s)
++	if err := s.MarkTaskDeleting(ctx, "eap-ax", "task"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "t"); !errors.Is(err, store.ErrActorIdentityConflict) {
++		t.Fatal("cancellation ignored", err)
++	}
++}
+--- a/internal/store/memory/store.go
++++ b/internal/store/memory/store.go
+@@ -40,22 +40,24 @@
+ 
+ // MemoryStore is an in-memory implementation of store.Store for testing and single-node setups.
+ type MemoryStore struct {
+-	mu         sync.RWMutex
+-	tasks      map[string]*v1alpha1.Task
+-	models     map[string]*v1alpha1.Model
+-	workspaces map[string]*v1alpha1.Workspace
+-	events     chan store.TaskEvent
+-	watchers   map[string][]chan *v1alpha1.Task
++	mu              sync.RWMutex
++	tasks           map[string]*v1alpha1.Task
++	models          map[string]*v1alpha1.Model
++	workspaces      map[string]*v1alpha1.Workspace
++	events          chan store.TaskEvent
++	watchers        map[string][]chan *v1alpha1.Task
++	actorIdentities map[string]store.ActorIdentity
+ }
+ 
+ // NewStore creates a new in-memory Store.
+ func NewStore() *MemoryStore {
+ 	return &MemoryStore{
+-		tasks:      make(map[string]*v1alpha1.Task),
+-		models:     make(map[string]*v1alpha1.Model),
+-		workspaces: make(map[string]*v1alpha1.Workspace),
+-		events:     make(chan store.TaskEvent, 1000),
+-		watchers:   make(map[string][]chan *v1alpha1.Task),
++		tasks:           make(map[string]*v1alpha1.Task),
++		models:          make(map[string]*v1alpha1.Model),
++		workspaces:      make(map[string]*v1alpha1.Workspace),
++		events:          make(chan store.TaskEvent, 1000),
++		watchers:        make(map[string][]chan *v1alpha1.Task),
++		actorIdentities: make(map[string]store.ActorIdentity),
+ 	}
+ }
+ 
+@@ -216,7 +218,6 @@
+ 	delete(s.tasks, taskKey(atespace, name))
+ 	return nil
+ }
+-
+ 
+ func (s *MemoryStore) SaveModel(ctx context.Context, model *v1alpha1.Model) error {
+ 	if model.Metadata.Name == "" {
+--- /dev/null
++++ b/internal/store/redis/actor_identity.go
+@@ -0,0 +1,86 @@
++package redis
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++
++	"github.com/google/ax/internal/store"
++	"github.com/redis/go-redis/v9"
++)
++
++func (s *Store) actorIdentityKey(space, name string) string {
++	if space == "" {
++		space = "default"
++	}
++	return fmt.Sprintf("%s:eap-actor-identity:%s:%s", s.opts.KeyPrefix, space, name)
++}
++
++func (s *Store) GetTaskActorIdentity(ctx context.Context, space, name string) (*store.ActorIdentity, error) {
++	raw, err := s.client.Get(ctx, s.actorIdentityKey(space, name)).Bytes()
++	if err == redis.Nil {
++		return nil, store.ErrNotFound
++	}
++	if err != nil {
++		return nil, err
++	}
++	var value store.ActorIdentity
++	if json.Unmarshal(raw, &value) != nil || value.Template == "" {
++		return nil, store.ErrActorIdentityConflict
++	}
++	return &value, nil
++}
++
++// The task's existence/cancellation and SET NX share a single Redis operation.
++// No expiry is used, even when ordinary task records have a configured TTL.
++const claimActorScript = `
++local task = redis.call('GET', KEYS[1])
++if not task then return -1 end
++local t = cjson.decode(task)
++if t.status and t.status.phase == 'Terminating' then return -2 end
++if redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
++redis.call('SET', KEYS[2], ARGV[1])
++return 1`
++
++func (s *Store) ClaimTaskActorCreation(ctx context.Context, space, name, template string) (bool, error) {
++	if template == "" {
++		return false, store.ErrActorIdentityConflict
++	}
++	raw, _ := json.Marshal(store.ActorIdentity{Template: template})
++	value, err := s.client.Eval(ctx, claimActorScript, []string{s.taskKey(space, name), s.actorIdentityKey(space, name)}, string(raw)).Int()
++	if err != nil {
++		return false, err
++	}
++	if value == -1 {
++		return false, store.ErrNotFound
++	}
++	if value == -2 {
++		return false, store.ErrActorIdentityConflict
++	}
++	return value == 1, nil
++}
++
++const recordActorScript = `
++local raw = redis.call('GET', KEYS[1])
++if not raw then return 0 end
++local previous = cjson.decode(raw)
++local value = cjson.decode(ARGV[1])
++if previous.actorTemplate ~= value.actorTemplate then return 0 end
++if previous.actorUid and previous.actorUid ~= '' and previous.actorUid ~= value.actorUid then return 0 end
++redis.call('SET', KEYS[1], ARGV[1])
++return 1`
++
++func (s *Store) RecordTaskActorIdentity(ctx context.Context, space, name string, value store.ActorIdentity) error {
++	if value.UID == "" || value.Template == "" {
++		return store.ErrActorIdentityConflict
++	}
++	raw, _ := json.Marshal(value)
++	result, err := s.client.Eval(ctx, recordActorScript, []string{s.actorIdentityKey(space, name)}, string(raw)).Int()
++	if err != nil {
++		return err
++	}
++	if result != 1 {
++		return store.ErrActorIdentityConflict
++	}
++	return nil
++}
+--- /dev/null
++++ b/internal/store/redis/actor_identity_test.go
+@@ -0,0 +1,89 @@
++package redis
++
++import (
++	"context"
++	"errors"
++	"os"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/google/ax/internal/store"
++	"github.com/google/ax/pkg/apis/v1alpha1"
++	"github.com/redis/go-redis/v9"
++)
++
++// Uses an independent Redis test sidecar, never the deployed AX Redis database.
++func TestRealRedisActorClaimReceiptAndRestart(t *testing.T) {
++	address := os.Getenv("EAP_TEST_REDIS_ADDR")
++	if address == "" {
++		t.Fatal("independent Redis test server required")
++	}
++	ctx := context.Background()
++	client := redis.NewClient(&redis.Options{Addr: address})
++	defer client.Close()
++	if err := client.Ping(ctx).Err(); err != nil {
++		t.Fatal(err)
++	}
++	options := Options{KeyPrefix: "eap-identity-test-" + time.Now().Format("150405.000000000"), StreamName: "eap-identity-test-events", TTL: time.Hour}
++	s := NewStore(client, options)
++	task := &v1alpha1.Task{Metadata: &v1alpha1.ObjectMeta{Atespace: "eap-ax", Name: "task"}}
++	if err := s.SaveTask(ctx, task); err != nil {
++		t.Fatal(err)
++	}
++	var count atomic.Int32
++	var wg sync.WaitGroup
++	for i := 0; i < 16; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			ok, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "eap-ax/template")
++			if err != nil {
++				t.Error(err)
++			}
++			if ok {
++				count.Add(1)
++			}
++		}()
++	}
++	wg.Wait()
++	if count.Load() != 1 {
++		t.Fatalf("durable claim winners=%d", count.Load())
++	}
++	if ttl := client.TTL(ctx, s.actorIdentityKey("eap-ax", "task")).Val(); ttl != -1 {
++		t.Fatalf("create intent expires: %v", ttl)
++	}
++	// A new store object simulates a controller restart; pending intent cannot be reclaimed.
++	restarted := NewStore(client, options)
++	if ok, err := restarted.ClaimTaskActorCreation(ctx, "eap-ax", "task", "other"); err != nil || ok {
++		t.Fatal("restart retried unknown creation")
++	}
++	value := store.ActorIdentity{Template: "eap-ax/template", UID: "56592f45-ed6b-4d34-8d20-909957c16946"}
++	if err := restarted.RecordTaskActorIdentity(ctx, "eap-ax", "task", value); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.RecordTaskActorIdentity(ctx, "eap-ax", "task", value); err != nil {
++		t.Fatal(err)
++	}
++	value.UID = "different"
++	if !errors.Is(s.RecordTaskActorIdentity(ctx, "eap-ax", "task", value), store.ErrActorIdentityConflict) {
++		t.Fatal("UID rebound")
++	}
++	if err := s.UpdateTaskStatus(ctx, "eap-ax", "task", &v1alpha1.TaskStatus{Phase: "Running"}); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.DeleteTask(ctx, "eap-ax", "task"); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.SaveTask(ctx, task); err != nil {
++		t.Fatal(err)
++	}
++	if ok, err := s.ClaimTaskActorCreation(ctx, "eap-ax", "task", "another"); err != nil || ok {
++		t.Fatal("task deletion removed create tombstone")
++	}
++	id, err := s.GetTaskActorIdentity(ctx, "eap-ax", "task")
++	if err != nil || id.UID == "different" || id.UID == "" {
++		t.Fatal("stored original UID lost", err)
++	}
++}
+--- a/internal/substrate/client.go
++++ b/internal/substrate/client.go
+@@ -235,19 +235,19 @@
+ 		})
+ 	}
+ 
+-	return &ateapipb.ActorTemplate{
++	template := &ateapipb.ActorTemplate{
+ 		Metadata: &ateapipb.ResourceMetadata{
+ 			Name:     name,
+ 			Atespace: atespace,
+ 		},
+ 		WorkerSelector: &ateapipb.Selector{MatchLabels: map[string]string{"workload": "eap-ax"}},
+- Containers: []*ateapipb.Container{{
++		Containers: []*ateapipb.Container{{
+ 			Name:    "guest",
+ 			Image:   image,
+ 			Command: command,
+ 			Env:     envList,
+ 			WakeupProbe: &ateapipb.ContainerWakeupProbe{
+- TimeoutSeconds: 120,
++				TimeoutSeconds: 120,
+ 				HttpGet: &ateapipb.HTTPGetAction{
+ 					Path: "/readyz",
+ 					Port: 80,
+@@ -275,15 +275,14 @@
+ 			ConfigName:   "gvisor-default",
+ 		},
+ 	}
++	if IsIdentityTask(envMap) {
++		projectActorIdentity(template)
++	}
++	return template
+ }
+ 
+ // EnsureActorTemplateWithImage creates an ActorTemplate using the specified container image and optional environment variables.
+ func (c *Client) EnsureActorTemplateWithImage(ctx context.Context, baseAtespace, baseTemplate, targetAtespace, targetTemplate, image string, extraEnv ...map[string]string) (*ateapipb.ActorTemplate, error) {
+-	existing, err := c.GetActorTemplate(ctx, targetAtespace, targetTemplate)
+-	if err == nil && existing != nil {
+-		return existing, nil
+-	}
+-
+ 	envMap := make(map[string]string)
+ 	for _, envs := range extraEnv {
+ 		for k, v := range envs {
+@@ -292,6 +291,16 @@
+ 	}
+ 
+ 	tmpl := BuildActorTemplate(targetAtespace, targetTemplate, image, envMap, nil, "")
++	existing, err := c.GetActorTemplate(ctx, targetAtespace, targetTemplate)
++	if err == nil && existing != nil {
++		if IsIdentityTask(envMap) && (existing.GetMetadata().GetAtespace() != targetAtespace || existing.GetMetadata().GetName() != targetTemplate || !sameIdentityTemplate(existing, tmpl)) {
++			return nil, fmt.Errorf("existing task template does not match frozen identity configuration")
++		}
++		return existing, nil
++	}
++	if IsIdentityTask(envMap) && err != nil && status.Code(err) != codes.NotFound {
++		return nil, err
++	}
+ 	req := &ateapipb.CreateActorTemplateRequest{
+ 		ActorTemplate: tmpl,
+ 	}
+@@ -300,9 +309,16 @@
+ 		return nil, fmt.Errorf("creating actor template %s/%s: %w", targetAtespace, targetTemplate, err)
+ 	}
+ 	if created != nil {
++		if IsIdentityTask(envMap) && (err != nil || created.GetMetadata().GetAtespace() != targetAtespace || created.GetMetadata().GetName() != targetTemplate || !sameIdentityTemplate(created, tmpl)) {
++			return nil, fmt.Errorf("created task template does not match frozen identity configuration")
++		}
+ 		return created, nil
+ 	}
+-	return c.GetActorTemplate(ctx, targetAtespace, targetTemplate)
++	existing, err = c.GetActorTemplate(ctx, targetAtespace, targetTemplate)
++	if err == nil && IsIdentityTask(envMap) && (existing.GetMetadata().GetAtespace() != targetAtespace || existing.GetMetadata().GetName() != targetTemplate || !sameIdentityTemplate(existing, tmpl)) {
++		return nil, fmt.Errorf("concurrent task template does not match frozen identity configuration")
++	}
++	return existing, err
+ }
+ 
+ // EnsureActor creates an Actor in the specified atespace deriving from an ActorTemplate.
+@@ -330,9 +346,9 @@
+ 			})
+ 			if getErr == nil && existing != nil {
+ 				state := existing.GetStatus().GetState()
+-                if state == ateapipb.ActorState_ACTOR_STATE_CRASHED {
+-                    return nil, fmt.Errorf("AX actor crashed; automatic recreation disabled by EAP")
+-                }
++				if state == ateapipb.ActorState_ACTOR_STATE_CRASHED {
++					return nil, fmt.Errorf("AX actor crashed; automatic recreation disabled by EAP")
++				}
+ 				if state == ateapipb.ActorState_ACTOR_STATE_DELETING {
+ 					// Wait briefly for previous actor deletion to finalize before recreating
+ 					for i := 0; i < 20; i++ {
+@@ -438,5 +454,3 @@
+ 	}
+ 	return nil
+ }
+-
+-
+--- /dev/null
++++ b/internal/substrate/identity.go
+@@ -0,0 +1,128 @@
++package substrate
++
++import (
++	"context"
++	"crypto/ed25519"
++	"crypto/x509"
++	"encoding/base64"
++	"errors"
++	"fmt"
++	"regexp"
++	"sort"
++	"strconv"
++
++	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
++	"google.golang.org/protobuf/proto"
++)
++
++const IdentityMode = "PER_INSTANCE_V1"
++const IdentityDirectory = "/run/eap-identity"
++
++func IsIdentityTask(env map[string]string) bool { return env["EAP_IDENTITY_MODE"] == IdentityMode }
++
++// New EAP tasks have a closed public configuration contract. There is no
++// compatibility fallback that can introduce shared/provider/control credentials.
++func ValidateIdentityConfig(name, image string, env map[string]string) error {
++	if env["EAP_IDENTITY_MODE"] == "" {
++		return nil
++	}
++	if !IsIdentityTask(env) {
++		return errors.New("unsupported EAP identity mode")
++	}
++	allowed := map[string]bool{"EAP_IDENTITY_MODE": true, "EAP_IDENTITY_PUBLIC_KEY": true, "EAP_IDENTITY_DIR": true, "EAP_AGENT_ID": true, "EAP_AX_TASK_KEY": true, "EAP_GATEWAY_URL": true}
++	for key := range env {
++		if !allowed[key] {
++			return errors.New("instance task accepts public identity configuration only")
++		}
++	}
++	if env["EAP_AX_TASK_KEY"] != name || env["EAP_IDENTITY_DIR"] != IdentityDirectory || env["EAP_GATEWAY_URL"] == "" {
++		return errors.New("incomplete task identity configuration")
++	}
++	n, err := strconv.ParseInt(env["EAP_AGENT_ID"], 10, 64)
++	if err != nil || n < 1 || strconv.FormatInt(n, 10) != env["EAP_AGENT_ID"] {
++		return errors.New("invalid task agent identity")
++	}
++	if !regexp.MustCompile(`^[^\s@]+@sha256:[a-f0-9]{64}$`).MatchString(image) {
++		return errors.New("task runner image must be pinned")
++	}
++	raw, err := base64.StdEncoding.DecodeString(env["EAP_IDENTITY_PUBLIC_KEY"])
++	if err != nil {
++		return errors.New("invalid identity trust")
++	}
++	public, err := x509.ParsePKIXPublicKey(raw)
++	if err != nil {
++		return errors.New("invalid identity trust")
++	}
++	if _, ok := public.(ed25519.PublicKey); !ok {
++		return errors.New("Ed25519 identity trust required")
++	}
++	return nil
++}
++
++func projectActorIdentity(template *ateapipb.ActorTemplate) {
++	template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{Name: "eap-identity", MountPath: IdentityDirectory})
++	template.Volumes = append(template.Volumes, &ateapipb.Volume{Name: "eap-identity", SystemInfo: &ateapipb.SystemInfoVolumeSource{DataSources: []*ateapipb.SystemInfoDataSource{{ActorMetadata: &ateapipb.ActorMetadataDataSource{Items: []*ateapipb.ActorMetadataItem{
++		{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_ATESPACE, Path: "atespace"},
++		{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_NAME, Path: "name"},
++		{Field: ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID, Path: "uid"},
++	}}}}}})
++}
++
++func sameIdentityTemplate(actual, expected *ateapipb.ActorTemplate) bool {
++	if actual == nil {
++		return false
++	}
++	// Native metadata and golden-snapshot status are server assigned. Launch
++	// configuration, projection and placement must all match the frozen request.
++	a, e := proto.Clone(actual).(*ateapipb.ActorTemplate), proto.Clone(expected).(*ateapipb.ActorTemplate)
++	sortEnv := func(t *ateapipb.ActorTemplate) {
++		for _, c := range t.Containers {
++			sort.Slice(c.Env, func(i, j int) bool { return c.Env[i].Name < c.Env[j].Name })
++		}
++	}
++	sortEnv(a)
++	sortEnv(e)
++	return proto.Equal(a.WorkerSelector, e.WorkerSelector) && proto.Equal(a.SnapshotsConfig, e.SnapshotsConfig) && proto.Equal(a.SandboxConfig, e.SandboxConfig) &&
++		proto.Equal(&ateapipb.ActorTemplate{Containers: a.Containers, Volumes: a.Volumes}, &ateapipb.ActorTemplate{Containers: e.Containers, Volumes: e.Volumes})
++}
++
++func ValidateActorIdentity(actor *ateapipb.Actor, space, name, templateSpace, templateName, uid string) error {
++	if actor == nil || actor.GetMetadata().GetAtespace() != space || actor.GetMetadata().GetName() != name ||
++		actor.GetActorTemplate().GetAtespace() != templateSpace || actor.GetActorTemplate().GetName() != templateName ||
++		!regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`).MatchString(actor.GetMetadata().GetUid()) ||
++		uid != "" && actor.GetMetadata().GetUid() != uid {
++		return errors.New("native actor receipt does not match frozen identity")
++	}
++	if state := actor.GetStatus().GetState(); state == ateapipb.ActorState_ACTOR_STATE_CRASHED || state == ateapipb.ActorState_ACTOR_STATE_DELETING {
++		return errors.New("task actor is crashed or deleting; automatic recreation disabled")
++	}
++	return nil
++}
++
++// CreateOwnedActor accepts only the successful create response. ALREADY_EXISTS,
++// missing receipts and transport ambiguity never fall back to a name lookup.
++func (c *Client) CreateOwnedActor(ctx context.Context, space, name, templateSpace, templateName string) (*ateapipb.Actor, error) {
++	actor, err := c.control.CreateActor(ctx, &ateapipb.CreateActorRequest{Actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: space, Name: name}, ActorTemplate: &ateapipb.ObjectRef{Atespace: templateSpace, Name: templateName}}})
++	if err != nil {
++		return nil, fmt.Errorf("native actor create result not bound: %w", err)
++	}
++	if err = ValidateActorIdentity(actor, space, name, templateSpace, templateName, ""); err != nil {
++		return nil, err
++	}
++	return actor, nil
++}
++
++// GetOwnedActor never creates anything when a bound actor disappears or changes.
++func (c *Client) GetOwnedActor(ctx context.Context, space, name, templateSpace, templateName, uid string) (*ateapipb.Actor, error) {
++	if uid == "" {
++		return nil, errors.New("native create receipt required")
++	}
++	actor, err := c.control.GetActor(ctx, &ateapipb.GetActorRequest{Actor: &ateapipb.ObjectRef{Atespace: space, Name: name}})
++	if err != nil {
++		return nil, err
++	}
++	if err = ValidateActorIdentity(actor, space, name, templateSpace, templateName, uid); err != nil {
++		return nil, err
++	}
++	return actor, nil
++}
+--- /dev/null
++++ b/internal/substrate/identity_test.go
+@@ -0,0 +1,128 @@
++package substrate
++
++import (
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"crypto/x509"
++	"encoding/base64"
++	"strings"
++	"testing"
++
++	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
++	"google.golang.org/grpc"
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++	"google.golang.org/protobuf/proto"
++)
++
++const testUID = "56592f45-ed6b-4d34-8d20-909957c16946"
++
++func publicIdentityEnv(t *testing.T) map[string]string {
++	t.Helper()
++	public, _, err := ed25519.GenerateKey(rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	der, _ := x509.MarshalPKIXPublicKey(public)
++	return map[string]string{"EAP_IDENTITY_MODE": IdentityMode, "EAP_IDENTITY_DIR": IdentityDirectory, "EAP_IDENTITY_PUBLIC_KEY": base64.StdEncoding.EncodeToString(der), "EAP_AX_TASK_KEY": "task", "EAP_AGENT_ID": "50", "EAP_GATEWAY_URL": "http://backend.eap.svc:8080"}
++}
++func TestIdentityTemplateProjectionAndPublicConfig(t *testing.T) {
++	env := publicIdentityEnv(t)
++	image := "registry/eap-task@sha256:" + strings.Repeat("a", 64)
++	if err := ValidateIdentityConfig("task", image, env); err != nil {
++		t.Fatal(err)
++	}
++	template := BuildActorTemplate("eap-ax", "t", image, env, nil, "gs://test")
++	if len(template.Volumes) != 2 || template.Volumes[1].Name != "eap-identity" || template.Volumes[1].SystemInfo == nil {
++		t.Fatal("missing native identity projection")
++	}
++	items := template.Volumes[1].GetSystemInfo().GetDataSources()[0].GetActorMetadata().GetItems()
++	if len(items) != 3 || items[0].GetPath() != "atespace" || items[1].GetPath() != "name" || items[2].GetPath() != "uid" || items[2].GetField() != ateapipb.ActorMetadataField_ACTOR_METADATA_FIELD_UID {
++		t.Fatal("projection does not come from native actor metadata")
++	}
++	if template.Containers[0].VolumeMounts[1].MountPath != IdentityDirectory {
++		t.Fatal("identity mount mismatch")
++	}
++	if BuildActorTemplate("eap-ax", "old", image, map[string]string{}, nil, "gs://test").Volumes[0].SystemInfo != nil {
++		t.Fatal("legacy launch contract changed")
++	}
++	for _, key := range []string{"EAP_GATEWAY_TOKEN", "EAP_TASK_TOKEN", "EAP_OBSERVABILITY_TOKEN", "GEMINI_API_KEY", "SUBSTRATE_TOKEN_FILE"} {
++		t.Run(key, func(t *testing.T) {
++			env[key] = "synthetic-denied-value"
++			if ValidateIdentityConfig("task", image, env) == nil {
++				t.Fatal("bearer/control config accepted")
++			}
++			delete(env, key)
++		})
++	}
++	if ValidateIdentityConfig("other", image, env) == nil || ValidateIdentityConfig("task", "registry:latest", env) == nil {
++		t.Fatal("mutable image or foreign task identity accepted")
++	}
++	changed := proto.Clone(template).(*ateapipb.ActorTemplate)
++	changed.Volumes[1].SystemInfo = nil
++	if sameIdentityTemplate(changed, template) {
++		t.Fatal("existing template without projection accepted")
++	}
++}
++
++type receiptClient struct {
++	ateapipb.ControlClient
++	actor         *ateapipb.Actor
++	err           error
++	creates, gets int
++}
++
++func (c *receiptClient) CreateActor(context.Context, *ateapipb.CreateActorRequest, ...grpc.CallOption) (*ateapipb.Actor, error) {
++	c.creates++
++	return c.actor, c.err
++}
++func (c *receiptClient) GetActor(context.Context, *ateapipb.GetActorRequest, ...grpc.CallOption) (*ateapipb.Actor, error) {
++	c.gets++
++	return c.actor, c.err
++}
++func goodActor() *ateapipb.Actor {
++	return &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Atespace: "eap-ax", Name: "task", Uid: testUID}, ActorTemplate: &ateapipb.ObjectRef{Atespace: "eap-ax", Name: "template"}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}}
++}
++func TestOwnedActorNeverAdoptsOrRecreates(t *testing.T) {
++	for _, code := range []codes.Code{codes.AlreadyExists, codes.DeadlineExceeded, codes.Unavailable} {
++		t.Run(code.String(), func(t *testing.T) {
++			api := &receiptClient{actor: goodActor(), err: status.Error(code, "synthetic uncertainty")}
++			c := &Client{control: api}
++			if _, err := c.CreateOwnedActor(context.Background(), "eap-ax", "task", "eap-ax", "template"); err == nil {
++				t.Fatal("uncertain create accepted")
++			}
++			if api.creates != 1 || api.gets != 0 {
++				t.Fatal("create failure triggered name adoption/retry")
++			}
++		})
++	}
++	api := &receiptClient{actor: goodActor()}
++	c := &Client{control: api}
++	if _, err := c.CreateOwnedActor(context.Background(), "eap-ax", "task", "eap-ax", "template"); err != nil {
++		t.Fatal(err)
++	}
++	api.actor.Metadata.Uid = "77c266aa-e65e-4c66-ac08-02fcf07499c2"
++	if _, err := c.GetOwnedActor(context.Background(), "eap-ax", "task", "eap-ax", "template", testUID); err == nil {
++		t.Fatal("replacement UID accepted")
++	}
++	api.err = status.Error(codes.NotFound, "missing")
++	if _, err := c.GetOwnedActor(context.Background(), "eap-ax", "task", "eap-ax", "template", testUID); err == nil {
++		t.Fatal("missing actor accepted")
++	}
++	if api.creates != 1 {
++		t.Fatal("bound identity check recreated actor")
++	}
++}
++func TestOwnedActorReceiptValidation(t *testing.T) {
++	cases := map[string]func(*ateapipb.Actor){"missing UID": func(a *ateapipb.Actor) { a.Metadata.Uid = "" }, "foreign name": func(a *ateapipb.Actor) { a.Metadata.Name = "foreign" }, "foreign space": func(a *ateapipb.Actor) { a.Metadata.Atespace = "foreign" }, "foreign template": func(a *ateapipb.Actor) { a.ActorTemplate.Name = "foreign" }, "crashed": func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED }, "deleting": func(a *ateapipb.Actor) { a.Status.State = ateapipb.ActorState_ACTOR_STATE_DELETING }}
++	for name, change := range cases {
++		t.Run(name, func(t *testing.T) {
++			a := goodActor()
++			change(a)
++			if ValidateActorIdentity(a, "eap-ax", "task", "eap-ax", "template", testUID) == nil {
++				t.Fatal("invalid native receipt accepted")
++			}
++		})
++	}
++}

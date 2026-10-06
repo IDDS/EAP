@@ -1,5 +1,5 @@
 export type Capability = 'viewConsole' | 'deployAgents' | 'operateInstances' | 'runWorkflows' | 'governance'
-  | 'viewContent' | 'approveContent' | 'manageEvaluations' | 'annotateEvaluations'
+  | 'viewContent' | 'approveContent' | 'manageEvaluations' | 'annotateEvaluations' | 'manageFeedback' | 'runAgentExperiments' | 'manageBudgets'
 export type CapabilityMap = Partial<Record<Capability, boolean>>
 export type CurrentUser = { mode: string; subject: string | null; roles: string[]; capabilities: CapabilityMap }
 

@@ -1,0 +1,23 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+import ts from 'typescript'
+import vm from 'node:vm'
+const source=readFileSync(new URL('../src/components/ScopedToolPanel.vue',import.meta.url),'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
+function scope(g){const ast=ts.createSourceFile('scope.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);const code=ast.statements.filter(ts.isFunctionDeclaration).map(n=>n.getText(ast)).join('\n');const context=vm.createContext(g);vm.runInContext(ts.transpile(code,{target:ts.ScriptTarget.ES2022}),context);return context}
+function state(){return {alive:true,generation:0,dashboard:{value:undefined},loading:{value:false},busy:{value:false},editing:{value:true},error:{value:''},frozen:{value:undefined},draft:{value:{resources:'poc_example',recipients:'space/runtime',maxDelta:5,claimLimit:4,ttl:900}},props:{instanceKey:'space/runtime'},permissions:{state:{user:{}},can:()=>true},crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000001'}}}
+test('late scope metadata cannot reappear after identity clear',async()=>{const g=state();let resolve;g.http={get:()=>new Promise(r=>resolve=r)};const s=scope(g),pending=s.load();s.clear();resolve({data:{data:{grants:[{grantId:'old'}],operations:[],counters:[]}}});await pending;assert.equal(g.dashboard.value,undefined)})
+test('failed scope refresh clears previous effect evidence',async()=>{const g=state();g.dashboard.value={grants:[{grantId:'old'}]};g.http={get:async()=>{throw Error()}};await scope(g).load();assert.equal(g.dashboard.value,undefined);assert.ok(g.error.value)})
+test('uncertain root creation freezes original intent and prevents a new submission',async()=>{const g=state();let posts=0;g.http={post:async()=>{posts++;throw Error()},get:async()=>({data:{data:{grants:[],operations:[],counters:[]}}})};const s=scope(g);await s.create();assert.ok(g.frozen.value);g.editing.value=true;await s.create();assert.equal(posts,1);await s.load();assert.ok(g.frozen.value)})
+test('double activation sends one root grant creation',async()=>{const g=state();let posts=0,resolve;g.http={post:()=>{posts++;return new Promise(r=>resolve=r)},get:async()=>({data:{data:{grants:[],operations:[],counters:[]}}})};const s=scope(g),p=s.create();await s.create();resolve({});await p;assert.equal(posts,1);assert.equal(g.frozen.value,undefined)})
+test('invalid or wider form parameters do not submit',async()=>{const g=state();let posts=0;g.draft.value.resources='business/object';g.http={post:async()=>posts++};await scope(g).create();assert.equal(posts,0);assert.ok(g.error.value)})
+test('permission denied reads and root writes make no request',async()=>{const g=state();let count=0;g.permissions.can=()=>false;g.http={get:async()=>count++,post:async()=>count++};const s=scope(g);await s.load();await s.create();assert.equal(count,0)})
+test('saving invalidates an earlier read without leaving a spinner',async()=>{const g=state();let firstResolve,postResolve;let gets=0;g.http={get:()=>++gets===1?new Promise(r=>firstResolve=r):Promise.resolve({data:{data:{grants:[],operations:[],counters:[]}}}),post:()=>new Promise(r=>postResolve=r)};const s=scope(g),old=s.load();assert.equal(g.loading.value,true);const save=s.create();assert.equal(g.loading.value,false);firstResolve({data:{data:{grants:[{grantId:'old'}]}}});await old;assert.equal(g.dashboard.value,undefined);postResolve({});await save;assert.equal(g.loading.value,false)})
+test('effect display separates tool store proof from missing proof',()=>{const s=scope(state());assert.equal(s.evidence('TOOL_STORE_VERIFIED'),'工具服务存储核验');assert.equal(s.evidence('UNKNOWN'),'缺少终态证据')})
+
+test('known root rejection remains visible after authoritative refresh',async()=>{const g=state();g.http={post:async()=>{throw {response:{status:400}}},get:async()=>({data:{data:{grants:[],operations:[],counters:[]}}})};await scope(g).create();assert.equal(g.frozen.value,undefined);assert.ok(g.error.value)})
+
+test('revoked ancestors invalidate the child display and missing ancestors never appear authorized',()=>{
+ const g=state(),expiresAt=new Date(Date.now()+60000).toISOString(),root={grantId:'root',state:'REVOKED',expiresAt},child={grantId:'child',parentGrantId:'root',state:'ACTIVE',expiresAt}
+ g.dashboard.value={grants:[root,child]};const s=scope(g);assert.equal(s.grantStatus(child).label,'祖先授权已撤销');g.dashboard.value.grants=[child];assert.equal(s.grantStatus(child).label,'授权链需复核');root.state='ACTIVE';g.dashboard.value.grants=[root,child];assert.equal(s.grantStatus(child).label,'提交时复核权限与额度')
+})

@@ -8,7 +8,7 @@
       </div>
       <div class="button-row">
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="dialogVisible = true">登记 Agent</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="!permissions.can('deployAgents')" @click="dialogVisible = true">创建智能体</el-button>
       </div>
     </header>
 
@@ -61,16 +61,16 @@
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="登记正式 Agent" width="560px">
-      <el-alert type="info" :closable="false" title="此操作创建正式目录身份；发现资产应在“发现与接入”中复核后纳管。" />
-      <el-form label-position="top" style="margin-top: 16px">
+    <el-dialog v-model="dialogVisible" title="创建智能体身份" width="560px">
+      <el-alert type="info" :closable="false" title="先创建草稿身份，再配置部署、启用并验证运行。已有实例可在“发现与接入 → 运行环境发现”中关联。" />
+      <el-form :disabled="!permissions.can('deployAgents')" label-position="top" style="margin-top: 16px">
         <el-form-item label="唯一编码"><el-input v-model="form.code" placeholder="例如 FIN-ANALYST" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
         <el-form-item label="业务说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
         <div class="form-row"><el-form-item label="责任部门"><el-input v-model="form.ownerDepartment" /></el-form-item><el-form-item label="责任人"><el-input v-model="form.ownerUser" /></el-form-item></div>
         <div class="form-row"><el-form-item label="业务类别"><el-input v-model="form.category" /></el-form-item><el-form-item label="声明风险"><el-select v-model="form.riskLevel"><el-option label="低" value="LOW" /><el-option label="中" value="MEDIUM" /><el-option label="高" value="HIGH" /><el-option label="关键" value="CRITICAL" /></el-select></el-form-item></div>
       </el-form>
-      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" @click="createAgent">保存</el-button></template>
+      <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="creating" :disabled="!permissions.can('deployAgents')" @click="createAgent">创建并继续配置</el-button></template>
     </el-dialog>
   </section>
 </template>
@@ -84,8 +84,10 @@ import EvidenceBadge from '@/components/EvidenceBadge.vue'
 import StatusAxis from '@/components/StatusAxis.vue'
 import { EapApi } from '@/api/eap'
 import { useAgentOpsContextStore } from '@/stores/agentOps'
+import { usePermissions } from '@/stores/permissions'
 import type { AgentLifecycleStatus, AgentOpsAgentState, AgentOpsDashboard, AgentRequest, ObservationCoverage, OperationalHealth, PagedAgentOpsResponse, RiskPosture } from '@/types/domain'
 
+const permissions = usePermissions()
 const router = useRouter()
 const context = useAgentOpsContextStore()
 const loading = ref(false)
@@ -136,14 +138,15 @@ function openAgentRow(row: AgentOpsAgentState) { openAgent(row.id) }
 function initials(name: string) { return Array.from(name || 'A').slice(0, 2).join('').toUpperCase() }
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '无观测' }
 async function createAgent() {
-  if (!form.code.trim() || !form.name.trim()) { ElMessage.warning('请填写编码和名称'); return }
+  if (!permissions.can('deployAgents')) return
+  if (![form.code,form.name,form.ownerDepartment,form.ownerUser,form.category].every(value => value?.trim())) { ElMessage.warning('请填写编码、名称、责任部门、责任人和业务类别'); return }
   creating.value = true
   try {
-    await EapApi.createAgent({ ...form })
+    const created = await EapApi.createAgent({ ...form })
     ElMessage.success('正式 Agent 已登记')
     dialogVisible.value = false
     Object.assign(form, { code: '', name: '', description: '', ownerDepartment: '', ownerUser: '', category: '', riskLevel: 'LOW' })
-    await load()
+    await router.push({path: '/agents/'+created.id,query:{tab:'deploy',setup:'1'}})
   } finally { creating.value = false }
 }
 

@@ -53,6 +53,26 @@ public class GrpcSubstrateClient implements SubstrateClient {
     }
 
     @Override
+    public ActorInventory inspect(SubstrateActorRef actor) {
+        return inventory(rpc(stub -> stub.getActor(GetActorRequest.newBuilder().setActor(ref(actor)).build())));
+    }
+
+    @Override
+    public ActorPage listActors(String atespace, String pageToken) {
+        if (atespace == null || atespace.isBlank()) throw new IllegalArgumentException("运行空间不可为空");
+        var page = rpc(stub -> stub.withDeadlineAfter(5, TimeUnit.SECONDS).listActors(ListActorsRequest.newBuilder()
+                .setAtespace(atespace).setPageSize(100).setPageToken(pageToken).build()));
+        return new ActorPage(page.getActorsList().stream().map(GrpcSubstrateClient::inventory).toList(), page.getNextPageToken());
+    }
+
+    private static ActorInventory inventory(Actor actor) {
+        var meta = actor.getMetadata();
+        return new ActorInventory(meta.getAtespace(), meta.getName(), meta.getUid(),
+                actor.getActorTemplate().getAtespace() + "/" + actor.getActorTemplate().getName(),
+                actor.getStatus().getState().name().replaceFirst("^ACTOR_STATE_", ""));
+    }
+
+    @Override
     public ActorState suspend(SubstrateActorRef actor) {
         return call(stub -> stub.suspendActor(SuspendActorRequest.newBuilder().setActor(ref(actor)).build()).getActor());
     }
@@ -85,7 +105,8 @@ public class GrpcSubstrateClient implements SubstrateClient {
                         .setHttpGet(HTTPGetAction.newBuilder().setPath(spec.wakeupPath()).setPort(spec.wakeupPort())))
                 .addVolumeMounts(VolumeMount.newBuilder().setName("data").setMountPath("/data"));
         spec.env().forEach((name, value) -> container.addEnv(EnvVar.newBuilder().setName(name).setValue(value)));
-        ActorTemplate template = ActorTemplate.newBuilder()
+        if(spec.projectIdentity()) container.addVolumeMounts(VolumeMount.newBuilder().setName("identity").setMountPath("/run/eap-identity"));
+        ActorTemplate.Builder template = ActorTemplate.newBuilder()
                 .setMetadata(ResourceMetadata.newBuilder().setAtespace(spec.atespace()).setName(spec.name()))
                 .setWorkerSelector(Selector.newBuilder().putAllMatchLabels(spec.workerLabels()))
                 .addContainers(container)
@@ -99,8 +120,13 @@ public class GrpcSubstrateClient implements SubstrateClient {
                         .setConfigName(spec.microVm() ? "microvm" : "gvisor-default"))
                 .setResources(Resources.newBuilder()
                         .addLimits(Limits.newBuilder().setName("cpu").setQuantity(spec.cpu()))
-                        .addLimits(Limits.newBuilder().setName("memory").setQuantity(spec.memory())))
-                .build();
+                        .addLimits(Limits.newBuilder().setName("memory").setQuantity(spec.memory())));
+        if(spec.projectIdentity()) template.addVolumes(Volume.newBuilder().setName("identity")
+            .setSystemInfo(SystemInfoVolumeSource.newBuilder().addDataSources(SystemInfoDataSource.newBuilder()
+                .setActorMetadata(ActorMetadataDataSource.newBuilder()
+                    .addItems(ActorMetadataItem.newBuilder().setField(ActorMetadataField.ACTOR_METADATA_FIELD_ATESPACE).setPath("atespace"))
+                    .addItems(ActorMetadataItem.newBuilder().setField(ActorMetadataField.ACTOR_METADATA_FIELD_NAME).setPath("name"))
+                    .addItems(ActorMetadataItem.newBuilder().setField(ActorMetadataField.ACTOR_METADATA_FIELD_UID).setPath("uid"))))));
         rpc(stub -> stub.createActorTemplate(CreateActorTemplateRequest.newBuilder().setActorTemplate(template).build()));
     }
 
@@ -118,6 +144,13 @@ public class GrpcSubstrateClient implements SubstrateClient {
         return call(stub -> stub.createActor(CreateActorRequest.newBuilder().setActor(Actor.newBuilder()
                 .setMetadata(ResourceMetadata.newBuilder().setAtespace(actor.atespace()).setName(actor.name()))
                 .setActorTemplate(ObjectRef.newBuilder().setAtespace(actor.atespace()).setName(template))).build()));
+    }
+
+    @Override
+    public ActorInventory createActorWithIdentity(SubstrateActorRef actor, String template) {
+        return inventory(rpc(stub -> stub.createActor(CreateActorRequest.newBuilder().setActor(Actor.newBuilder()
+            .setMetadata(ResourceMetadata.newBuilder().setAtespace(actor.atespace()).setName(actor.name()))
+            .setActorTemplate(ObjectRef.newBuilder().setAtespace(actor.atespace()).setName(template))).build())));
     }
 
     @Override
@@ -148,8 +181,18 @@ public class GrpcSubstrateClient implements SubstrateClient {
                     .setActor(ref(actor)).setEgressPolicy(policy).build()));
         } catch (SubstrateException exception) {
             if (!"ALREADY_EXISTS".equals(exception.code())) throw exception;
+            EgressPolicy current = rpc(stub -> stub.getActorEgressPolicy(GetActorEgressPolicyRequest.newBuilder()
+                    .setActor(ref(actor)).build()));
+            var metadata = current.getMetadata();
+            if (!actor.atespace().equals(metadata.getAtespace()) || !"default".equals(metadata.getName())
+                    || metadata.getUid().isBlank() || metadata.getVersion() < 1) {
+                throw new SubstrateException("FAILED_PRECONDITION", "出站策略缺少可核对的身份或版本，未覆盖策略");
+            }
+            if (current.getRulesList().equals(policy.getRulesList())) return;
+            EgressPolicy replacement = policy.toBuilder().setMetadata(metadata).build();
+            // Native UID/version are compare-and-set preconditions; conflicts are never retried blindly.
             rpc(stub -> stub.updateActorEgressPolicy(UpdateActorEgressPolicyRequest.newBuilder()
-                    .setActor(ref(actor)).setEgressPolicy(policy).build()));
+                    .setActor(ref(actor)).setEgressPolicy(replacement).build()));
         }
     }
 

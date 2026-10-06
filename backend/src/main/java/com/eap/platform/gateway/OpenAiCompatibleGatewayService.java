@@ -39,6 +39,8 @@ import java.util.UUID;
 
 @Service
 public class OpenAiCompatibleGatewayService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.budget.BudgetLedger budget;
     private final GatewayProperties properties;
     private final GovernancePreflightService preflightService;
     private final ModelTelemetryService telemetryService;
@@ -164,10 +166,12 @@ public class OpenAiCompatibleGatewayService {
         recordGatewayToolResults(forwardedRequest.path("messages"), eventKey, normalizedTrace, agentId, endpointKey,
                 taskId, model, inputObservationDirective);
 
+        var budgetTicket=budget==null?null:budget.admitModel(forwardedRequest,agentId,endpointKey,taskId,normalizedTrace,eventKey);
         Instant startedAt = Instant.now();
         try {
             ResponseEntity<JsonNode> response = upstreamClient.chatCompletions(forwardedRequest);
             JsonNode responseBody = response.getBody();
+            if(budget!=null)budget.complete(budgetTicket,responseBody);
             JsonNode originalResponseBody = responseBody;
             GatewayDtos.CompletionUsage usage = GatewayDtos.CompletionUsage.from(responseBody);
             long promptTokens = usage.promptTokens() > 0 ? usage.promptTokens() : classification.estimatedTokens();
@@ -238,6 +242,8 @@ public class OpenAiCompatibleGatewayService {
                     "UPSTREAM_ERROR", properties.getUsagePoolKey(), Instant.now()
             ));
             throw new GatewayException(HttpStatus.BAD_GATEWAY, "upstream_unavailable", "上游模型服务不可用");
+        } finally {
+            if(budget!=null)budget.unconfirmed(budgetTicket,"DISPATCH_RECEIPT_LOST");
         }
     }
 
@@ -289,10 +295,12 @@ public class OpenAiCompatibleGatewayService {
         recordGatewayToolResults(forwardedRequest.path("messages"), eventKey, normalizedTrace, agentId, endpointKey,
                 taskId, model, inputObservationDirective);
 
+        var budgetTicket=budget==null?null:budget.admitModel(forwardedRequest,agentId,endpointKey,taskId,normalizedTrace,eventKey);
         Instant startedAt = Instant.now();
         try {
             ResponseEntity<String> response = upstreamClient.chatCompletionsStream(forwardedRequest);
             String rawStream = response.getBody() == null ? "" : response.getBody();
+            if(budget!=null)budget.completeStream(budgetTicket,rawStream);
             String originalRawStream = rawStream;
             if (rawStream.getBytes(StandardCharsets.UTF_8).length > properties.getMaxResponseBytes()) {
                 throw new GatewayException(HttpStatus.BAD_GATEWAY, "stream_response_too_large", "上游流式响应超过网关允许的最大大小");
@@ -346,6 +354,8 @@ public class OpenAiCompatibleGatewayService {
         } catch (RestClientException exception) {
             telemetryFailure(eventKey, normalizedTrace, agentId, endpointKey, taskId, decision.decisionKey(), model, classification, elapsedMillis(startedAt), "UPSTREAM_ERROR");
             throw new GatewayException(HttpStatus.BAD_GATEWAY, "upstream_unavailable", "上游模型服务不可用");
+        } finally {
+            if(budget!=null)budget.unconfirmed(budgetTicket,"DISPATCH_RECEIPT_LOST");
         }
     }
 
@@ -657,7 +667,7 @@ public class OpenAiCompatibleGatewayService {
         }
     }
 
-    private Classification classify(JsonNode contentNode, GatewayDtos.ClassificationHints hints) {
+    public Classification classify(JsonNode contentNode, GatewayDtos.ClassificationHints hints) {
         String content = extractText(contentNode);
         String normalized = content.toLowerCase();
         String inspectable = normalized
@@ -757,7 +767,7 @@ public class OpenAiCompatibleGatewayService {
     private boolean blank(String value) { return value == null || value.isBlank(); }
     private String blankToNull(String value) { return blank(value) ? null : value; }
 
-    private record Classification(String dataCategory, GovernanceDataSensitivity sensitivity, boolean internalData, boolean companySecret, long estimatedTokens, long payloadBytes, List<String> detectedTypes) {}
+    public record Classification(String dataCategory, GovernanceDataSensitivity sensitivity, boolean internalData, boolean companySecret, long estimatedTokens, long payloadBytes, List<String> detectedTypes) {}
 
     private record GatewayToolCall(String callId, String toolName, JsonNode arguments) {}
 

@@ -1,3 +1,4 @@
+import { sendControlCommand, retryControlCommand } from './control'
 import type { HistoryParams } from '@/components/common/HistoryTable.vue'
 import { submitWorkflowOnce } from './workflowSubmission'
 import { getData, patchData, postData, putData } from './http'
@@ -7,6 +8,7 @@ import type {
   AgentRequest,
   AgentCapability,
   AgentPlan,
+  WorkflowExecution,
   AgentPlanDetail,
   AgentPlanStep,
   AgentRuntimeInstance,
@@ -215,10 +217,8 @@ export const EapApi = {
   getDashboardNetwork: () => getData<DashboardNetwork>('/dashboard/network'),
   getPlatformStatus: () => getData<PlatformStatus>('/platform/status'),
   listControlCommands: () => getData<AgentControlCommand[]>('/control/commands'),
-  issueControlCommand: (payload: { agentId: number; commandType: string; payloadJson?: string; issuedBy?: string }) =>
-    postData<AgentControlCommand, { agentId: number; commandType: string; payloadJson?: string; issuedBy?: string }>('/control/commands', payload),
-  retryControlCommand: (commandKey: string) =>
-    postData<AgentControlCommand, Record<string, never>>(`/control/commands/${encodeURIComponent(commandKey)}/retry`, {}),
+  issueControlCommand: sendControlCommand,
+  retryControlCommand,
   pageAuditLogs: (params: HistoryParams) => getData<{items: AuditLog[]; totalElements: number}>(`/audit-logs/page${queryString({...params})}`),
   listAuditLogs: () => getData<AuditLog[]>('/audit-logs'),
   listAgents: () => getData<Agent[]>('/agents'),
@@ -283,11 +283,12 @@ export const EapApi = {
     postData<AgentTask, { agentId: number; agentVersionId?: number; taskType: string; inputSummary?: string; requester?: string }>('/tasks', payload),
   updateTaskStatus: (id: number, status: AgentTaskStatus, resultSummary?: string, problemResolved?: boolean, resolutionSummary?: string) =>
     postData<AgentTask, { status: AgentTaskStatus; resultSummary?: string; problemResolved?: boolean; resolutionSummary?: string }>(`/tasks/${id}/status`, { status, resultSummary, problemResolved, resolutionSummary }),
-  listLearningFeedbacks: () => getData<LearningFeedback[]>('/learning-feedbacks'),
-  createLearningFeedback: (payload: { agentId: number; feedbackType: string; rating: number; summary: string; improvementAction?: string }) =>
-    postData<LearningFeedback, { agentId: number; feedbackType: string; rating: number; summary: string; improvementAction?: string }>('/learning-feedbacks', payload),
-  updateLearningFeedbackStatus: (id: number, status: LearningFeedbackStatus) =>
-    postData<LearningFeedback, { status: LearningFeedbackStatus }>(`/learning-feedbacks/${id}/status`, { status }),
+  feedbackEvidence: (agentId: number) => getData<{tasks: {id: number; taskType: string; status: string}[]; traces: string[]}>(`/learning-feedbacks/evidence?agentId=${agentId}`),
+  listLearningFeedbacks: (agentId?: number) => getData<LearningFeedback[]>(`/learning-feedbacks?limit=100${agentId ? `&agentId=${agentId}` : ''}`),
+  createLearningFeedback: (payload: { agentId: number; feedbackType: string; rating: number; summary: string; improvementAction?: string; taskId?: number; traceId?: string; requestKey: string }) =>
+    postData<LearningFeedback, typeof payload>('/learning-feedbacks', payload),
+  updateLearningFeedbackStatus: (id: number, status: LearningFeedbackStatus, expectedStatus: LearningFeedbackStatus) =>
+    postData<LearningFeedback, { status: LearningFeedbackStatus; expectedStatus: LearningFeedbackStatus }>(`/learning-feedbacks/${id}/status`, { status, expectedStatus }),
   getSafetySummary: () => getData<SafetySummary>('/safety/summary'),
   listSafetySessions: () => getData<SafetySession[]>('/safety/sessions'),
   createSafetySession: (payload: { sessionKey: string; rootAgentId?: number; objective: string }) =>
@@ -509,8 +510,13 @@ export const EapApi = {
   listTeamPlans: (teamId: number) => getData<AgentPlan[]>(`/orchestration/teams/${teamId}/plans`),
   createPlan: (payload: { teamId: number; goal: string; contextSummary?: string }) =>
     postData<AgentPlan, { teamId: number; goal: string; contextSummary?: string }>('/orchestration/plans', payload),
+  executePlan: (planId: number, payload: { requestKey: string; suspendAfterTask: boolean }) =>
+    postData<{ planId: number; workflowId: number; execution: WorkflowExecution }, typeof payload>(`/orchestration/plans/${planId}/executions`, payload),
+  getPlanExecution: (planId: number) => getData<{ planId: number; workflowId: number; execution: WorkflowExecution } | null>(`/orchestration/plans/${planId}/execution`),
+  getWorkflowOutputs: (workflowId: number, runKey: string) =>
+    getData<Record<string, unknown>>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}/outputs`),
   getPlan: (planId: number) => getData<AgentPlanDetail>(`/orchestration/plans/${planId}`),
-  addPlanStep: (planId: number, payload: { stepOrder: number; title: string; requiredCapability: string }) =>
+  addPlanStep: (planId: number, payload: { stepOrder: number; title: string; requiredCapability: string; executionBackend?: string }) =>
     postData<AgentPlanStep, { stepOrder: number; title: string; requiredCapability: string }>(`/orchestration/plans/${planId}/steps`, payload),
   assignPlanStep: (stepId: number, payload: { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }) =>
     postData<AgentPlanStep, { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }>(`/orchestration/steps/${stepId}/assignment`, payload),

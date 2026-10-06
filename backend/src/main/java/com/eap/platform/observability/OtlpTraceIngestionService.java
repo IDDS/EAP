@@ -65,6 +65,16 @@ public class OtlpTraceIngestionService {
     }
 
     public OtlpTraceIngestionDtos.IngestionResponse ingest(JsonNode payload) {
+        return ingestInternal(payload, null, null);
+    }
+
+    /** Called only after scoped runtime authentication and identity validation. */
+    public OtlpTraceIngestionDtos.IngestionResponse ingestScoped(JsonNode payload, Long agentId, String endpointKey) {
+        if (agentId == null || endpointKey == null) throw new BusinessException("实例观测缺少认证归属");
+        return ingestInternal(payload, agentId, endpointKey);
+    }
+
+    private OtlpTraceIngestionDtos.IngestionResponse ingestInternal(JsonNode payload, Long scopedAgent, String scopedEndpoint) {
         if (payload == null || !payload.isObject()) {
             throw new BusinessException("OTLP traces 必须是 JSON 对象");
         }
@@ -76,7 +86,7 @@ public class OtlpTraceIngestionService {
         List<String> warnings = new ArrayList<>();
         for (JsonNode resourceSpan : resources) {
             Map<String, JsonNode> resource = attributes(resourceSpan.path("resource").path("attributes"));
-            String endpointKey = endpointKey(resource);
+            String endpointKey = scopedEndpoint == null ? endpointKey(resource) : scopedEndpoint;
             registerEndpoint(endpointKey, resource);
             counters.endpointsRegistered++;
             ArrayNode scopes = firstArray(resourceSpan, "scopeSpans", "instrumentationLibrarySpans");
@@ -98,7 +108,7 @@ public class OtlpTraceIngestionService {
                     }
                     Map<String, JsonNode> attrs = attributes(span.path("attributes"));
                     TraceSpanKind spanKind = classify(span, attrs);
-                    Long agentId = resolveAgentId(resource, attrs);
+                    Long agentId = scopedAgent == null ? resolveAgentId(resource, attrs) : scopedAgent;
                     if (spanKind != null) {
                         String spanTraceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
                         recordTraceSpan(span, attrs, endpointKey, agentId, spanKind, modelTraces.contains(spanTraceId), counters);

@@ -85,22 +85,39 @@ public class SecurityConfig {
                                 "/api/discovery/connectors/host/observations",
                                 "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/observability/content", "/api/observability/content/page")
+                        .requestMatchers("/internal/agent-optimizations/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/observability/content", "/api/observability/content/page",
+                                "/api/workflows/*/executions/*/outputs", "/api/ax/tasks/*/content", "/api/agent-experiments/*/content", "/api/agent-optimizations/*/content")
                             .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.POST, "/api/discovery/v1/admin/agents/*/content-approval")
                             .hasAnyRole(PlatformPermission.APPROVE_CONTENT.roles())
+                         .requestMatchers(HttpMethod.POST, "/api/agent-experiments", "/api/agent-experiments/profile", "/api/agent-optimizations")
+                            .hasAnyRole(PlatformPermission.RUN_AGENT_EXPERIMENTS.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/learning-feedbacks/*/status")
+                            .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/learning-feedbacks")
+                            .hasAnyRole(PlatformPermission.MANAGE_FEEDBACK.roles())
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers(HttpMethod.POST, "/api/evaluations/evaluators", "/api/evaluations/datasets", "/api/evaluations/datasets/*/items", "/api/evaluations/datasets/*/run", "/api/evaluations/results", "/api/evaluations/synchronize", "/api/evaluations/jobs")
                             .hasAnyRole(PlatformPermission.MANAGE_EVALUATIONS.roles())
                         .requestMatchers(HttpMethod.PATCH, "/api/evaluations/datasets/*/items/*/annotation")
                             .hasAnyRole(PlatformPermission.ANNOTATE_EVALUATIONS.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/registry/runtime-tools/scopes", "/api/registry/runtime-tools/scopes/revoke").hasAnyRole(PlatformPermission.GOVERNANCE.roles())
+                        .requestMatchers(HttpMethod.PUT, "/api/registry/runtime-tools/policy").hasAnyRole(PlatformPermission.GOVERNANCE.roles())
                         .requestMatchers("/api/governance/**", "/api/policies/**").hasAnyRole(PlatformPermission.GOVERNANCE.roles())
                         .requestMatchers("/api/control/**", "/api/agents/*/substrate/instances", "/api/agents/*/substrate/instances/**")
                             .hasAnyRole(PlatformPermission.OPERATE_INSTANCES.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/ax/tasks/*/suspend", "/api/ax/tasks/*/resume")
+                            .hasAnyRole(PlatformPermission.OPERATE_INSTANCES.roles())
+                        .requestMatchers("/api/ax/**").hasAnyRole(PlatformPermission.RUN_WORKFLOWS.roles())
                         .requestMatchers("/api/workflows/**", "/api/orchestration/**", "/api/tasks/**")
                             .hasAnyRole(PlatformPermission.RUN_WORKFLOWS.roles())
                         .requestMatchers("/api/management/connectors/**")
                             .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/budgets", "/api/budgets/**")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers(HttpMethod.PUT, "/api/budgets/accounts")
+                            .hasAnyRole(PlatformPermission.MANAGE_BUDGETS.roles())
                         .requestMatchers(HttpMethod.POST, "/api/agentops/**")
                             .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
                         .requestMatchers("/api/agents/**", "/api/registry/**", "/api/discovery/**")
@@ -132,6 +149,9 @@ public class SecurityConfig {
             } else {
                 validators.add(JwtValidators.createDefault());
             }
+            // Keycloak 25+ emits sub through the basic client scope. A role-only token
+            // must never collapse different authenticated users into the console identity.
+            validators.add(new JwtClaimValidator<String>("sub", subject -> subject != null && !subject.isBlank()));
             if (!properties.getAudience().isBlank()) {
                 validators.add(new JwtClaimValidator<Collection<String>>("aud", audiences ->
                         audiences != null && audiences.contains(properties.getAudience())));

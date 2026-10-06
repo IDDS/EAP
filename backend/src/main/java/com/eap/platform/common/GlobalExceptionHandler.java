@@ -54,6 +54,11 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>(false, null, message, TraceContext.traceId()));
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStatus(org.springframework.web.server.ResponseStatusException exception) {
+        return ResponseEntity.status(exception.getStatusCode()).body(new ApiResponse<>(false, null, "请求状态不允许此操作", TraceContext.traceId()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception exception) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

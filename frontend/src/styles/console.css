@@ -1,0 +1,178 @@
+/* EAP console theme. Imported after the legacy page styles; standalone screens
+   retain their own palette. Shared colors stay explicit for Element Plus/LTE. */
+:root {
+  --console-navy: #102333;
+  --console-nav: #0c1c2b;
+  --console-accent: #087f9a;
+  --console-accent-soft: #e7f4f7;
+  --console-ink: #193246;
+  --console-muted: #52697b;
+  --console-line: #d7e2e9;
+  --console-canvas: #f0f5f8;
+  --console-surface: #fff;
+  --el-color-primary: #087f9a;
+  --el-color-primary-light-3: #52a5b8;
+  --el-color-primary-light-5: #83bfcc;
+  --el-color-primary-light-7: #b5d9e1;
+  --el-color-primary-light-8: #cee5eb;
+  --el-color-primary-light-9: #e7f4f7;
+  --el-color-primary-dark-2: #06667b;
+  --el-border-radius-base: 6px;
+  --el-font-family: 'Aptos', 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--el-font-family);
+}
+body { font-family: var(--el-font-family); }
+.app-shell {
+  --soc-ink: var(--console-ink);
+  --soc-muted: var(--console-muted);
+  --soc-canvas: var(--console-canvas);
+  --soc-line: var(--console-line);
+  --soc-blue: var(--console-accent);
+  --soc-blue-soft: var(--console-accent-soft);
+  --eap-ink: var(--console-ink);
+  --eap-muted: var(--console-muted);
+  --eap-border: var(--console-line);
+  --eap-blue: var(--console-accent);
+  color: var(--console-ink);
+  background: var(--console-canvas);
+}
+.app-shell .sidebar { background: var(--console-nav); border-right: 1px solid #243a4b; box-shadow: none; }
+.app-shell .sidebar::after { display: none; }
+.app-shell .brand { height: 88px; padding: 0 16px; gap: 9px; border-bottom: 1px solid #283c4c; }
+.app-shell .brand-logo { width: 34px; height: 34px; border-radius: 6px; box-shadow: none; }
+.app-shell .brand-copy strong { font-size: 15px; letter-spacing: 0; }
+.app-shell .brand-copy span { font-size: 11px; color: #acc1d0; letter-spacing: .015em; }
+.app-shell .sidebar-toggle { right: 5px; width: 28px; height: 36px; }
+.app-shell .sidebar.collapsed .brand { padding: 0; }
+.app-shell .sidebar-nav { height: calc(100vh - 176px); padding: 16px 8px; }
+.platform-navigation { --el-menu-bg-color: transparent; }
+.platform-navigation .el-sub-menu__title,
+.platform-navigation .el-menu-item { border-radius: 5px; }
+.app-shell .platform-navigation > .el-menu-item,
+.mobile-navigation-drawer .platform-navigation > .el-menu-item { margin-bottom: 5px; }
+.platform-navigation .el-sub-menu__title { color: #bccdda; }
+.platform-navigation .el-sub-menu__title .el-icon,
+.platform-navigation .el-menu-item .el-icon { color: #97b4c8; }
+.platform-navigation .el-sub-menu.is-opened > .el-sub-menu__title { background: #172f41; color: #f3f9fc; }
+.platform-navigation .el-sub-menu.is-opened > .el-sub-menu__title .el-icon { color: #74d7e7; }
+.platform-navigation .el-sub-menu .el-menu { margin: 3px 0 10px; padding-left: 8px; }
+.platform-navigation .el-sub-menu .el-menu-item { color: #bfd0dc; }
+.platform-navigation .el-menu-item.is-active,
+.platform-navigation .el-sub-menu .el-menu-item.is-active { background: #174154; color: #effdff; box-shadow: inset 3px 0 #62d4e7; }
+.platform-navigation .el-menu-item.is-active .el-icon { color: #79e0ed; }
+.platform-navigation .el-menu-item:hover,
+.platform-navigation .el-sub-menu__title:hover { background: #203d4f; color: #fff; }
+.app-shell .sidebar-status { border: 1px solid #2a4254; border-radius: 6px; background: #132b3b; }
+.app-shell .sidebar-status strong { color: #e1eef6; font-size: 13px; }
+.app-shell .sidebar-status span:not(.status-dot) { color: #abc1d0; font-size: 12px; }
+.mobile-navigation-drawer { background: var(--console-nav); }
+.app-shell .topbar { background: #fff; border-bottom: 1px solid var(--console-line); box-shadow: none; }
+.app-shell .topbar h1 { color: var(--console-ink); font-size: 20px; letter-spacing: 0; }
+.app-shell .topbar h1 > .el-icon { color: var(--console-accent); }
+.app-shell .breadcrumb-line { margin-bottom: 4px; }
+.app-shell .topbar-title .breadcrumb-line span,
+.app-shell .breadcrumb-line .topbar-kicker { color: var(--console-muted); }
+.app-shell .main { background: var(--console-canvas); }
+.app-shell .main::before { display: none; }
+.app-shell .global-search .el-input__wrapper { background: #f3f7f9; border-color: var(--console-line); border-radius: 6px; }
+.app-shell .global-search .el-input__inner::placeholder { color: var(--console-muted); }
+.app-shell .session-button { border-color: #c6d8e0; color: var(--console-ink); }
+.app-shell .panel.el-card { border-color: var(--console-line); box-shadow: none; border-radius: 6px; }
+.app-shell .panel.el-card:hover { box-shadow: none; border-color: #c0d1dc; }
+.app-shell .panel .el-card__header { background: #f8fbfc; border-bottom-color: var(--console-line); }
+.app-shell .panel-header > span:first-child,
+.app-shell .panel-header > strong:first-child { font-size: 15px; }
+.app-shell .panel-header > span:first-child::before,
+.app-shell .panel-header > strong:first-child::before { display: none; }
+.app-shell .el-table { --el-table-header-bg-color: #edf4f7; --el-table-header-text-color: #385267; --el-table-border-color: #e0e8ee; --el-table-row-hover-bg-color: #eff8fa; color: #243e52; }
+.app-shell .el-table th.el-table__cell { font-weight: 600; height: 46px; }
+.app-shell .el-table .cell { line-height: 1.65; }
+/* Legacy eyebrow rules use !important; keep the font override narrowly scoped. */
+.app-shell .interface-eyebrow { font-size: 12px !important; letter-spacing: .06em; color: var(--console-accent); }
+.app-shell :is(.priority-cell strong,.evidence-metric-card>strong,.agentops-catalog-summary strong,.metric-card>strong,.capacity-value,.small-box h3,.info-box-number) { font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+/* The workbench has a single visual anchor, followed by actions and a queue. */
+.app-shell .agentops-page-header {
+  --eap-blue: #85d8e5;
+  align-items: center; gap: 24px; padding: 28px 30px;
+  border: 1px solid #244356; border-radius: 8px;
+  background: var(--console-navy); color: #f1f8fc;
+}
+.app-shell .agentops-page-header h2 { color: #f1f8fc; font-size: 28px; margin: 8px 0 12px; letter-spacing: .01em; }
+.app-shell .agentops-page-header .interface-eyebrow { color: #85d8e5; font-size: 12px; letter-spacing: .1em; }
+.app-shell .agentops-page-header p { color: #c0d1dd; font-size: 14px; max-width: 650px; }
+.app-shell .agentops-page-header .button-row { flex-shrink: 0; justify-content: flex-end; flex-wrap: wrap; max-width: 290px; gap: 12px; }
+.app-shell .agentops-page-header .context-summary { flex-basis: 100%; text-align: right; color: #c0d1dd; font-size: 13px; }
+.app-shell .agentops-page-header .command-center-link { color: #8fe4ed; font-size: 14px; }
+.app-shell .agentops-page-header .el-button { color: #ecfaff; border-color: #54788b; background: #1c3d50; }
+.app-shell .agentops-page-header .el-button:hover { background: #2a5063; border-color: #89d0df; }
+.app-shell .agentops-workbench > .muted { margin: -8px 0 0; font-size: 12px; color: var(--console-muted); }
+.app-shell .agentops-workbench .workbench-start { gap: 0; border: 1px solid var(--console-line); border-radius: 6px; background: #fff; overflow: hidden; }
+.app-shell .agentops-workbench .workbench-start > :is(a,button) { border: 0; border-radius: 0; padding: 18px 22px; background: transparent; gap: 7px; }
+.app-shell .agentops-workbench .workbench-start > :is(a,button) + :is(a,button) { border-left: 1px solid var(--console-line); }
+.app-shell .agentops-workbench .workbench-start > :is(a,button):hover { background: #f0f8fa; }
+.app-shell .agentops-workbench .workbench-start strong { color: var(--console-ink); font-size: 16px; }
+.app-shell .agentops-workbench .workbench-start strong .el-icon { color: var(--console-accent); }
+.app-shell .agentops-workbench .workbench-start span { color: var(--console-muted); font-size: 14px; }
+.app-shell .agentops-workbench .workbench-start small { color: #066d83; font-size: 13px; }
+.app-shell .agentops-workbench .priority-cell { min-height: 116px; padding: 18px 20px; }
+.app-shell .priority-cell::before { display: none; }
+.app-shell .priority-cell span { color: var(--console-muted); font-size: 13px; }
+.app-shell .priority-cell small { color: var(--console-muted); font-size: 12px; }
+.app-shell .priority-cell strong { font-size: 32px; }
+.app-shell .priority-critical strong { color: #9e293b; }
+.app-shell .priority-high strong { color: #b44328; }
+.app-shell .priority-medium strong { color: #86631b; }
+.app-shell .priority-overdue strong { color: #9e293b; }
+.app-shell .priority-cell.is-selected { background: #e7f4f7 !important; box-shadow: inset 0 -3px var(--console-accent) !important; }
+.app-shell .workbench-tabs button { min-height: 44px; color: var(--console-muted); }
+.app-shell .workbench-tabs button[aria-pressed='true'] { color: #066d83; background: var(--console-accent-soft); }
+.app-shell .workbench-tabs button span { background: #d3eaf0; color: #155b6d; }
+.app-shell .work-item-title strong { font-size: 14px; }
+.app-shell .work-item-title span,
+.app-shell .work-item-owner span { font-size: 12px; color: var(--console-muted); }
+/* Monitoring preserves unavailable values, chart gaps and semantic status colors. */
+.app-shell .substrate-monitor .capacity-panel { background: #102f43; border-color: #244b60; }
+.app-shell .substrate-monitor .capacity-panel .eyebrow,
+.app-shell .substrate-monitor .capacity-panel :is(p,.capacity-legend,.capacity-value span) { color: #c3d9e5; }
+.app-shell .substrate-monitor .capacity-value { color: #f0fcff; }
+.app-shell .substrate-monitor .capacity-track { background: #2d6275; }
+.app-shell .substrate-monitor .capacity-track > span { background: #6edce8; }
+.app-shell .substrate-monitor .assigned-key { background: #6edce8; }
+.app-shell .substrate-monitor .idle-key { background: #2d6275; border: 1px solid #9db9c6; }
+.app-shell .substrate-monitor :is(.metric-card,.monitor-panel) { border-color: var(--console-line); border-radius: 6px; box-shadow: none; }
+.app-shell .substrate-monitor .metric-card .metric-caption { color: var(--console-muted); }
+.app-shell .substrate-monitor .metric-card strong { color: var(--console-ink); }
+.app-shell .substrate-monitor .panel-label { color: #086d82; background: #edf7f9; border: 1px solid #cde4ea; }
+.app-shell .substrate-monitor :is(.panel-footnote,.metric-card p,.data-note,.monitor-meta) { color: var(--console-muted); }
+.app-shell :is(a,button,[role='button'],[tabindex='0']):focus-visible { outline: 2px solid var(--console-accent); outline-offset: 3px; }
+.app-shell .platform-navigation :is(.el-menu-item,.el-sub-menu__title):focus-visible { outline-color: #8de1ee; outline-offset: -3px; }
+@media (max-width: 1200px) {
+  .app-shell .agentops-page-header { align-items: flex-start; flex-direction: column; padding: 24px; gap: 18px; }
+  .app-shell .agentops-page-header .button-row { max-width: none; justify-content: flex-start; }
+  .app-shell .agentops-page-header .context-summary { flex-basis: auto; text-align: left; }
+}
+@media (max-width: 900px) {
+  .app-shell .topbar h1 { font-size: 18px; }
+  .app-shell .main { padding: 18px 14px 32px; }
+  .app-shell .agentops-page-header { padding: 22px 20px; }
+  .app-shell .agentops-page-header h2 { font-size: 25px; }
+}
+@media (max-width: 700px) {
+  .app-shell .agentops-workbench .workbench-start > :is(a,button) { padding: 15px 18px; }
+  .app-shell .agentops-workbench .workbench-start > :is(a,button) + :is(a,button) { border-left: 0; border-top: 1px solid var(--console-line); }
+  .app-shell .agentops-workbench .priority-cell { padding: 16px 14px; }
+  .app-shell .agentops-page-header .context-summary { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *, .app-shell *::before, .app-shell *::after,
+  .mobile-navigation-drawer, .mobile-navigation-drawer * { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+.app-shell .substrate-monitor .metric-icon { display: flex; width: 32px; height: 32px; border-radius: 5px; font-size: 20px; color: #08758c; background: #e8f4f7; }
+.app-shell .substrate-monitor :is(.eyebrow,.monitor-heading p,.monitor-panel-heading p) { color: var(--console-muted); }
+.app-shell .substrate-monitor .capacity-panel .eyebrow { color: #b8d6e5; }
+.app-shell .agentops-catalog-summary small, .app-shell .agentops-agent-identity small, .app-shell .agentops-owner-cell span, .app-shell .agentops-evidence-cell small { color: var(--console-muted); font-size: 12px; }
+.app-shell .agentops-catalog-summary strong { font-size: 30px; }
+
+.app-shell .monitor-controls > a { color: var(--console-accent); font-size: 14px; }
+.app-shell .monitor-controls > a:visited { color: #415577; }

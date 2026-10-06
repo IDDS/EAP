@@ -2,7 +2,7 @@
   <section class="page-grid agent-detail-page" v-loading="loading">
     <div class="agent-detail-topbar">
       <el-button text :icon="ArrowLeft" @click="router.push('/agents')">返回智能体目录</el-button>
-      <div class="agent-detail-actions"><el-button :icon="Refresh" :loading="loading" @click="load">刷新观测</el-button><el-button type="primary" :disabled="loading || !agent" @click="changeStatus(agent?.lifecycleStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE')">{{ agent?.lifecycleStatus === 'ACTIVE' ? '暂停智能体' : '启用智能体' }}</el-button></div>
+      <div class="agent-detail-actions"><el-button :icon="Refresh" :loading="loading" @click="load">刷新观测</el-button><el-button type="primary" :disabled="loading || !agent || !permissions.can('deployAgents')" @click="changeStatus(agent?.lifecycleStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE')">{{ agent?.lifecycleStatus === 'ACTIVE' ? '暂停智能体' : '启用智能体' }}</el-button></div>
     </div>
 
     <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
@@ -90,6 +90,11 @@
 
     <el-alert v-if="!agent" type="warning" :closable="false" title="未找到该智能体，请返回目录重新选择。" />
 
+    <section v-if="agent" class="agent-setup-guide">
+      <div><strong>创建与接入进度</strong><p>登记身份 → 配置部署或关联实例 → 启用 → 试运行与观测验证</p></div>
+      <div class="setup-guide-actions"><el-tag>身份已登记</el-tag><el-tag :type="agent.lifecycleStatus === 'ACTIVE' ? 'success' : 'info'">{{ agent.lifecycleStatus === 'ACTIVE' ? '已启用' : '未启用' }}</el-tag><el-tag :type="runtimes.length ? 'success' : 'warning'">{{ runtimes.length ? '已有运行登记' : '待接入运行实例' }}</el-tag><el-tag :type="modelEvents.length && spans.length ? 'success' : 'info'">{{ modelEvents.length && spans.length ? '当前窗口有模型与调用链观测' : '执行与观测待验证' }}</el-tag></div>
+      <div class="setup-guide-actions"><el-button link type="primary" @click="activeTab='deploy'">配置部署与试运行</el-button><el-button link type="primary" @click="activeTab='runtime'">查看运行接入</el-button><router-link to="/registry?section=environment">关联已有实例</router-link></div>
+    </section>
     <div v-if="agent" class="agent-detail-tabs" role="tablist">
       <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key"><el-icon><component :is="tab.icon" /></el-icon>{{ tab.label }}<b v-if="tab.count !== undefined">{{ tab.count }}</b></button>
     </div>
@@ -103,7 +108,7 @@
         <el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>本页活动</span><el-button link type="primary" @click="activeTab = 'trace'">查看完整 Trace</el-button></div></template><el-table :data="recentActivity" size="small"><el-table-column prop="time" label="时间" width="170" /><el-table-column prop="kind" label="类型" width="110" /><el-table-column prop="title" label="活动" min-width="240" /><el-table-column prop="detail" label="详情" min-width="260" show-overflow-tooltip /><el-table-column label="状态" width="100"><template #default="{ row }"><el-tag size="small" :type="row.tone">{{ row.status }}</el-tag></template></el-table-column></el-table><el-empty v-if="!recentActivity.length" description="暂无活动记录" :image-size="70" /></el-card>
       </div>
 
-      <div v-show="activeTab === 'runtime'" class="agent-detail-content"><el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>运行实例</span><span class="muted">心跳、端点与负载</span></div></template><el-table :data="runtimes"><el-table-column prop="instanceKey" label="实例" min-width="180" /><el-table-column prop="endpoint" label="端点" min-width="250" /><el-table-column prop="protocol" label="协议" width="110" /><el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="row.status === 'ONLINE' ? 'success' : row.status === 'DEGRADED' ? 'warning' : 'info'">{{ runtimeStatusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column label="负载" width="180"><template #default="{ row }"><el-progress :percentage="Math.round(row.loadScore * 100)" :stroke-width="7" :show-text="false" /><small>{{ Math.round(row.loadScore * 100) }}%</small></template></el-table-column><el-table-column label="最后心跳" width="190"><template #default="{ row }">{{ formatDate(row.lastHeartbeatAt) }}</template></el-table-column></el-table><el-empty v-if="!runtimes.length" description="尚未登记运行实例" /></el-card><el-card shadow="never" class="panel"><template #header><span>能力与技能</span></template><div class="capability-list"><el-tag v-for="capability in capabilities" :key="capability.id" effect="plain" size="large">{{ capability.name }}<small>{{ capability.capability }}</small></el-tag><el-empty v-if="!capabilities.length" description="尚未登记能力" :image-size="70" /></div></el-card></div>
+      <div v-show="activeTab === 'runtime'" class="agent-detail-content"><RuntimeInventoryPanel v-if="activeTab === 'runtime' && runtimes.some(r => ['SUBSTRATE_OBSERVED','SUBSTRATE'].includes(r.protocol))" :agent-id="agent.id" /><el-card shadow="never" class="panel"><template #header><div class="panel-header"><span>运行实例</span><span class="muted">心跳、端点与负载</span></div></template><el-table :data="runtimes"><el-table-column prop="instanceKey" label="实例" min-width="180" /><el-table-column prop="endpoint" label="端点" min-width="250" /><el-table-column prop="protocol" label="协议" width="110" /><el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="row.status === 'ONLINE' ? 'success' : row.status === 'DEGRADED' ? 'warning' : 'info'">{{ runtimeStatusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column label="负载" width="180"><template #default="{ row }"><el-progress :percentage="Math.round(row.loadScore * 100)" :stroke-width="7" :show-text="false" /><small>{{ Math.round(row.loadScore * 100) }}%</small></template></el-table-column><el-table-column label="最后心跳" width="190"><template #default="{ row }">{{ formatDate(row.lastHeartbeatAt) }}</template></el-table-column></el-table><el-empty v-if="!runtimes.length" description="尚未登记运行实例" /></el-card><el-card shadow="never" class="panel"><template #header><span>能力与技能</span></template><div class="capability-list"><el-tag v-for="capability in capabilities" :key="capability.id" effect="plain" size="large">{{ capability.name }}<small>{{ capability.capability }}</small></el-tag><el-empty v-if="!capabilities.length" description="尚未登记能力" :image-size="70" /></div></el-card></div>
 
       <div v-if="activeTab === 'deploy' && agent" class="agent-detail-content"><SubstrateDeployPanel :agent-id="agent.id" /></div>
 
@@ -117,7 +122,7 @@
           <div class="small-box box-warning"><div><strong>{{ evaluationFailureCount }}</strong><span>未通过结果</span></div><el-icon><Lock /></el-icon></div>
         </div>
         <el-card shadow="never" class="panel">
-          <template #header><div class="panel-header"><span>评估器质量分布</span><el-button link type="primary" @click="router.push('/evaluation')">打开评估工作台</el-button></div></template>
+          <template #header><div class="panel-header"><span>评估器质量分布</span><el-button link type="primary" @click="router.push('/learning')">反馈与提示词对照</el-button><el-button link type="primary" @click="router.push('/evaluation')">打开评估工作台</el-button></div></template>
           <el-table :data="evaluationByEvaluator" size="small">
             <el-table-column prop="evaluatorKey" label="评估器" min-width="220" />
             <el-table-column prop="total" label="次数" width="85" />
@@ -156,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight, Collection, Connection, DataAnalysis, Document, Lock, Money, Refresh, Tickets, Tools, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -168,11 +173,14 @@ import ModelGlyph from '@/components/ModelGlyph.vue'
 import EvidenceBadge from '@/components/EvidenceBadge.vue'
 import StatusAxis from '@/components/StatusAxis.vue'
 import WorkItemTable from '@/components/WorkItemTable.vue'
+import RuntimeInventoryPanel from '@/components/RuntimeInventoryPanel.vue'
 import SubstrateDeployPanel from '@/components/substrate/SubstrateDeployPanel.vue'
 import { EapApi } from '@/api/eap'
 import { useAgentOpsContextStore } from '@/stores/agentOps'
+import { usePermissions } from '@/stores/permissions'
 import type { Agent, AgentCapability, AgentOpsAgentState, AgentOpsWorkItem, AgentRuntimeInstance, AgentTask, ContentDirection, ContentObservation, DiscoveredAgentAsset, EvaluationResult, GovernanceDataAction, GovernanceDataEvent, KnowledgeInteraction, ModelInvocationEvent, ModelInvocationStatus, RiskLevel, RuntimeStatus, ToolInvocationEvent, TraceSpanKind, TraceSpanObservation, WorkItemStatus } from '@/types/domain'
 
+const permissions = usePermissions()
 const route = useRoute(); const router = useRouter()
 const context = useAgentOpsContextStore()
 const loading = ref(false); const agent = ref<Agent>(); const activeTab = ref('overview')
@@ -255,8 +263,22 @@ async function fetchHistory(kind: HistoryKind, id: number, page: number): Promis
   }
 }
 
+function clearContentHistory() {
+  const state = history.content
+  state.requestId++
+  state.page = 0
+  state.requestedPage = 0
+  state.loading = false
+  state.hasNext = false
+  state.error = ''
+  content.value = []
+  contentAccessDenied.value = !permissions.can('viewContent')
+}
+
 async function loadHistory(kind: HistoryKind, page = 0) {
   if (page < 0) return
+  if (kind === 'content' && !permissions.can('viewContent')) { clearContentHistory(); return }
+  const user = permissions.state.user
   const id = agentId.value
   const state = history[kind]
   const requestId = ++state.requestId
@@ -266,6 +288,7 @@ async function loadHistory(kind: HistoryKind, page = 0) {
   try {
     const rows = await fetchHistory(kind, id, page)
     if (requestId !== state.requestId || id !== agentId.value) return
+    if (kind === 'content' && (user !== permissions.state.user || !permissions.can('viewContent'))) { clearContentHistory(); return }
     if (kind === 'content') contentAccessDenied.value = false
     // An empty next page establishes the end without replacing the last nonempty page.
     if (page > state.page && rows.length === 0) {
@@ -278,6 +301,7 @@ async function loadHistory(kind: HistoryKind, page = 0) {
     state.hasNext = rows.length > 0
   } catch (error) {
     if (requestId !== state.requestId || id !== agentId.value) return
+    if (kind === 'content' && (user !== permissions.state.user || !permissions.can('viewContent'))) { clearContentHistory(); return }
     if (kind === 'content' && (error as { response?: { status?: number } }).response?.status === 403) {
       contentAccessDenied.value = true
       content.value = []
@@ -328,7 +352,7 @@ async function load() {
     if (requestId === loadRequestId) loading.value = false
   }
 }
-async function changeStatus(status: 'ACTIVE' | 'PAUSED') { if (!agent.value) return; await EapApi.updateAgentStatus(agent.value.id, status); ElMessage.success(status === 'ACTIVE' ? '智能体已启用' : '智能体已暂停'); await load() }
+async function changeStatus(status: 'ACTIVE' | 'PAUSED') { if (!permissions.can('deployAgents') || !agent.value) return; await EapApi.updateAgentStatus(agent.value.id, status); ElMessage.success(status === 'ACTIVE' ? '智能体已启用' : '智能体已暂停'); await load() }
 async function transitionWorkItem(item: AgentOpsWorkItem, status: WorkItemStatus) {
   let assignee = item.assignee
   let reason: string | undefined
@@ -353,5 +377,13 @@ function openEvaluationTrace(result: EvaluationResult) { if (result.traceId) rou
 function initials(name: string) { return Array.from(name || 'A').slice(0, 2).join('').toUpperCase() }; function formatNumber(value: number) { return new Intl.NumberFormat('zh-CN').format(value || 0) }; function formatMoney(value: number) { return `$${(value || 0).toFixed(4)}` }; function formatDate(value?: string) { return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—' }; function formatTime(value?: string) { return value ? new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '—' }
 function statusText(status: string) { return ({ DRAFT: '草稿', REVIEWING: '审核中', ACTIVE: '运行中', PAUSED: '已暂停', RETIRED: '已下线', SUCCEEDED: '成功', FAILED: '失败', STARTED: '进行中', CANCELLED: '已取消', RUNNING: '运行中', REQUESTED: '已请求', UNKNOWN: '未知' } as Record<string, string>)[status] || status }; function modelStatusLabel(status: ModelInvocationStatus) { return statusText(status) }; function toolStatusLabel(status: string) { return statusText(status) }; function runtimeStatusLabel(status: RuntimeStatus) { return ({ ONLINE: '在线', DEGRADED: '降级', OFFLINE: '离线' } as Record<string, string>)[status] || status }; function riskText(risk: RiskLevel) { return ({ LOW: '低', MEDIUM: '中', HIGH: '高', CRITICAL: '关键' } as Record<string, string>)[risk] }; function riskType(risk: RiskLevel) { return risk === 'LOW' ? 'success' : risk === 'MEDIUM' ? 'warning' : 'danger' }; function statusType(status: string) { return status === 'ACTIVE' || status === 'SUCCEEDED' || status === 'ONLINE' ? 'success' : status === 'PAUSED' || status === 'DEGRADED' || status === 'STARTED' ? 'warning' : status === 'FAILED' || status === 'CRITICAL' ? 'danger' : 'info' }; function traceKindLabel(kind: TraceSpanKind) { return ({ MODEL: '模型', TOOL: '工具', MCP: 'MCP', RAG: '知识检索', A2A: '智能体协作', AGENT: '智能体' } as Record<string, string>)[kind] || kind }; function traceTone(kind: TraceSpanKind) { return kind === 'MODEL' ? 'primary' : kind === 'TOOL' || kind === 'MCP' ? 'warning' : kind === 'RAG' ? 'success' : 'info' }; function statusLabel(status: string) { return statusText(status) }; function directionLabel(direction: ContentDirection) { return ({ INPUT: '模型输入', OUTPUT: '模型输出', TOOL_INPUT: '工具输入', TOOL_OUTPUT: '工具输出', SYSTEM: '系统信息' } as Record<string, string>)[direction] || direction }; function directionGovernanceLabel(direction: string) { return ({ INPUT_TO_MODEL: '进入大模型', OUTPUT_FROM_MODEL: '模型输出', TOOL_INPUT: '工具输入', TOOL_OUTPUT: '工具输出' } as Record<string, string>)[direction] || direction }; function actionLabel(action: GovernanceDataAction) { return ({ ALLOW: '允许', WARN: '告警', REDACT: '脱敏', BLOCK: '阻断', APPROVAL_REQUIRED: '需审批' } as Record<string, string>)[action] || action }
 function discoverySourceLabel(source: string) { return ({ PROCESS: '运行进程', MANIFEST: '项目清单', CONFIGURATION: '本地配置', SKILL: '智能体技能', PLUGIN: '智能体插件', EXTERNAL: '外部系统', DOCKER: 'Docker 容器', A2A: 'A2A 协议', MCP_REGISTRY: 'MCP 注册中心', KUBERNETES_WATCH: 'Kubernetes 监听', KUBERNETES_ADMISSION: 'Kubernetes 准入', EBPF: 'eBPF 网络观测', HOST_OBSERVER: '跨平台主机观测' } as Record<string, string>)[source] || source }
+watch(() => route.query.tab, value => {
+  if (typeof value === 'string' && ['overview','runtime','deploy','trace','quality','models','tools','governance','identity'].includes(value)) activeTab.value=value
+}, { immediate:true })
+watch([() => permissions.state.user, () => permissions.can('viewContent')], () => {
+  clearContentHistory()
+  if (permissions.can('viewContent') && Number.isSafeInteger(agentId.value) && agentId.value > 0) void loadHistory('content')
+}, { flush: 'sync' })
+onBeforeUnmount(() => { loadRequestId++; resetHistory() })
 watch([agentId, () => context.windowHours], load, { immediate: true })
 </script>

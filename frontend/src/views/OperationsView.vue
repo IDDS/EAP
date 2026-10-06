@@ -2,7 +2,7 @@
   <section class="page-grid">
     <div class="toolbar">
       <div class="toolbar-title">
-        <strong>运行任务</strong>
+        <strong>业务任务记录</strong>
         <span>查看任务进展、阅读结果，并确认业务问题是否解决</span>
       </div>
       <el-button @click="showAdvanced = !showAdvanced" :aria-expanded="showAdvanced">{{ showAdvanced ? '收起管理操作' : '管理操作' }}</el-button>

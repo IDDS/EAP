@@ -16,7 +16,10 @@ public enum PlatformPermission {
     VIEW_CONTENT("viewContent", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN"),
     APPROVE_CONTENT("approveContent", "PLATFORM_ADMIN", "DATA_OWNER"),
     MANAGE_EVALUATIONS("manageEvaluations", "OPERATOR", "PLATFORM_ADMIN"),
-    ANNOTATE_EVALUATIONS("annotateEvaluations", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN");
+    ANNOTATE_EVALUATIONS("annotateEvaluations", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN"),
+    MANAGE_FEEDBACK("manageFeedback", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN"),
+    RUN_AGENT_EXPERIMENTS("runAgentExperiments", "PLATFORM_ADMIN"),
+    MANAGE_BUDGETS("manageBudgets", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN");
 
     private final String capability;
     private final List<String> roles;

@@ -51,6 +51,13 @@ public class SubstrateDeployment {
     @Column(name = "updated_at", nullable = false)
     Instant updatedAt;
 
+    public Long getAgentId() {return agentId;}
+    public Integer getVersion() {return version;}
+    public String getImageRef() {return imageRef;}
+    public String getInstanceKey() {return instanceKey;}
+    public String getTemplateName() {return templateName;}
+    public String getAtespace() {return atespace;}
+    public String getStatus() {return status;}
     @PrePersist
     void prePersist() {
         createdAt = Instant.now();

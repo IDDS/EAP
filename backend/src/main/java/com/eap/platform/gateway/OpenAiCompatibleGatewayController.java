@@ -29,6 +29,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/gateway")
 public class OpenAiCompatibleGatewayController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.registry.RuntimeConnectionService runtimeConnections;
     private final OpenAiCompatibleGatewayService service;
     private final GatewayProperties properties;
     private final ObjectMapper objectMapper;
@@ -70,6 +72,7 @@ public class OpenAiCompatibleGatewayController {
             @RequestBody JsonNode request
     ) {
         requireGatewayToken(gatewayToken, authorization);
+        runtimeConnections.validateLegacyTaskAttribution(servletRequest.getHeader("X-EAP-Task-Key"));
         String resolvedEndpointKey = resolveEndpointKey(agentId, endpointKey, servletRequest);
         registerAutoAttributedEndpoint(resolvedEndpointKey, servletRequest);
         GatewayDtos.ClassificationHints hints = new GatewayDtos.ClassificationHints(
@@ -122,7 +125,7 @@ public class OpenAiCompatibleGatewayController {
                 .put("type", "eap_gateway_error")
                 .put("code", exception.getCode())
                 .put("trace_id", TraceContext.traceId()));
-        return ResponseEntity.status(exception.getStatus()).contentType(MediaType.APPLICATION_JSON).body(body);
+        return ResponseEntity.status(exception.getStatus()).header("X-EAP-Admission-Outcome",exception.admissionOutcome()).contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
     @ExceptionHandler(BusinessException.class)

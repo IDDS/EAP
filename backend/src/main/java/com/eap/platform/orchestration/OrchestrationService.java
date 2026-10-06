@@ -14,19 +14,21 @@ public class OrchestrationService {
     private final AgentPlanRepository planRepository;
     private final AgentPlanStepRepository stepRepository;
     private final AgentRepository agentRepository;
+    private final PlanExecutionService executions;
 
     public OrchestrationService(
             AgentTeamRepository teamRepository,
             AgentTeamMemberRepository memberRepository,
             AgentPlanRepository planRepository,
             AgentPlanStepRepository stepRepository,
-            AgentRepository agentRepository
+            AgentRepository agentRepository, PlanExecutionService executions
     ) {
         this.teamRepository = teamRepository;
         this.memberRepository = memberRepository;
         this.planRepository = planRepository;
         this.stepRepository = stepRepository;
         this.agentRepository = agentRepository;
+        this.executions = executions;
     }
 
     @Transactional(readOnly = true)
@@ -84,8 +86,9 @@ public class OrchestrationService {
         return OrchestrationDtos.from(planRepository.save(plan));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public OrchestrationDtos.PlanDetail getPlan(Long planId) {
+        executions.synchronize(planId);
         AgentPlan plan = findPlan(planId);
         List<OrchestrationDtos.StepResponse> steps = stepRepository.findByPlanIdOrderByStepOrder(planId).stream()
                 .map(OrchestrationDtos::from)
@@ -95,12 +98,15 @@ public class OrchestrationService {
 
     @Transactional
     public OrchestrationDtos.StepResponse addStep(Long planId, OrchestrationDtos.StepRequest request) {
-        findPlan(planId);
+        editablePlan(planId);
+        if (request.stepOrder() == null || request.stepOrder() < 1 || stepRepository.findByPlanIdOrderByStepOrder(planId).stream().anyMatch(s -> s.stepOrder.equals(request.stepOrder()))) throw new BusinessException("步骤顺序必须为不重复的正整数");
         AgentPlanStep step = new AgentPlanStep();
         step.planId = planId;
         step.stepOrder = request.stepOrder();
         step.title = request.title();
         step.requiredCapability = request.requiredCapability();
+        step.executionBackend = request.executionBackend()==null?"RUNTIME":request.executionBackend();
+        if(!java.util.Set.of("RUNTIME","AX").contains(step.executionBackend))throw new BusinessException("执行后端仅支持 RUNTIME 或 AX");
         step.status = StepStatus.PENDING;
         return OrchestrationDtos.from(stepRepository.save(step));
     }
@@ -108,12 +114,22 @@ public class OrchestrationService {
     @Transactional
     public OrchestrationDtos.StepResponse assignStep(Long stepId, OrchestrationDtos.AssignRequest request) {
         AgentPlanStep step = stepRepository.findById(stepId).orElseThrow(() -> new BusinessException("计划步骤不存在"));
+        var plan = editablePlan(step.planId);
+        if (request.status() != StepStatus.PENDING && request.status() != StepStatus.ASSIGNED) throw new BusinessException("运行状态由执行引擎回写，不能手工标记");
+        if (request.assignedAgentId() == null && request.status() == StepStatus.ASSIGNED) throw new BusinessException("分配状态必须指定团队成员");
+        if (request.assignedAgentId() != null && memberRepository.findByTeamId(plan.teamId).stream().noneMatch(m -> m.agentId.equals(request.assignedAgentId()))) throw new BusinessException("只能分配给本团队成员");
         if (request.assignedAgentId() != null && !agentRepository.existsById(request.assignedAgentId())) {
             throw new BusinessException("智能体不存在");
         }
         step.assignedAgentId = request.assignedAgentId();
         step.status = request.status();
         return OrchestrationDtos.from(step);
+    }
+
+    private AgentPlan editablePlan(Long id) {
+        var plan = planRepository.findForUpdate(id).orElseThrow(() -> new BusinessException("任务计划不存在"));
+        if (plan.executionRunKey != null) throw new com.eap.platform.common.ConflictException("计划已提交执行，步骤与分配已冻结");
+        return plan;
     }
 
     private void ensureTeam(Long teamId) {

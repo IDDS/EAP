@@ -33,6 +33,11 @@ public class AgentPlan {
     @Column(nullable = false, length = 32)
     PlanStatus status = PlanStatus.DRAFT;
 
+    @Column(name = "execution_workflow_id", unique = true) Long executionWorkflowId;
+    @Column(name = "execution_run_key", length = 128, unique = true) String executionRunKey;
+    @Column(name = "execution_request_key", length = 64) String executionRequestKey;
+    @Column(name = "execution_fingerprint", length = 64) String executionFingerprint;
+
     @Column(name = "created_at", nullable = false)
     Instant createdAt;
 

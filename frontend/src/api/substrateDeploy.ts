@@ -39,7 +39,7 @@ export type DeployPayload = {
   requestKey: string
 }
 
-export const ACTIVE_DEPLOYMENT_STATUSES = ['BUILDING_IMAGE', 'QUEUED', 'BUILDING_GOLDEN', 'CREATING_INSTANCE']
+export const ACTIVE_DEPLOYMENT_STATUSES = ['BUILDING_IMAGE', 'QUEUED', 'BUILDING_GOLDEN', 'CREATING_INSTANCE', 'CONNECTING_IDENTITY']
 
 export function defaultDeployForm(): DeployForm {
   return {
@@ -111,19 +111,21 @@ export function validateDeployForm(form: DeployForm): string | null {
 export const DEPLOY_STAGES = ['校验与治理预检', '创建模板', '生成快照', '创建实例', '可运行']
 const SOURCE_STAGES = ['校验与治理预检', '构建镜像', '创建模板', '生成快照', '创建实例', '可运行']
 
-export function deployStages(sourceType: string): string[] {
+export function deployStages(sourceType: string, identityMode = ''): string[] {
+  if(identityMode === 'PER_INSTANCE_V1') return ['校验与治理预检', '创建模板', '生成快照', '创建实例', '专属身份接入', '可运行']
   return sourceType === 'SOURCE' ? SOURCE_STAGES : DEPLOY_STAGES
 }
 
 /** Maps a deployment status onto deployStages(sourceType) for a progress indicator. */
-export function deploymentProgress(status: string, sourceType = 'RUNNER'): { active: number; state: 'process' | 'finish' | 'error' | 'wait'; label: string; tone: string } {
+export function deploymentProgress(status: string, sourceType = 'RUNNER', identityMode = ''): { active: number; state: 'process' | 'finish' | 'error' | 'wait'; label: string; tone: string } {
   const offset = sourceType === 'SOURCE' ? 1 : 0
   switch (status) {
     case 'BUILDING_IMAGE': return { active: 1, state: 'process', label: '构建镜像', tone: 'warning' }
     case 'QUEUED': return { active: 1 + offset, state: 'process', label: '排队中', tone: 'info' }
     case 'BUILDING_GOLDEN': return { active: 2 + offset, state: 'process', label: '生成快照', tone: 'warning' }
     case 'CREATING_INSTANCE': return { active: 3 + offset, state: 'process', label: '创建实例', tone: 'warning' }
-    case 'READY': return { active: 5 + offset, state: 'finish', label: '可运行', tone: 'success' }
+    case 'CONNECTING_IDENTITY': return { active: 4, state: 'process', label: '专属身份接入', tone: 'warning' }
+    case 'READY': return { active: deployStages(sourceType, identityMode).length, state: 'finish', label: '可运行', tone: 'success' }
     case 'WAITING_APPROVAL': return { active: 0, state: 'wait', label: '待治理审批', tone: 'warning' }
     case 'BLOCKED': return { active: 0, state: 'error', label: '策略拒绝', tone: 'danger' }
     case 'FAILED': return { active: 0, state: 'error', label: '失败', tone: 'danger' }
@@ -134,13 +136,13 @@ export function deploymentProgress(status: string, sourceType = 'RUNNER'): { act
 const FAILED_STEP_STAGE: Record<string, string> = {
   VALIDATE: '校验与治理预检', PREFLIGHT: '校验与治理预检', BUILD_IMAGE: '构建镜像', BUILDING_IMAGE: '构建镜像',
   QUEUED: '创建模板', CREATE_TEMPLATE: '创建模板', GOLDEN_SNAPSHOT: '生成快照', BUILDING_GOLDEN: '生成快照',
-  CREATING_INSTANCE: '创建实例', CREATE_INSTANCE: '创建实例',
+  CREATING_INSTANCE: '创建实例', CREATE_INSTANCE: '创建实例', CONNECTING_IDENTITY: '专属身份接入',
 }
 
 /** For a failed deployment, the index in deployStages(sourceType) of the stage whose step failed. */
-export function failedStageIndex(steps: { step: string; status: string }[], sourceType: string): number {
+export function failedStageIndex(steps: { step: string; status: string }[], sourceType: string, identityMode = ''): number {
   const failed = [...steps].reverse().find(step => step.status === 'FAILED' || step.status === 'DENY')
-  const index = failed ? deployStages(sourceType).indexOf(FAILED_STEP_STAGE[failed.step] ?? '') : -1
+  const index = failed ? deployStages(sourceType, identityMode).indexOf(FAILED_STEP_STAGE[failed.step] ?? '') : -1
   return index < 0 ? 0 : index
 }
 

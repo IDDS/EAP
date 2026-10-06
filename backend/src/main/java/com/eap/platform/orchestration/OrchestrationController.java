@@ -15,9 +15,22 @@ import java.util.List;
 @RequestMapping("/api/orchestration")
 public class OrchestrationController {
     private final OrchestrationService orchestrationService;
+    private final PlanExecutionService executions;
 
-    public OrchestrationController(OrchestrationService orchestrationService) {
+    public OrchestrationController(OrchestrationService orchestrationService, PlanExecutionService executions) {
         this.orchestrationService = orchestrationService;
+        this.executions = executions;
+    }
+
+    @PostMapping("/plans/{planId}/executions")
+    public ApiResponse<PlanExecutionService.Response> execute(@PathVariable Long planId,
+            @Valid @RequestBody PlanExecutionService.Request request, org.springframework.security.core.Authentication authentication) {
+        return ApiResponse.ok(executions.submit(planId, request, authentication == null ? "console" : authentication.getName()));
+    }
+
+    @GetMapping("/plans/{planId}/execution")
+    public ApiResponse<PlanExecutionService.Response> execution(@PathVariable Long planId) {
+        return ApiResponse.ok(executions.synchronize(planId));
     }
 
     @GetMapping("/teams")

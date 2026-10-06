@@ -18,9 +18,12 @@ public interface AgentRuntimeInstanceRepository extends JpaRepository<AgentRunti
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update AgentRuntimeInstance r set r.status = :offline, r.updatedAt = :now "
             + "where r.status in :active and (r.lastHeartbeatAt is null or r.lastHeartbeatAt <= :cutoff) "
-            + "and upper(r.protocol) <> 'SUBSTRATE'")
+            + "and upper(r.protocol) not in ('SUBSTRATE', 'SUBSTRATE_OBSERVED')")
     int expireSilentRuntimes(@Param("active") List<RuntimeStatus> active, @Param("offline") RuntimeStatus offline,
                             @Param("cutoff") Instant cutoff, @Param("now") Instant now);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from AgentRuntimeInstance r where r.instanceKey=:key")
+    Optional<AgentRuntimeInstance> lockForScopedTools(@Param("key") String key);
     Optional<AgentRuntimeInstance> findByInstanceKey(String instanceKey);
 }

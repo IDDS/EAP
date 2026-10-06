@@ -21,16 +21,23 @@ public class WorkflowTaskClient {
     private final ObjectMapper mapper;
     private final SubstrateProperties substrate;
     private final SubstrateClient substrateClient;
+    private final com.eap.platform.registry.RuntimeConnectionService connections;
+    private final com.eap.platform.registry.ScopedToolService scopedTools;
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("workflow-http-deadline").factory());
     public WorkflowTaskClient(WorkflowExecutionProperties properties, ObjectMapper mapper,
-                              SubstrateProperties substrate, SubstrateClient substrateClient) {
-        this.properties = properties; this.mapper = mapper; this.substrate = substrate; this.substrateClient = substrateClient;
+                              SubstrateProperties substrate, SubstrateClient substrateClient, com.eap.platform.registry.RuntimeConnectionService connections, com.eap.platform.registry.ScopedToolService scopedTools) {
+        this.properties = properties; this.mapper = mapper; this.substrate = substrate; this.substrateClient = substrateClient; this.connections=connections; this.scopedTools=scopedTools;
     }
-    public record Receipt(String status, String reason, Integer httpStatus) {}
+    public record Receipt(String status, String reason, Integer httpStatus, com.fasterxml.jackson.databind.JsonNode output) {
+        public Receipt(String status, String reason, Integer httpStatus) { this(status, reason, httpStatus, null); }
+    }
 
     public Receipt invoke(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline) {
         if (!properties.ready()) return new Receipt("FAILED", "工作流执行未启用或未配置认证与目标白名单", null);
+        if (runtime.hasBoundIdentity() && !connections.executable(runtime)) throw new IllegalArgumentException("外部实例尚未验证任务协议或凭证已失效");
+        if (isTool(payload) && (!runtime.hasBoundIdentity() || !SubstrateActorRef.isSubstrate(runtime.getProtocol())))
+            return new Receipt("FAILED", "工具任务需要已验证的实例专属接入，未派发任务", null);
         if (SubstrateActorRef.isSubstrate(runtime.getProtocol())) return invokeSubstrate(runtime, payload, executionDeadline);
         URI uri;
         try {
@@ -49,7 +56,7 @@ public class WorkflowTaskClient {
                 }
             }
         } catch (Exception exception) { return new Receipt("FAILED", "Runtime 地址无效或无法解析", null); }
-        return post(uri, null, payload, executionDeadline);
+        return post(runtime, uri, null, properties.getToken(), payload, executionDeadline);
     }
 
     /**
@@ -69,15 +76,64 @@ public class WorkflowTaskClient {
                 return new Receipt("FAILED", "Substrate 路由器地址配置无效", null);
             }
         } catch (IllegalArgumentException exception) { return new Receipt("FAILED", "Substrate Runtime 地址无效", null); }
+        if(runtime.hasBoundIdentity())connections.checkIdentity(runtime);
+        String dispatchToken = properties.getToken();
+        boolean restore = isTool(payload) && "SUSPENDED".equals(substrateClient.inspect(actor).state());
         try {
             substrateClient.resume(actor);
         } catch (SubstrateClient.SubstrateException exception) {
             return new Receipt("FAILED", "唤醒 Actor 失败（" + exception.code() + "），未派发任务", null);
         }
-        return post(uri, actor.routingValue(), payload, executionDeadline);
+        if (runtime.hasBoundIdentity()) dispatchToken = connections.dispatchToken(runtime);
+        if (isTool(payload) && !toolReady(actor, dispatchToken, executionDeadline)) {
+            String reason = "实例未确认启用受控工具，未派发任务；请检查运行程序与工具配置";
+            if (restore) try { suspend(runtime); } catch (RuntimeException e) { reason += "；原休眠状态未能恢复，请核对实例"; }
+            return new Receipt("FAILED", reason, null);
+        }
+        return post(runtime, uri, actor.routingValue(), dispatchToken, payload, executionDeadline);
     }
 
-    private Receipt post(URI uri, String targetActor, Map<String, Object> payload, Instant executionDeadline) {
+    private boolean isTool(Map<String, Object> payload) {
+        return mapper.valueToTree(payload).path("context").has("eapTool");
+    }
+
+    /** Authenticated bounded capability read; old programs must never receive a tool as a model task. */
+    private boolean toolReady(SubstrateActorRef actor, String token, Instant executionDeadline) {
+        HttpURLConnection connection = null;
+        ScheduledFuture<?> timer = null;
+        try {
+            long remaining = Math.min(12000, Duration.between(Instant.now(), executionDeadline).toMillis());
+            if (remaining <= 0) return false;
+            URI uri = URI.create(substrate.getRouterUrl().replaceAll("/+$", "") + "/eap/state");
+            connection = (HttpURLConnection) uri.toURL().openConnection();
+            HttpURLConnection active = connection;
+            timer = deadlines.schedule(active::disconnect, remaining, TimeUnit.MILLISECONDS);
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout((int) Math.min(3000, remaining));
+            connection.setReadTimeout((int) Math.min(9000, remaining));
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.setRequestProperty(SubstrateActorRef.ROUTING_HEADER, actor.routingValue());
+            if (connection.getResponseCode() != 200) return false;
+            byte[] body;
+            try (var in = connection.getInputStream()) { body = in.readNBytes(4097); }
+            if (body.length > 4096) return false;
+            var enabled = mapper.readTree(body).path("tools").path("enabled");
+            return enabled.isBoolean() && enabled.booleanValue();
+        } catch (Exception e) { return false; }
+        finally { if (timer != null) timer.cancel(false); if (connection != null) connection.disconnect(); }
+    }
+
+    /** Only explicitly opted-in, dedicated workflow actors may be suspended after a known success. */
+    public void suspend(AgentRuntimeInstance runtime) {
+        if (!substrate.isEnabled() || !SubstrateActorRef.isSubstrate(runtime.getProtocol())) {
+            throw new IllegalArgumentException("完成后休眠仅支持 Substrate Runtime");
+        }
+        if (runtime.hasBoundIdentity()) connections.checkIdentity(runtime);
+        var state = substrateClient.suspend(SubstrateActorRef.parse(runtime.getEndpoint()));
+        if (!"SUSPENDED".equals(state.state())) throw new IllegalStateException("Actor 未确认休眠");
+    }
+
+    private Receipt post(AgentRuntimeInstance runtime, URI uri, String targetActor, String dispatchToken, Map<String, Object> payload, Instant executionDeadline) {
         HttpURLConnection connection = null;
         ScheduledFuture<?> deadline = null;
         try {
@@ -95,7 +151,7 @@ public class WorkflowTaskClient {
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Authorization", "Bearer " + properties.getToken());
+            connection.setRequestProperty("Authorization", "Bearer " + dispatchToken);
             connection.setRequestProperty("Idempotency-Key", String.valueOf(payload.get("taskKey")));
             if (targetActor != null) connection.setRequestProperty(SubstrateActorRef.ROUTING_HEADER, targetActor);
             byte[] body = mapper.writeValueAsBytes(payload);
@@ -116,10 +172,31 @@ public class WorkflowTaskClient {
             if (!status.equals("SUCCEEDED") && !status.equals("FAILED")) {
                 return new Receipt("EXECUTION_UNKNOWN", "Runtime 未提供明确任务终态", httpStatus);
             }
-            return new Receipt(status, status.equals("SUCCEEDED") ? "Runtime 已确认任务完成" : "Runtime 已确认任务失败", httpStatus);
+            if (isTool(payload) && status.equals("SUCCEEDED") && (!result.path("tool").path("executed").isBoolean()
+                    || !result.path("tool").path("executed").booleanValue()
+                    || !result.path("tool").path("receiptConfirmed").isBoolean()
+                    || !result.path("tool").path("receiptConfirmed").booleanValue()
+                    || !confirmedTool(runtime, payload, result))) {
+                return new Receipt("EXECUTION_UNKNOWN", "工具回执未确认，可能已执行；请按任务标识核对，未自动重试", httpStatus);
+            }
+            var output = status.equals("SUCCEEDED") ? result.get("output") : null;
+            if (output != null && mapper.writeValueAsBytes(output).length > 16384) {
+                return new Receipt("EXECUTION_UNKNOWN", "Runtime 输出超过 16KB，未截断或传递；请按任务标识核对", httpStatus);
+            }
+            return new Receipt(status, status.equals("SUCCEEDED") ? "Runtime 已确认任务完成" : "Runtime 已确认任务失败", httpStatus, output);
         } catch (Exception exception) {
             return new Receipt("EXECUTION_UNKNOWN", "Runtime 请求中断、超时或响应无效；请按任务标识核对，未自动重试", null);
         } finally { if (deadline != null) deadline.cancel(false); if (connection != null) connection.disconnect(); }
+    }
+    private boolean confirmedTool(AgentRuntimeInstance runtime, Map<String,Object> payload, com.fasterxml.jackson.databind.JsonNode result) {
+        var tool=mapper.valueToTree(payload).path("context").path("eapTool");
+        if (!com.eap.platform.registry.ScopedToolService.TOOL.equals(tool.path("name").asText()))
+            return "SUCCEEDED".equals(result.path("tool").path("state").asText());
+        if (!"TOOL_STORE_VERIFIED".equals(result.path("tool").path("state").asText())) return false;
+        var args=tool.path("arguments");
+        if (!args.path("delta").isIntegralNumber() || !args.path("delta").canConvertToLong()) return false;
+        var request=new com.eap.platform.registry.ScopedToolDtos.Execute(args.path("grantId").asText(),args.path("operationId").asText(),args.path("resourceId").asText(),args.path("delta").longValue());
+        return scopedTools.verifyEffect(runtime.getInstanceKey(),request,result.path("output"));
     }
     @PreDestroy public void close() { deadlines.shutdownNow(); }
 }

@@ -1513,7 +1513,7 @@ body {
   }
 
   .brand div:last-child,
-  .nav-menu span,
+  .sidebar .nav-menu span,
   .nav-section,
   .sidebar-status,
   .global-search {
@@ -4729,7 +4729,7 @@ body,
 }
 
 .sidebar {
-  width: 248px;
+  width: var(--el-aside-width, 248px);
   border-right-color: #172b4b;
   background:
     linear-gradient(180deg, rgba(25, 56, 103, .28), transparent 22%),
@@ -6417,3 +6417,73 @@ body,
 .main>.app-environment-banner{position:static;transform:none;width:fit-content;max-width:100%;box-sizing:border-box;margin:0 0 16px;box-shadow:none;flex-wrap:wrap;line-height:1.6}.sidebar .status-dot.status-development{background:#f59e0b;box-shadow:none}
 @media(max-width:760px){.main>.app-environment-banner{width:100%;margin-bottom:14px;font-size:11px;padding:8px 10px}.agentops-workbench .workbench-panel-header{flex-direction:column}.agentops-workbench .workbench-filters{width:100%;justify-content:space-between}}
 @media(min-width:761px) and (max-width:1600px){.topbar-actions .workspace-pill{display:none}.topbar-title{min-width:180px}.breadcrumb-line{white-space:nowrap;flex-wrap:nowrap;overflow:hidden}.breadcrumb-line>span:last-child{overflow:hidden;text-overflow:ellipsis}}
+
+/* Task-oriented navigation: one location, one name, a restrained icon vocabulary. */
+.platform-navigation .el-menu-item,.platform-navigation .el-sub-menu__title{min-height:44px;height:44px;line-height:44px;font-size:14px}
+.platform-navigation .el-sub-menu .el-menu-item{height:42px;min-height:42px;padding-left:18px!important;font-size:13px;color:#bdcbe0}
+.platform-navigation .el-sub-menu .el-menu-item .el-icon{font-size:16px;margin-right:10px;flex-shrink:0}
+.platform-navigation>.el-menu-item:first-child:not(.is-active){background:transparent}
+.platform-navigation .current-workspace>.el-sub-menu__title{color:#eaf2ff}
+.platform-navigation .el-menu-item:focus-visible,.platform-navigation .el-sub-menu__title:focus-visible{outline:2px solid #7db8ff;outline-offset:-3px}
+.topbar-title h1{display:flex;align-items:center;gap:9px}
+.topbar-title h1>.el-icon{font-size:20px;color:#42688e;flex-shrink:0}
+.breadcrumb-line .topbar-kicker{letter-spacing:0;text-decoration:none;font-size:12px;color:#526b88}
+.breadcrumb-line .topbar-kicker:hover{text-decoration:underline}
+.mobile-nav-trigger{width:44px;height:44px;padding:0;flex-shrink:0}
+.mobile-navigation-drawer{background:#102036;color:#dce7f6}
+.mobile-navigation-drawer .el-drawer__header{color:#e8f0fa;border-bottom:1px solid #2e4057;margin:0;padding:20px}
+.mobile-navigation-drawer .el-drawer__close-btn{color:#e8f0fa;min-width:44px;min-height:44px}
+.mobile-navigation-drawer .el-drawer__body{padding:12px 8px}
+.mobile-navigation-drawer .platform-navigation .el-menu-item,.mobile-navigation-drawer .platform-navigation .el-sub-menu__title{min-height:46px;height:46px;line-height:46px;font-size:15px}
+.mobile-navigation-drawer .platform-navigation .el-sub-menu .el-menu-item{padding-left:22px!important}
+.mobile-navigation-drawer .platform-navigation .el-menu-item span{display:inline}
+.workbench-start strong{display:flex;align-items:center;gap:9px}
+.workbench-start strong .el-icon{font-size:18px;color:#456e9a}
+.capability-directory{background:#fff;border:1px solid #dce4ec;border-radius:8px;overflow:hidden}
+.capability-directory>header{padding:22px 24px;border-bottom:1px solid #e5ebf1}
+.capability-directory h2{font-size:19px;margin:0 0 6px;color:#24364b}
+.capability-directory p{font-size:14px;color:#52647a;margin:0;line-height:1.6}
+.capability-row{display:grid;grid-template-columns:250px minmax(0,1fr);padding:22px 24px;gap:24px}
+.capability-row+.capability-row{border-top:1px solid #e5ebf1}
+.capability-purpose{display:flex;gap:14px;align-items:flex-start}
+.capability-order{font-variant-numeric:tabular-nums;color:#71839a;font-size:12px;padding-top:5px}
+.capability-purpose h3{display:flex;align-items:center;gap:9px;font-size:16px;color:#24364b;margin:0 0 8px}
+.capability-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 22px}
+.capability-links>a{display:flex;gap:10px;align-items:center;color:#294b74;text-decoration:none;padding:10px 8px;border-radius:5px;min-height:62px}
+.capability-links>a:hover{background:#f1f6fc}
+.capability-links>a:focus-visible{outline:2px solid #3268ad;outline-offset:1px}
+.capability-links>a>.el-icon:first-child{font-size:18px;flex-shrink:0;color:#51749b}
+.capability-links>a>.el-icon:last-child{margin-left:auto;font-size:14px;flex-shrink:0}
+.capability-links strong{display:block;font-size:14px;margin-bottom:5px}
+.capability-links small{display:block;font-size:12px;line-height:1.5;color:#586b81}
+.team-reference{border:1px solid #dce4ec;border-radius:8px;padding:0 18px;background:#fff}
+.team-reference .el-collapse-item__header{font-size:14px;min-height:52px;color:#334b66}
+.team-reference .el-collapse-item__wrap{border-bottom:0}
+.team-reference .registry-layout{margin-top:12px}
+.ax-heading h2{font-size:24px;margin:5px 0 8px}
+@media(max-width:1100px){.capability-row{grid-template-columns:210px minmax(0,1fr);gap:14px}.capability-links{grid-template-columns:1fr}}
+@media(max-width:900px){
+ .app-shell>.el-container{min-width:0;width:100%}
+ .topbar{gap:10px;padding-left:12px;padding-right:12px}
+ .topbar-title{flex:1;min-width:0}
+ .topbar-title h1{font-size:18px;white-space:nowrap}
+ .topbar-title h1>.el-icon{display:none}
+ .breadcrumb-line{font-size:11px}
+ .topbar-actions .context-window-select,.topbar-actions .context-scope-input,.topbar-actions .global-search,.topbar-actions .font-scale-menu{display:none}
+ .topbar-actions{flex-shrink:0}
+ .skip-content-link{left:12px}
+ .app-environment-banner{left:12px}
+ .capability-row{grid-template-columns:1fr;padding:18px;gap:12px}
+ .capability-directory>header{padding:18px}
+ .capability-links{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:560px){
+ .capability-links{grid-template-columns:1fr}
+ .capability-purpose h3{font-size:16px}
+ .topbar-actions .session-button{font-size:12px;padding:6px}
+ .topbar-actions>.el-button.is-text{padding:6px;margin-left:0}
+ .ax-heading{flex-wrap:wrap}
+ .ax-heading .button-row{width:100%;justify-content:flex-start}
+}
+
+.agent-setup-guide{display:grid;gap:12px;background:#fff;border:1px solid #dce5ef;border-radius:8px;padding:18px 22px}.agent-setup-guide p{margin:5px 0 0;color:#64748b;font-size:13px}.setup-guide-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.setup-guide-actions a{font-size:14px}

@@ -3,6 +3,7 @@ package com.eap.platform.agentops;
 import com.eap.platform.agent.Agent;
 import com.eap.platform.agent.AgentLifecycleStatus;
 import com.eap.platform.agent.AgentRepository;
+import com.eap.platform.agent.AgentRecordOrigin;
 import com.eap.platform.agent.RiskLevel;
 import com.eap.platform.config.SecurityProperties;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,9 @@ class AgentOpsIntegrationTests {
 
     @Test
     void excludesDevelopmentSeedAgentsFromJwtProductionViews() {
+        assertThat(agentRepository.findAll()).hasSize(3)
+                .allSatisfy(agent -> assertThat(agent.getRecordOrigin()).isEqualTo(AgentRecordOrigin.DEMO));
+        SecurityProperties.Mode originalMode = securityProperties.getMode();
         securityProperties.setMode(SecurityProperties.Mode.JWT);
         try {
             AgentOpsDtos.DashboardResponse dashboard = agentOpsService.dashboard(24, null);
@@ -86,7 +90,34 @@ class AgentOpsIntegrationTests {
             assertThat(dashboard.demoDataIncluded()).isFalse();
             assertThat(dashboard.metrics()).noneMatch(metric -> metric.basis() == EvidenceBasis.DEMO);
         } finally {
-            securityProperties.setMode(SecurityProperties.Mode.DEVELOPMENT);
+            securityProperties.setMode(originalMode);
+        }
+    }
+
+    @Test
+    void includesProductionAgentsAlongsideDevelopmentSeedsInJwtViews() {
+        Agent agent = new Agent();
+        agent.setCode("TEST-JWT-PRODUCTION");
+        agent.setName("正式 Agent");
+        agent.setOwnerDepartment("测试部门");
+        agent.setOwnerUser("test-owner");
+        agent.setCategory("测试");
+        agent = agentRepository.saveAndFlush(agent);
+        Long agentId = agent.getId();
+        assertThat(agent.getRecordOrigin()).isEqualTo(AgentRecordOrigin.PRODUCTION);
+
+        SecurityProperties.Mode originalMode = securityProperties.getMode();
+        securityProperties.setMode(SecurityProperties.Mode.JWT);
+        try {
+            AgentOpsDtos.DashboardResponse dashboard = agentOpsService.dashboard(24, null);
+
+            assertThat(dashboard.agentCount()).isEqualTo(1);
+            assertThat(dashboard.attentionAgents()).extracting(AgentOpsDtos.AgentStateResponse::id)
+                    .containsExactly(agentId);
+            assertThat(dashboard.demoDataIncluded()).isFalse();
+            assertThat(dashboard.metrics()).noneMatch(metric -> metric.basis() == EvidenceBasis.DEMO);
+        } finally {
+            securityProperties.setMode(originalMode);
         }
     }
 

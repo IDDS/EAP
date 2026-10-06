@@ -8,10 +8,11 @@ import ts from 'typescript'
 function functionsFrom(file, names, state) {
   if (file === 'views/EvaluationView.vue') Object.assign(state, { activeJob: ref(), jobs: ref([]), activeTab: ref('overview'), ...state })
   if (file === 'views/WorkflowBuilderView.vue') {
-    Object.assign(state, { workflowTab: ref('design'), selectedExecutionKey: ref(''), disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
+    Object.assign(state, { loadError: ref(''), savedNodeConfigs: ref({}), nodeConfigError: ref(''), hasUnsavedConfig: ref(false), nodeHasTool: ref(false), permissions: { can: () => true }, workflowTab: ref('design'), selectedExecutionKey: ref(''), disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
   }
   if (file === 'views/AgentDetailView.vue' && names.includes('load')) {
-    names = [...new Set([...names, 'resetHistory', 'fetchHistory', 'loadHistory'])]
+    names = [...new Set([...names, 'resetHistory', 'fetchHistory', 'loadHistory', 'clearContentHistory'])]
+    state.permissions ??= { state: { user: {} }, can: () => true }
     state.historyPageSize = 50
     state.historyKinds = ['models', 'spans', 'tools', 'content', 'knowledge', 'governance']
     state.historyRows = Object.fromEntries(state.historyKinds.map(kind => [kind, state[kind === 'models' ? 'modelEvents' : kind]]))
@@ -65,7 +66,7 @@ test('opening a result without trace invalidates a pending trace response', asyn
 test('clearing global search resets loading while an old request is pending', async () => {
   const pending = deferred()
   const state = functionsFrom('App.vue', ['runGlobalSearch'], {
-    searchRequestId: 0, globalSearchTerm: ref('agent'), globalSearchLoading: ref(false), globalSearchResults: ref([]),
+    searchNavigation: () => [], searchRequestId: 0, globalSearchTerm: ref('agent'), globalSearchLoading: ref(false), globalSearchResults: ref([]),
     EapApi: { listAgents: () => pending.promise, listDiscoveredAgentAssets: async () => [], listPolicies: async () => [] },
   })
   const first = state.runGlobalSearch()
@@ -168,7 +169,7 @@ for (const status of [403, 500]) {
 test('team switch clears actionable steps and invalidates pending plan detail', async () => {
   const pendingPlan = deferred(), pendingTeam = deferred()
   const state = functionsFrom('views/OrchestrationView.vue', ['loadTeamDetail', 'selectPlan'], {
-    teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(11), members: ref([]), plans: ref([]), planSteps: ref([{ id: 'old' }]),
+    selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(11), members: ref([]), plans: ref([]), planSteps: ref([{ id: 'old' }]),
     EapApi: { getPlan: () => pendingPlan.promise, listTeamMembers: async () => [], listTeamPlans: () => pendingTeam.promise },
   })
   const first = state.selectPlan(11)
@@ -185,7 +186,7 @@ test('team switch clears actionable steps and invalidates pending plan detail', 
 test('team and plan responses cannot overwrite a later selection', async () => {
   const oldTeam = deferred(), oldPlan = deferred(), planStarted = deferred()
   const state = functionsFrom('views/OrchestrationView.vue', ['loadTeamDetail', 'selectPlan'], {
-    teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(), members: ref([]), plans: ref([]), planSteps: ref([]),
+    selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(), members: ref([]), plans: ref([]), planSteps: ref([]),
     EapApi: { listTeamMembers: async id => [{ teamId: id }], listTeamPlans: id => id === 1 ? oldTeam.promise : Promise.resolve([{ id: 22 }]), getPlan: id => { if (id === 22) { planStarted.resolve(); return oldPlan.promise } return Promise.resolve({ steps: [{ id }] }) } },
   })
   const first = state.loadTeamDetail()
@@ -593,4 +594,62 @@ test('command center suppresses background polling and distinguishes absent metr
   assert.equal(state.number(0), '0')
   assert.equal(state.rate(0, 0), '—')
   assert.equal(state.rate(0, 10), '0.0%')
+})
+
+
+test('agent details skip forbidden content and discard a response after access is revoked', async () => {
+  let requests = 0
+  const pending = deferred()
+  const scope = agentHistoryScope({ listContentObservations: () => { requests++; return pending.promise } })
+  let allowed = false
+  scope.permissions = { state: { user: {} }, can: () => allowed }
+  scope.content.value = [{ content: 'previous user' }]
+  await scope.loadHistory('content')
+  assert.equal(requests, 0)
+  assert.equal(scope.content.value.length, 0)
+  assert.equal(scope.contentAccessDenied.value, true)
+  allowed = true
+  const request = scope.loadHistory('content')
+  assert.equal(requests, 1)
+  allowed = false
+  scope.clearContentHistory()
+  pending.resolve([{ content: 'late response' }])
+  await request
+  assert.equal(scope.content.value.length, 0)
+  assert.equal(scope.history.content.loading, false)
+})
+
+test('agent details discard content from a previous identity even when both can view it', async () => {
+  const pending = deferred()
+  const scope = agentHistoryScope({ listContentObservations: () => pending.promise })
+  const request = scope.loadHistory('content')
+  scope.permissions.state.user = { subject: 'next-user' }
+  pending.resolve([{ content: 'old identity' }])
+  await request
+  assert.equal(scope.content.value.length, 0)
+  assert.equal(scope.history.content.hasNext, false)
+})
+
+for (const status of [401, 503]) {
+  test(`workflow initial HTTP ${status} shows a recoverable error without an unhandled rejection`, async () => {
+    const state = functionsFrom('views/WorkflowBuilderView.vue', ['load'], {
+      agents: ref([]), workflows: ref([]), selectedWorkflowId: ref(),
+      EapApi: { listAgents: async () => { throw { response: { status } } }, listWorkflows: async () => [] },
+    })
+    await state.load()
+    assert.match(state.loadError.value, /加载失败/)
+    assert.equal(state.selectedWorkflowId.value, undefined)
+  })
+}
+
+test('unsaved or invalid tool drafts cannot reach the execution API', async () => {
+  for (const [unsaved, error] of [[true, ''], [false, 'invalid numbers']]) {
+    const state = functionsFrom('views/WorkflowBuilderView.vue', ['executeWorkflow'], {
+      selectedWorkflowId: ref(1), executionAvailability: ref({ enabled: true }), submittingExecution: ref(false),
+      hasUnsavedConfig: ref(unsaved), nodeConfigError: ref(error), ElMessage: { error() {} },
+      EapApi: { executeWorkflow: () => assert.fail('must not dispatch') },
+    })
+    await state.executeWorkflow()
+    assert.equal(state.submittingExecution.value, false)
+  }
 })

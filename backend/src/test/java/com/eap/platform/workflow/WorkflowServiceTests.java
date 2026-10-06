@@ -18,7 +18,7 @@ class WorkflowServiceTests {
     private final WorkflowNodeRepository nodes = mock(WorkflowNodeRepository.class);
     private final WorkflowEdgeRepository edges = mock(WorkflowEdgeRepository.class);
     private final GenseeSafetyService safety = mock(GenseeSafetyService.class);
-    private final WorkflowService service = new WorkflowService(workflows, nodes, edges, mock(AgentRepository.class), safety);
+    private final WorkflowService service = new WorkflowService(workflows, nodes, edges, mock(AgentRepository.class), safety, mock(com.eap.platform.orchestration.AgentPlanRepository.class));
 
     @BeforeEach
     void setup() {

@@ -52,7 +52,11 @@ public class AgentRegistryService {
     @Transactional
     public AgentRegistryDtos.RuntimeInstanceResponse registerRuntime(Long agentId, AgentRegistryDtos.RuntimeInstanceRequest request) {
         ensureAgent(agentId);
+        if ("SUBSTRATE_OBSERVED".equalsIgnoreCase(request.protocol())) throw new BusinessException("外部实例必须通过运行环境发现复核纳管");
+        if ("SUBSTRATE_TASK".equalsIgnoreCase(request.protocol())) throw new BusinessException("任务实例只接受原任务创建回执绑定");
         AgentRuntimeInstance instance = runtimeRepository.findByInstanceKey(request.instanceKey()).orElseGet(AgentRuntimeInstance::new);
+        if (instance.hasBoundIdentity() || instance.agentId != null && !agentId.equals(instance.agentId))
+            throw new com.eap.platform.common.ConflictException("实例已有归属，不允许覆盖绑定");
         instance.agentId = agentId;
         instance.instanceKey = request.instanceKey();
         instance.endpoint = request.endpoint();
@@ -68,10 +72,26 @@ public class AgentRegistryService {
     public AgentRegistryDtos.RuntimeInstanceResponse heartbeat(String instanceKey, AgentRegistryDtos.HeartbeatRequest request) {
         AgentRuntimeInstance instance = runtimeRepository.findByInstanceKey(instanceKey)
                 .orElseThrow(() -> new BusinessException("运行实例不存在"));
+        if (instance.hasBoundIdentity()) throw new BusinessException("外部纳管实例不接受普通心跳覆盖，请使用已认证的接入验证");
         instance.status = request.status();
         instance.loadScore = request.loadScore();
         instance.lastHeartbeatAt = Instant.now();
         return AgentRegistryDtos.from(instance);
+    }
+
+    /** Trusted platform factory only: no console registration accepts a claimed native UID. */
+    @Transactional
+    public AgentRuntimeInstance bindPlatformRuntime(Long agentId, String key, String uid, String template) {
+        ensureAgent(agentId);
+        var instance = runtimeRepository.lockForScopedTools(key).orElseGet(AgentRuntimeInstance::new);
+        if (instance.agentId != null && (!agentId.equals(instance.agentId) || instance.status == RuntimeStatus.OFFLINE
+                || !uid.equals(instance.platformActorUid) || !template.equals(instance.platformActorTemplate)
+                || instance.importedActorUid != null))
+            throw new com.eap.platform.common.ConflictException("原实例绑定已变化，不能覆盖或恢复");
+        instance.agentId=agentId;instance.instanceKey=key;instance.endpoint="substrate://"+key;
+        instance.protocol="SUBSTRATE";instance.platformActorUid=uid;instance.platformActorTemplate=template;
+        instance.dispatchAuthenticated=false;instance.status=RuntimeStatus.ONLINE;
+        return runtimeRepository.saveAndFlush(instance);
     }
 
     @Transactional(readOnly = true)

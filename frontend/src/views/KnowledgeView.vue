@@ -3,7 +3,7 @@
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">知识 · 追踪</span>
-        <strong>智能体知识界面</strong>
+        <strong>知识调用链路</strong>
         <span>分析输入知识、检索与处理过程、输出知识，以及知识采用和复用情况</span>
       </div>
       <div class="button-row">

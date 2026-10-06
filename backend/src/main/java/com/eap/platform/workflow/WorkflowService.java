@@ -28,6 +28,7 @@ public class WorkflowService {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private static final Set<String> NODE_TYPES = Set.of("START", "END", "AGENT", "ARTIFACT", "DECISION");
     private final WorkflowDefinitionRepository workflowRepository;
+    private final com.eap.platform.orchestration.AgentPlanRepository plans;
     private final WorkflowNodeRepository nodeRepository;
     private final WorkflowEdgeRepository edgeRepository;
     private final AgentRepository agentRepository;
@@ -38,13 +39,14 @@ public class WorkflowService {
             WorkflowNodeRepository nodeRepository,
             WorkflowEdgeRepository edgeRepository,
             AgentRepository agentRepository,
-            GenseeSafetyService safetyService
+            GenseeSafetyService safetyService, com.eap.platform.orchestration.AgentPlanRepository plans
     ) {
         this.workflowRepository = workflowRepository;
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.agentRepository = agentRepository;
         this.safetyService = safetyService;
+        this.plans = plans;
     }
 
     @Transactional(readOnly = true)
@@ -76,6 +78,7 @@ public class WorkflowService {
     @Transactional
     public WorkflowDtos.NodeResponse upsertNode(Long workflowId, WorkflowDtos.NodeRequest request) {
         validateConfig(request.configJson());
+        WorkflowToolConfig.read(request.configJson(), request.nodeType(), request.agentId());
         lockWorkflow(workflowId);
         validateNodeType(request.nodeType());
         if (request.agentId() != null && !agentRepository.existsById(request.agentId())) {
@@ -186,6 +189,11 @@ public class WorkflowService {
 
     private void lockWorkflow(Long id) {
         workflowRepository.findForUpdate(id).orElseThrow(() -> new BusinessException("工作流不存在"));
+        requireUnmanaged(id);
+    }
+
+    public void requireUnmanaged(Long workflowId) {
+        if (plans.existsByExecutionWorkflowId(workflowId)) throw new com.eap.platform.common.ConflictException("此工作流是计划执行快照，不能编辑或独立重跑");
     }
 
     private void validateConfig(String config) {

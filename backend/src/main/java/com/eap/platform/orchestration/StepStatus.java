@@ -5,6 +5,10 @@ public enum StepStatus {
     ASSIGNED,
     RUNNING,
     DONE,
-    BLOCKED
+    BLOCKED,
+    WAITING_APPROVAL,
+    FAILED,
+    EXECUTION_UNKNOWN,
+    SKIPPED
 }
 

@@ -32,6 +32,9 @@ public class AgentPlanStep {
     @Column(name = "required_capability", nullable = false, length = 128)
     String requiredCapability;
 
+    @Column(name = "execution_backend", nullable = false, length = 16)
+    String executionBackend = "RUNTIME";
+
     @Column(name = "assigned_agent_id")
     Long assignedAgentId;
 

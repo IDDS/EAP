@@ -50,8 +50,8 @@ public class SubstrateDeploymentController {
     }
 
     @PostMapping("/{agentId}/substrate/instances")
-    public ApiResponse<SubstrateDeploymentDtos.InstanceResponse> createInstance(@PathVariable Long agentId, Authentication authentication) {
-        return ApiResponse.ok(service.createInstance(agentId, requester(authentication)));
+    public ApiResponse<SubstrateDeploymentDtos.InstanceResponse> createInstance(@PathVariable Long agentId, @Valid @RequestBody SubstrateDeploymentDtos.CreateInstanceRequest request, Authentication authentication) {
+        return ApiResponse.ok(service.createInstance(agentId, request.requestKey(), requester(authentication)));
     }
 
     @DeleteMapping("/{agentId}/substrate/instances/{name}")

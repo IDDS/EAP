@@ -1,0 +1,21 @@
+CREATE TABLE ax_tasks (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ task_key VARCHAR(64) NOT NULL UNIQUE,
+ submission_key VARCHAR(64) NOT NULL UNIQUE,
+ agent_id BIGINT NOT NULL,
+ fingerprint VARCHAR(64) NOT NULL,
+ requested_by VARCHAR(128) NOT NULL,
+ status VARCHAR(32) NOT NULL,
+ phase VARCHAR(32) NOT NULL,
+ reason VARCHAR(256) NOT NULL,
+ payload_json LONGTEXT NOT NULL,
+ result_json LONGTEXT,
+ created_at TIMESTAMP(6) NOT NULL,
+ updated_at TIMESTAMP(6) NOT NULL,
+ deadline_at TIMESTAMP(6) NOT NULL,
+ lease_until TIMESTAMP(6),
+ auto_suspend BOOLEAN NOT NULL DEFAULT TRUE,
+ suspended BOOLEAN NOT NULL DEFAULT FALSE,
+ INDEX ix_ax_active (status, created_at),
+ CONSTRAINT fk_ax_agent FOREIGN KEY (agent_id) REFERENCES agents(id)
+);

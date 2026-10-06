@@ -18,7 +18,7 @@ public class RuntimeLeaseProperties {
     public Instant cutoff() { return Instant.now().minusSeconds(heartbeatTtlSeconds); }
 
     public RuntimeStatus effectiveStatus(AgentRuntimeInstance instance, Instant cutoff) {
-        if (instance.getStatus() != RuntimeStatus.OFFLINE && !"SUBSTRATE".equalsIgnoreCase(instance.getProtocol())
+        if (instance.getStatus() != RuntimeStatus.OFFLINE && !"SUBSTRATE_TASK".equals(instance.getProtocol()) && !com.eap.platform.substrate.SubstrateActorRef.isSubstrate(instance.getProtocol())
                 && (instance.getLastHeartbeatAt() == null || !instance.getLastHeartbeatAt().isAfter(cutoff))) {
             return RuntimeStatus.OFFLINE;
         }

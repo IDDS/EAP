@@ -26,8 +26,8 @@ export type GovernanceDataAction = 'ALLOW' | 'WARN' | 'REDACT' | 'BLOCK' | 'APPR
 export type GovernanceGatewayDirective = 'PROCEED' | 'PROCEED_WITH_WARNING' | 'REDACT_AND_RECHECK' | 'REQUEST_APPROVAL' | 'BLOCK'
 export type GovernanceApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED'
 export type TeamStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED'
-export type PlanStatus = 'DRAFT' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED'
-export type StepStatus = 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED'
+export type PlanStatus = 'DRAFT' | 'READY' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'WAITING_APPROVAL' | 'EXECUTION_UNKNOWN'
+export type StepStatus = 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' | 'WAITING_APPROVAL' | 'FAILED' | 'EXECUTION_UNKNOWN' | 'SKIPPED'
 export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
 export type WorkItemSeverity = 'P0' | 'P1' | 'P2' | 'P3'
 export type WorkItemStatus = 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'WAITING' | 'RESOLVED' | 'CLOSED'
@@ -322,8 +322,13 @@ export interface LearningFeedback {
   agentId: number
   feedbackType: string
   rating: number
-  summary: string
+  summary?: string
   improvementAction?: string
+  taskId?: number
+  traceId?: string
+  requestedBy?: string
+  reviewedBy?: string
+  contentVisible: boolean
   status: LearningFeedbackStatus
   createdAt: string
   updatedAt: string
@@ -650,7 +655,7 @@ export interface ToolInvocationEvent {
   endpointKey?: string
   runtimeInstanceKey?: string
   taskId?: number
-  observationSource: 'OTLP' | 'GATEWAY'
+  observationSource: 'OTLP' | 'GATEWAY' | 'RUNTIME_GUARD'
   toolKind: ToolInvocationKind
   toolName: string
   mcpServerName?: string
@@ -1161,11 +1166,14 @@ export interface AgentPlan {
   goal: string
   contextSummary?: string
   status: PlanStatus
+  executionWorkflowId?: number
+  executionRunKey?: string
   createdAt: string
   updatedAt: string
 }
 
 export interface AgentPlanStep {
+  executionBackend?: string
   id: number
   planId: number
   stepOrder: number
@@ -1247,7 +1255,7 @@ export interface WorkflowExecution {
   runKey: string
   workflowId: number
   status: string
-  executionMode: 'EAP_HTTP_TASK_V1'
+  executionMode: 'EAP_HTTP_TASK_V1' | 'EAP_MIXED_TASK_V1'
   objective: string
   requester: string
   steps: { sequence: number; nodeKey: string; label: string; agentId?: number; taskKey?: string;

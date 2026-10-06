@@ -1,0 +1,17 @@
+{
+  "internal/controller/actor_identity.go": "23b990be79469043209ef47e1073c799b9ea762a125043e18ea344c65b632f2b",
+  "internal/controller/actor_identity_test.go": "deacfed6e4193306a7ea135c691c97ba0f1ffdc2ae1cb8feb162274baa80f848",
+  "internal/controller/reconciler.go": "a1f77193215356e197d6d9fbd366362bfdd886aab13cb3e6c707437d481c24e1",
+  "internal/controller/worker.go": "20ac50d3b8d152b319ca52a807383a1631ad126730d50767612291e1251fa159",
+  "internal/server/actor_identity_test.go": "b6dbf3a3ea2463a922de91aa6a240d047a4336caadea1be467991d5f180682cc",
+  "internal/server/server.go": "336cee279f383bb4a59117e2405fb672949c9003454be10f64db57098352d807",
+  "internal/store/actor_identity.go": "f6bbcb650884b5f894354e50b42c5c34fe0eca4dbec08f33657cd22c03acd5bf",
+  "internal/store/memory/actor_identity.go": "a2acb01c3e7bbc6c393e788a2e5893aefd5a5edd47fb95e553c4bf62b30ab03b",
+  "internal/store/memory/actor_identity_test.go": "9c6ca46ef1853e8fd43ebe459ca5d3705cc2a64971b1807350350b2922994399",
+  "internal/store/memory/store.go": "c9aeb67a7811337e01a6e5966b494b6a2738271d4bb08620b3f146ff257f2bfe",
+  "internal/store/redis/actor_identity.go": "009032372e761bc41f0abad95e679d423a654fc4e451d5f21ac523da8fc387fd",
+  "internal/store/redis/actor_identity_test.go": "7c8226a31cd57d34519af82665dd9d8fc6bd11caac9d6c85f2acec59972cc4e0",
+  "internal/substrate/client.go": "141bce37634a00a659837c330f9b63642f9dc4323b4c1a0f6b47415b4ce4d8aa",
+  "internal/substrate/identity.go": "d013ccf0fa53fe34835f942dfd96ca61ce0b2ae539904f98f2460d77fbfac2ab",
+  "internal/substrate/identity_test.go": "0c432eb286e6d8fb653b51c5fff3f303893b71792fb4aff0ebc44fcf19f45daa"
+}

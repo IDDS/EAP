@@ -1,0 +1,195 @@
+package com.eap.platform.optimization;
+
+import com.eap.platform.agent.*;
+import com.eap.platform.budget.BudgetLedger;
+import com.eap.platform.common.*;
+import com.eap.platform.experiment.*;
+import com.eap.platform.gateway.*;
+import com.eap.platform.governance.*;
+import com.eap.platform.observability.*;
+import com.eap.platform.telemetry.*;
+import com.fasterxml.jackson.databind.*;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.context.request.RequestContextHolder;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.*;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest(properties={"spring.flyway.enabled=true","eap.optimization.enabled=true","eap.optimization.worker-initial-delay-ms=3600000","eap.experiment.enabled=true","eap.experiment.worker-initial-delay-ms=3600000","eap.budget.enabled=true","eap.gateway.enabled=true","eap.gateway.ingestion-token=optimization-test-token","eap.gateway.upstream-base-url=http://upstream.invalid","eap.security.mode=JWT","eap.security.issuer-uri=https://idp.invalid/realm","eap.security.jwk-set-uri=https://idp.invalid/jwks","eap.substrate.deploy-worker-enabled=false"})
+@ActiveProfiles("test") @AutoConfigureMockMvc
+class OptimizationIntegrationTests {
+    @Autowired OptimizationService service;@Autowired AgentExperimentService experiments;
+    @Autowired AgentService agents;@Autowired JdbcTemplate db;@Autowired ObjectMapper json;@Autowired MockMvc mvc;
+    @Autowired OpenAiCompatibleGatewayService gateway;@Autowired BudgetLedger ledger;
+    @MockitoBean AgentExperimentClient runtime;@MockitoBean OpenAiUpstreamClient upstream;
+    @MockitoBean GovernancePreflightService governance;@MockitoBean ModelTelemetryService telemetry;
+    @MockitoBean ContentObservationService content;@MockitoBean ToolInvocationService tools;
+    @MockitoBean OptimizationWorkerClient workerClient;
+    long agent;String instance,endpoint,profileDigest="a".repeat(64);
+
+    @BeforeEach void setup() {
+        RequestContextHolder.resetRequestAttributes();
+        for(String t:List.of("budget_limit_changes","budget_settlements","budget_reservation_items","budget_reservations","budget_accounts","agent_optimization_reflections","agent_optimization_evaluations"))db.update("delete from "+t);
+        db.update("update agent_experiments set optimization_run_id=null");db.update("delete from agent_optimizations");
+        for(String t:List.of("agent_experiment_trials","agent_experiment_variants","agent_experiments"))db.update("delete from "+t);
+        agent=agents.create(new AgentDtos.AgentRequest("OPT-"+UUID.randomUUID(),"Optimization test","","Test","Owner","Test",RiskLevel.LOW)).id();agents.updateStatus(agent,AgentLifecycleStatus.ACTIVE);
+        instance="eap-agents/a"+agent+"-v1-opt";endpoint="substrate://"+instance;
+        db.update("insert into agent_runtime_instances(agent_id,instance_key,endpoint,protocol,dispatch_authenticated,status,load_score,created_at,updated_at) values(?,?,?,'SUBSTRATE',false,'ONLINE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",agent,instance,endpoint);
+        db.update("insert into substrate_agent_deployments(deployment_key,agent_id,version,source_type,status,config_json,image_ref,atespace,template_name,instance_key,steps_json,requested_by,created_at,updated_at) values(?,?,1,'IMAGE','READY','{}',?,'eap-agents',?,?,'[]','test',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)","opt-deploy-"+agent,agent,"registry.test/runner@sha256:"+"b".repeat(64),"opt-template-"+agent,instance);
+        var p=json.createObjectNode().put("protocol","EAP_STATELESS_PROMPT_V1").put("agentId",Long.toString(agent)).put("model","test-model").put("systemPrompt","BASELINE prompt").put("maxTokens",1024).put("profileDigest",profileDigest).put("context","EMPTY").put("tools","DISABLED");
+        when(runtime.profile(endpoint)).thenReturn(new AgentExperimentClient.RuntimeProfile(p,"actor-opt-"+agent,"eap-agents/opt-template-"+agent));
+        when(governance.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(1L,"optimization-pass",agent,GovernanceDataAction.ALLOW,GovernanceGatewayDirective.PROCEED,true,0,List.of(),List.of(),"test","test","test",GovernanceApprovalStatus.NOT_REQUIRED,null,null,null,null,Instant.now()));
+        when(upstream.chatCompletions(any())).thenAnswer(call->{JsonNode body=call.getArgument(0);String value;
+            if(body.has("response_format"))value="{\"system_prompt\":\"SELECTED prompt\"}";
+            else value=body.path("messages").path(0).path("content").asText().contains("BASELINE")?"wrong":expected(body.path("messages").path(1).path("content").asText());
+            return ResponseEntity.ok(provider(value));
+        });
+    }
+    @AfterEach void done(){RequestContextHolder.resetRequestAttributes();}
+    String expected(String input){return switch(input){case "train input"->"TRAIN";case "validation input"->"VAL";case "sealed input"->"HOLD";default->"UNKNOWN_INPUT";};}
+    JsonNode provider(String output){var node=json.createObjectNode();node.set("usage",json.createObjectNode().put("prompt_tokens",7).put("completion_tokens",3));node.set("choices",json.createArrayNode().add(json.createObjectNode().put("finish_reason","stop").set("message",json.createObjectNode().put("content",output))));return node;}
+    OptimizationDtos.Submit request(String key){return new OptimizationDtos.Submit(agent,instance,profileDigest,"MANUAL prompt","GEPA",128,8,32,8192,List.of(new OptimizationDtos.Sample("train-1","g1","TRAIN","train input","TRAIN"),new OptimizationDtos.Sample("validation-1","g2","VALIDATION","validation input","VAL"),new OptimizationDtos.Sample("holdout-1","g3","HOLDOUT","sealed input","HOLD")),true,true,key);}
+    OptimizationDtos.Submit with(OptimizationDtos.Submit r,List<OptimizationDtos.Sample> samples,String engine,boolean publicUse,boolean reflectUse,int calls){return new OptimizationDtos.Submit(r.agentId(),r.instanceKey(),r.profileDigest(),r.manualPrompt(),engine,r.maxTokens(),r.maxMetricCalls(),calls,r.maxOutputTokens(),samples,publicUse,reflectUse,r.requestKey());}
+    String hash(Object value)throws Exception{return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(value)));}
+    JsonNode candidate(String prompt){return json.createObjectNode().put("system_prompt",prompt);}
+    OptimizationDtos.Evaluate evaluation(long id,String prompt,String split,String sample)throws Exception {var p=candidate(prompt);return new OptimizationDtos.Evaluate(p,split,List.of(sample),hash(List.of(id,hash(p),split,List.of(sample))));}
+    void finishExperiment()throws Exception {
+        for(int i=0;i<2;i++){var dispatch=experiments.claim();assertThat(dispatch).isNotNull();
+            var request=json.createObjectNode().put("model","test-model").put("max_tokens",((Number)dispatch.body().get("maxTokens")).intValue());
+            request.set("messages",json.createArrayNode().add(json.createObjectNode().put("role","system").put("content",(String)dispatch.body().get("systemPrompt"))).add(json.createObjectNode().put("role","user").put("content",(String)dispatch.body().get("input"))));
+            JsonNode response=gateway.chatCompletions(request,agent,null,null,(String)dispatch.body().get("traceId"),GatewayDtos.ClassificationHints.empty()).getBody();
+            var receipt=json.createObjectNode().put("output",response.path("choices").path(0).path("message").path("content").asText()).put("finishReason","stop").put("latencyMs",4);receipt.set("usage",response.path("usage"));
+            experiments.finish(dispatch,new AgentExperimentClient.Receipt("SUCCEEDED",null,receipt));
+        }
+    }
+    JsonNode feedback(Map<String,Object> operation){JsonNode row=json.valueToTree(((List<?>)operation.get("results")).getFirst());var r=(com.fasterxml.jackson.databind.node.ObjectNode)row;r.put("input","train input").put("expected","TRAIN").put("usageKnown",true);return r;}
+
+    @Test void completePipelineSealsBeforeHoldoutUsesFreshOutputsAndSharesAllCosts()throws Exception {
+        var root=service.submit(request("complete-root-1"),"test-author");var claim=service.claim();assertThat(claim.id()).isEqualTo(root.id());
+        long manual=service.manualValidation(claim);finishExperiment();assertThat(service.manualReady(claim,manual)).isTrue();
+        var seedVal=evaluation(root.id(),"BASELINE prompt","VALIDATION","validation-1");service.evaluate(root.id(),claim.token(),seedVal);finishExperiment();
+        var train=evaluation(root.id(),"BASELINE prompt","TRAIN","train-1");service.evaluate(root.id(),claim.token(),train);finishExperiment();
+        var reflection=service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback(service.evaluation(root.id(),claim.token(),train.requestKey())))));assertThat(reflection.get("status")).isEqualTo("COMPLETED");
+        var selected=evaluation(root.id(),"SELECTED prompt","VALIDATION","validation-1");service.evaluate(root.id(),claim.token(),selected);finishExperiment();
+        service.searchResult(root.id(),claim.token(),new OptimizationDtos.SearchReceipt("COMPLETED",selected.candidate(),hash(selected.candidate()),OptimizationService.ENGINE_VERSION,null));
+        assertThat(service.get(root.id()).status()).isEqualTo("HOLDOUT");assertThatThrownBy(()->service.context(root.id(),claim.token())).isInstanceOf(ResponseStatusException.class);
+        service.advanceHoldout();finishExperiment();service.advanceHoldout();finishExperiment();service.advanceHoldout();
+        var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("REVIEW_MANUAL");assertThat(result.reasonCode()).isEqualTo("SMALL_SAMPLE_REVIEW_REQUIRED");
+        assertThat(result.chargedCalls()).isEqualTo(13);assertThat(result.pendingReservations()).isZero();assertThat(result.evaluations()).filteredOn(e->"HOLDOUT".equals(e.split())).hasSize(2);
+        assertThat(result.evaluations()).filteredOn(e->"HOLDOUT".equals(e.split())).allMatch(e->e.baseline().passed()==0&&e.candidate().passed()==1&&e.candidate().usageKnown()==1);
+        verify(upstream,times(13)).chatCompletions(any());assertThat(json.writeValueAsString(result)).doesNotContain("BASELINE prompt","MANUAL prompt","SELECTED prompt","sealed input",claim.token());
+        assertThat(db.queryForObject("select count(*) from substrate_agent_deployments where agent_id=?",Long.class,agent)).isEqualTo(1);
+    }
+    @Test void onlyScopedClaimGetsSearchDataAndHoldoutNeverEntersContext()throws Exception {
+        var root=service.submit(request("scoped-root-1"),"test-author");var claim=service.claim();
+        mvc.perform(get("/internal/agent-optimizations/"+root.id()+"/context")).andExpect(status().isForbidden());
+        mvc.perform(get("/internal/agent-optimizations/"+root.id()+"/context").header("X-EAP-Optimization-Claim","0".repeat(64))).andExpect(status().isForbidden());
+        var body=mvc.perform(get("/internal/agent-optimizations/"+root.id()+"/context").header("X-EAP-Optimization-Claim",claim.token())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(body).contains("train input","validation input").doesNotContain("sealed input","HOLDOUT","HOLD",claim.token(),"MANUAL prompt","_actorUid");
+        assertThat(db.queryForObject("select claim_hash from agent_optimizations where id=?",String.class,root.id())).isNotEqualTo(claim.token());
+        db.update("update agent_optimizations set status='FAILED' where id=?",root.id());var other=service.submit(request("scoped-root-2"),"test-author");service.claim();
+        mvc.perform(get("/internal/agent-optimizations/"+other.id()+"/context").header("X-EAP-Optimization-Claim",claim.token())).andExpect(status().isForbidden());
+    }
+    @Test void expiredClaimDoesNotCreateEvaluationAndCannotResetBudget()throws Exception {
+        var root=service.submit(request("expiry-root-1"),"test-author");var claim=service.claim();db.update("update agent_optimizations set claim_deadline=? where id=?",java.sql.Timestamp.from(Instant.now().minusSeconds(1)),root.id());
+        var evaluate=evaluation(root.id(),"SELECTED prompt","TRAIN","train-1");assertThatThrownBy(()->service.evaluate(root.id(),claim.token(),evaluate)).isInstanceOf(ResponseStatusException.class);
+        service.expireSearches();assertThat(service.get(root.id()).status()).isEqualTo("UNKNOWN");assertThat(service.get(root.id()).chargedCalls()).isZero();assertThat(service.claim()).isNull();verify(upstream,never()).chatCompletions(any());
+    }
+    @Test void queuedTrialCannotDispatchAfterExecutionIdentityExpires()throws Exception {
+        var root=service.submit(request("expired-dispatch-1"),"test-author");var claim=service.claim();service.evaluate(root.id(),claim.token(),evaluation(root.id(),"SELECTED prompt","TRAIN","train-1"));
+        db.update("update agent_optimizations set claim_deadline=? where id=?",java.sql.Timestamp.from(Instant.now().minusSeconds(1)),root.id());var dispatch=experiments.claim();
+        assertThatThrownBy(()->gateway.chatCompletions(json.createObjectNode().put("model","test-model").put("max_tokens",128),agent,null,null,(String)dispatch.body().get("traceId"),GatewayDtos.ClassificationHints.empty())).isInstanceOf(GatewayException.class);
+        verify(upstream,never()).chatCompletions(any());assertThat(service.get(root.id()).chargedCalls()).isZero();
+    }
+    @Test void concurrentDuplicateSubmissionCreatesOneRootAndOneFrozenBudget()throws Exception {
+        var request=request("concurrent-root-1");var pool=Executors.newFixedThreadPool(4);var latch=new CountDownLatch(1);
+        try{List<Future<Long>> futures=new ArrayList<>();for(int i=0;i<4;i++)futures.add(pool.submit(()->{latch.await();return service.submit(request,"test-author").id();}));latch.countDown();Set<Long> ids=new HashSet<>();for(var f:futures)ids.add(f.get(20,TimeUnit.SECONDS));assertThat(ids).hasSize(1);assertThat(service.list()).hasSize(1);assertThat(db.queryForObject("select count(*) from budget_accounts where scope_type='TASK'",Long.class)).isEqualTo(2);verify(runtime,times(1)).profile(endpoint);}finally{pool.shutdownNow();}
+        assertThatThrownBy(()->service.submit(with(request,request.samples(),"SIMPLE",true,false,32),"test-author")).isInstanceOf(ConflictException.class);
+    }
+    @Test void duplicateEvaluationHasOneIntentAndOnePairAndModifiedKeyCannotResetIt()throws Exception {
+        var root=service.submit(request("evaluation-root-1"),"test-author");var claim=service.claim();var request=evaluation(root.id(),"SELECTED prompt","TRAIN","train-1");
+        var one=service.evaluate(root.id(),claim.token(),request);var two=service.evaluate(root.id(),claim.token(),request);assertThat(one.get("experimentId")).isEqualTo(two.get("experimentId"));finishExperiment();
+        assertThat(service.evaluation(root.id(),claim.token(),request.requestKey()).get("status")).isEqualTo("COMPLETED");assertThat(service.evaluate(root.id(),claim.token(),request).get("status")).isEqualTo("COMPLETED");verify(upstream,times(2)).chatCompletions(any());
+        var wrong=new OptimizationDtos.Evaluate(candidate("OTHER prompt"),"TRAIN",List.of("train-1"),request.requestKey());assertThatThrownBy(()->service.evaluate(root.id(),claim.token(),wrong)).isInstanceOf(ConflictException.class);assertThat(service.get(root.id()).chargedCalls()).isEqualTo(2);
+    }
+    @Test void holdoutCannotBeRequestedDuringSearchOrBeforeCompleteValidation()throws Exception {
+        var root=service.submit(request("early-holdout-1"),"test-author");var claim=service.claim();var wrong=new OptimizationDtos.Evaluate(candidate("SELECTED prompt"),"TRAIN",List.of("holdout-1"),"0".repeat(64));assertThatThrownBy(()->service.evaluate(root.id(),claim.token(),wrong)).isInstanceOf(BusinessException.class);
+        var receipt=new OptimizationDtos.SearchReceipt("COMPLETED",candidate("SELECTED prompt"),hash(candidate("SELECTED prompt")),OptimizationService.ENGINE_VERSION,null);assertThatThrownBy(()->service.searchResult(root.id(),claim.token(),receipt)).isInstanceOf(BusinessException.class);
+        var eval=evaluation(root.id(),"SELECTED prompt","VALIDATION","validation-1");service.evaluate(root.id(),claim.token(),eval);assertThatThrownBy(()->service.searchResult(root.id(),claim.token(),receipt)).isInstanceOf(ConflictException.class);verify(upstream,never()).chatCompletions(any());
+    }
+    @Test void providerUnknownStopsRemainingTrialsHoldsRootReservationAndPreventsNewRoot()throws Exception {
+        var root=service.submit(request("unknown-root-1"),"test-author");var claim=service.claim();service.evaluate(root.id(),claim.token(),evaluation(root.id(),"SELECTED prompt","TRAIN","train-1"));var dispatch=experiments.claim();
+        var ticket=ledger.admitModel(json.createObjectNode().put("model","test-model").put("max_tokens",128),agent,null,null,(String)dispatch.body().get("traceId"),"ignored");ledger.unconfirmed(ticket,"RECEIPT_UNKNOWN");experiments.finish(dispatch,new AgentExperimentClient.Receipt("UNKNOWN","RECEIPT_UNKNOWN",null));
+        service.searchResult(root.id(),claim.token(),new OptimizationDtos.SearchReceipt("UNKNOWN",null,null,OptimizationService.ENGINE_VERSION,"unknown"));var result=service.get(root.id());assertThat(result.status()).isEqualTo("UNKNOWN");assertThat(result.reservedOutputTokens()).isEqualTo(128);assertThat(result.chargedCalls()).isEqualTo(1);assertThat(result.pendingReservations()).isEqualTo(1);
+        assertThatThrownBy(()->service.submit(request("unknown-root-2"),"test-author")).isInstanceOf(ConflictException.class);assertThat(service.claim()).isNull();assertThat(experiments.claim()).isNull();
+    }
+    @Test void forgedReflectionEvidenceDoesNotReachProvider()throws Exception {
+        var root=service.submit(request("forged-reflection-1"),"test-author");var claim=service.claim();var feedback=json.createObjectNode().put("sampleId","train-1").put("input","train input").put("expected","TRAIN").put("output","forged").put("status","SUCCEEDED").put("score",1).put("usageKnown",true).put("traceId","f".repeat(32));
+        assertThatThrownBy(()->service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback)))).isInstanceOf(BusinessException.class);verify(upstream,never()).chatCompletions(any());assertThat(db.queryForObject("select count(*) from agent_optimization_reflections",Long.class)).isZero();
+    }
+    @Test void reflectionDuplicateReturnsOriginalResultWithoutNewGatewayCall()throws Exception {
+        var root=service.submit(request("reflection-once-1"),"test-author");var claim=service.claim();var eval=evaluation(root.id(),"BASELINE prompt","TRAIN","train-1");service.evaluate(root.id(),claim.token(),eval);finishExperiment();var request=new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback(service.evaluation(root.id(),claim.token(),eval.requestKey()))));
+        var first=service.reflect(root.id(),claim.token(),request);var second=service.reflect(root.id(),claim.token(),request);assertThat(second).isEqualTo(first);verify(upstream,times(3)).chatCompletions(any());assertThat(service.get(root.id()).chargedCalls()).isEqualTo(3);
+    }
+    @Test void deepSeekReflectionModeIsFrozenAndDoesNotChangeEvaluationOptions()throws Exception {
+        var prior=runtime.profile(endpoint);var p=(com.fasterxml.jackson.databind.node.ObjectNode)prior.profile().deepCopy();p.put("model","deepseek-flash");when(runtime.profile(endpoint)).thenReturn(new AgentExperimentClient.RuntimeProfile(p,prior.actorUid(),prior.template()));
+        var root=service.submit(request("deepseek-mode-1"),"test-author");var claim=service.claim();var eval=evaluation(root.id(),"BASELINE prompt","TRAIN","train-1");service.evaluate(root.id(),claim.token(),eval);finishExperiment();
+        service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback(service.evaluation(root.id(),claim.token(),eval.requestKey())))));
+        var captor=org.mockito.ArgumentCaptor.forClass(JsonNode.class);verify(upstream,times(3)).chatCompletions(captor.capture());var sent=captor.getAllValues();
+        assertThat(sent.get(0).has("thinking")).isFalse();assertThat(sent.get(1).has("thinking")).isFalse();assertThat(sent.get(2).path("thinking").path("type").asText()).isEqualTo("disabled");assertThat(sent.get(2).path("max_tokens").asInt()).isEqualTo(512);
+        JsonNode frozen=json.valueToTree(service.content(root.id()).get("profile"));assertThat(frozen.path("_reflectionThinking").asText()).isEqualTo("DISABLED");assertThat(frozen.path("model").asText()).isEqualTo("deepseek-flash");
+    }
+    @Test void truncatedReflectionIsPaidFailureAndCannotAdvanceToHoldout()throws Exception {
+        var root=service.submit(request("truncated-reflection-1"),"test-author");var claim=service.claim();var eval=evaluation(root.id(),"BASELINE prompt","TRAIN","train-1");service.evaluate(root.id(),claim.token(),eval);finishExperiment();
+        var truncated=provider("{\"system_prompt\":\"partial");((com.fasterxml.jackson.databind.node.ObjectNode)truncated.path("choices").path(0)).put("finish_reason","length");doReturn(ResponseEntity.ok(truncated)).when(upstream).chatCompletions(any());
+        var result=service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback(service.evaluation(root.id(),claim.token(),eval.requestKey())))));assertThat(result.get("status")).isEqualTo("FAILED");assertThat(result.get("reasonCode")).isEqualTo("REFLECTION_TRUNCATED");var saved=service.get(root.id());assertThat(saved.status()).isEqualTo("FAILED");assertThat(saved.chargedCalls()).isEqualTo(3);assertThat(saved.pendingReservations()).isZero();service.advanceHoldout();assertThat(service.get(root.id()).evaluations()).hasSize(1);verify(upstream,times(3)).chatCompletions(any());
+    }
+    @Test void reflectedModelAndToolsFieldsAreRejectedAndRecordedAsPaidFailure()throws Exception {
+        var root=service.submit(request("reflection-schema-1"),"test-author");var claim=service.claim();var eval=evaluation(root.id(),"BASELINE prompt","TRAIN","train-1");service.evaluate(root.id(),claim.token(),eval);finishExperiment();
+        doReturn(ResponseEntity.ok(provider("{\"system_prompt\":\"ok\",\"model\":\"other\"}"))).when(upstream).chatCompletions(any());
+        var result=service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(feedback(service.evaluation(root.id(),claim.token(),eval.requestKey())))));assertThat(result.get("status")).isEqualTo("FAILED");assertThat(service.get(root.id()).status()).isEqualTo("FAILED");assertThat(service.get(root.id()).chargedCalls()).isEqualTo(3);assertThat(service.get(root.id()).reservedOutputTokens()).isZero();
+    }
+    @Test void datasetOverlapAndUnapprovedPurposeFailBeforeReadingRuntime(){
+        var r=request("bad-purpose-1");assertThatThrownBy(()->service.submit(with(r,r.samples(),"GEPA",true,false,32),"test-author")).isInstanceOf(BusinessException.class);
+        var duplicate=new ArrayList<>(r.samples());duplicate.set(2,new OptimizationDtos.Sample("holdout-1","g3","HOLDOUT","　train  input　","HOLD"));assertThatThrownBy(()->service.submit(with(r,duplicate,"GEPA",true,true,32),"test-author")).isInstanceOf(BusinessException.class);
+        var crossed=new ArrayList<>(r.samples());crossed.set(2,new OptimizationDtos.Sample("holdout-1","g1","HOLDOUT","sealed input","HOLD"));assertThatThrownBy(()->service.submit(with(r,crossed,"GEPA",true,true,32),"test-author")).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(()->service.submit(with(r,r.samples(),"GEPA",true,true,10),"test-author")).isInstanceOf(BusinessException.class);verify(runtime,never()).profile(any());assertThat(service.list()).isEmpty();
+    }
+    @Test void simpleSearchDoesNotRequireReflectionPurposeAndCannotRequestReflection(){
+        var r=request("simple-purpose-1");var root=service.submit(with(r,r.samples(),"SIMPLE",true,false,32),"test-author");var claim=service.claim();assertThat(service.context(root.id(),claim.token()).get("maxReflections")).isEqualTo(0);
+        assertThatThrownBy(()->service.reflect(root.id(),claim.token(),new OptimizationDtos.Reflect(0,candidate("BASELINE prompt"),List.of(json.createObjectNode())))).isInstanceOf(BusinessException.class);verify(upstream,never()).chatCompletions(any());
+    }
+    @Test void frozenRuntimeUidAndImageCannotBeReboundDuringSearch()throws Exception {
+        var root=service.submit(request("frozen-runtime-1"),"test-author");var claim=service.claim();var prior=runtime.profile(endpoint);when(runtime.profile(endpoint)).thenReturn(new AgentExperimentClient.RuntimeProfile(prior.profile(),"different-actor",prior.template()));
+        assertThatThrownBy(()->service.evaluate(root.id(),claim.token(),evaluation(root.id(),"SELECTED prompt","TRAIN","train-1"))).isInstanceOf(ConflictException.class);assertThat(service.get(root.id()).evaluations()).isEmpty();verify(upstream,never()).chatCompletions(any());
+    }
+    @Test void unavailableWorkerKeepsQueuedTaskWithoutStartingModelWork()throws Exception {
+        var root=service.submit(request("unavailable-worker-1"),"test-author");when(workerClient.available()).thenReturn(false);var coordinator=new OptimizationWorker(service,workerClient);
+        try{coordinator.process();verify(workerClient,timeout(1000)).available();Thread.sleep(50);assertThat(service.get(root.id()).status()).isEqualTo("QUEUED");assertThat(service.get(root.id()).chargedCalls()).isZero();assertThat(service.get(root.id()).evaluations()).isEmpty();verify(workerClient,never()).start(any());}finally{coordinator.close();}
+    }
+    @ParameterizedTest @CsvSource({"VIEWER,false,false","OPERATOR,false,false","GOVERNANCE_ADMIN,false,true","PLATFORM_ADMIN,true,true"})
+    void capabilitiesProtectCreationAndPrivateContent(String role,boolean create,boolean viewContent)throws Exception {
+        var r=request("capability-root-1");var root=service.submit(r,"test-author");var identity=jwt().jwt(j->j.subject("test-author")).authorities(new SimpleGrantedAuthority("ROLE_"+role));
+        mvc.perform(get("/api/platform/me").with(identity)).andExpect(jsonPath("$.data.capabilities.runAgentExperiments").value(create));
+        mvc.perform(post("/api/agent-optimizations").with(identity).contentType("application/json").content(json.writeValueAsBytes(r))).andExpect(status().is(create?200:403));
+        var metadata=mvc.perform(get("/api/agent-optimizations/"+root.id()).with(identity)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();assertThat(metadata).doesNotContain("BASELINE prompt","MANUAL prompt","train input","sealed input");
+        mvc.perform(get("/api/agent-optimizations/"+root.id()+"/content").with(identity)).andExpect(status().is(viewContent?200:403));
+    }
+}

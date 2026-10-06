@@ -31,6 +31,13 @@ public class SubstrateControlAdapter implements AgentControlAdapter {
             return new DispatchResult(ControlCommandStatus.FAILED, DISPATCH_MODE, exception.getMessage(), null, null);
         }
         try {
+            if (runtime.hasBoundIdentity()) {
+                var current = client.inspect(actor);
+                if (!java.util.Objects.equals(runtime.getBoundActorUid(),current.uid()) || !java.util.Objects.equals(runtime.getBoundActorTemplate(),current.template()))
+                    return new DispatchResult(ControlCommandStatus.FAILED, DISPATCH_MODE, "实例身份或模板已改变，请重新复核纳管关系", null, null);
+                if (runtime.getImportedActorUid()!=null && !java.util.Set.of("PAUSE", "RESUME", "RUN_HEALTH_CHECK").contains(command.commandType))
+                    return new DispatchResult(ControlCommandStatus.FAILED, DISPATCH_MODE, "外部纳管实例仅支持休眠、恢复和状态检查", null, null);
+            }
             SubstrateClient.ActorState state = switch (command.commandType) {
                 case "PAUSE" -> client.suspend(actor);
                 case "RESUME" -> client.resume(actor);

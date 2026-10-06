@@ -71,9 +71,31 @@ public class AgentControlService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public AgentControlDtos.Targets targets(Long agentId) {
+        var agent = agentRepository.findById(agentId).orElseThrow(() -> new BusinessException("智能体不存在"));
+        var cutoff = leaseProperties.cutoff();
+        var rows = runtimeRepository.findByAgentId(agentId).stream().map(runtime -> {
+            boolean substrate = SubstrateActorRef.isSubstrate(runtime.getProtocol());
+            RuntimeStatus status = leaseProperties.effectiveStatus(runtime, cutoff);
+            String reason = agent.getLifecycleStatus() == AgentLifecycleStatus.RETIRED ? "智能体已退役"
+                    : "SUBSTRATE_TASK".equals(runtime.getProtocol()) ? "任务实例请在任务记录操作，避免中断在途执行"
+                    : !substrate && !"HTTP".equalsIgnoreCase(runtime.getProtocol()) ? "实例协议不支持控制命令"
+                    : status == RuntimeStatus.OFFLINE ? "实例离线或心跳已过期"
+                    : !substrate && status != RuntimeStatus.ONLINE ? "实例当前不可派发" : null;
+            List<String> supported = reason != null ? List.of() : substrate
+                    ? (runtime.getImportedActorUid() == null
+                        ? List.of("RUN_HEALTH_CHECK", "PAUSE", "RESUME", "REVERT")
+                        : List.of("RUN_HEALTH_CHECK", "PAUSE", "RESUME"))
+                    : List.of("RUN_HEALTH_CHECK", "PAUSE", "RESUME", "RELOAD_POLICY", "UPDATE_CONFIG", "SET_RATE_LIMIT");
+            return new AgentControlDtos.Target(runtime.getInstanceKey(), status.name(), supported, reason);
+        }).toList();
+        return new AgentControlDtos.Targets(rows, dispatchProperties.isEnabled(), dispatchProperties.getMaxAttempts());
+    }
+
     @Transactional
     public AgentControlDtos.CommandResponse issue(AgentControlDtos.CommandRequest request) {
-        String commandType = request.commandType().toUpperCase(Locale.ROOT);
+        String commandType = request.commandType().trim().toUpperCase(Locale.ROOT);
         if (!ALLOWED_COMMANDS.contains(commandType)) {
             throw new BusinessException("不支持的控制命令");
         }
@@ -99,14 +121,19 @@ public class AgentControlService {
                 : "控制命令已写入 outbox；HTTP Runtime 适配器未启用。";
         command = commandRepository.save(command);
         if (dispatchProperties.isEnabled()) dispatch(command);
-        writeAudit(command);
+        writeAudit(command, command.issuedBy, "ISSUE_CONTROL_COMMAND");
         return AgentControlDtos.from(command);
     }
 
     @Transactional
-    public AgentControlDtos.CommandResponse retry(String commandKey) {
-        AgentControlCommand command = commandRepository.findByCommandKey(commandKey)
+    public AgentControlDtos.CommandResponse retry(String commandKey, String retryActor) {
+        AgentControlCommand command = commandRepository.findForRetry(commandKey)
                 .orElseThrow(() -> new BusinessException("控制命令不存在"));
+        var agent = agentRepository.findById(command.agentId)
+                .orElseThrow(() -> new BusinessException("智能体不存在"));
+        if (agent.getLifecycleStatus() == AgentLifecycleStatus.RETIRED) {
+            throw new BusinessException("已退役智能体不能接收控制命令");
+        }
         if (command.status == ControlCommandStatus.ACKED) {
             throw new BusinessException("已 ACK 的控制命令不能重试");
         }
@@ -117,7 +144,7 @@ public class AgentControlService {
         command.resultMessage = dispatchProperties.isEnabled() ? "正在重试控制命令。" : "控制命令已回到 outbox；HTTP Runtime 适配器未启用。";
         command = commandRepository.save(command);
         if (dispatchProperties.isEnabled()) dispatch(command);
-        writeAudit(command);
+        writeAudit(command, retryActor == null || retryActor.isBlank() ? "console" : retryActor, "RETRY_CONTROL_COMMAND");
         return AgentControlDtos.from(command);
     }
 
@@ -126,7 +153,9 @@ public class AgentControlService {
         // A command issued for a specific instance never falls back to another instance.
         AgentRuntimeInstance runtime = command.runtimeInstanceKey != null
                 ? runtimeRepository.findByInstanceKey(command.runtimeInstanceKey)
-                        .filter(candidate -> command.agentId.equals(candidate.getAgentId()) && candidate.getStatus() != RuntimeStatus.OFFLINE)
+                        .filter(candidate -> command.agentId.equals(candidate.getAgentId()) && (SubstrateActorRef.isSubstrate(candidate.getProtocol())
+                                ? candidate.getStatus() != RuntimeStatus.OFFLINE
+                                : leaseProperties.effectiveStatus(candidate, leaseProperties.cutoff()) == RuntimeStatus.ONLINE))
                         .orElse(null)
                 : runtimeRepository
                 .findFirstByAgentIdAndStatusAndLastHeartbeatAtAfterOrderByLoadScoreAsc(command.agentId, RuntimeStatus.ONLINE, leaseProperties.cutoff())
@@ -135,7 +164,7 @@ public class AgentControlService {
         if (runtime == null) {
             command.status = ControlCommandStatus.FAILED;
             command.dispatchMode = "HTTP_RUNTIME";
-            command.resultMessage = "没有可用的 ONLINE Agent Runtime。";
+            command.resultMessage = "所选智能体没有可用的运行实例，或指定实例已离线、心跳过期。";
             commandRepository.save(command);
             return;
         }
@@ -173,10 +202,10 @@ public class AgentControlService {
                 .min(Comparator.comparing(AgentRuntimeInstance::getLoadScore));
     }
 
-    private void writeAudit(AgentControlCommand command) {
+    private void writeAudit(AgentControlCommand command, String actor, String action) {
         AuditLog auditLog = new AuditLog();
-        auditLog.setActor(command.issuedBy);
-        auditLog.setAction("ISSUE_CONTROL_COMMAND");
+        auditLog.setActor(actor);
+        auditLog.setAction(action);
         auditLog.setResourceType("AGENT");
         auditLog.setResourceId(String.valueOf(command.agentId));
         auditLog.setBeforeJson(null);

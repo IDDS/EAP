@@ -83,3 +83,11 @@ test('a failed deployment marks the stage that actually failed', () => {
   assert.equal(failedStageIndex([{ step: 'CREATING_INSTANCE', status: 'FAILED' }], 'RUNNER'), 3)
   assert.equal(failedStageIndex([{ step: 'PREFLIGHT', status: 'DENY' }], 'RUNNER'), 0)
 })
+
+test('dedicated identity is a separate durable stage while legacy progress stays unchanged', () => {
+  assert.equal(deploymentProgress('CONNECTING_IDENTITY').label, '专属身份接入')
+  assert.equal(deployStages('RUNNER', 'PER_INSTANCE_V1').length, 6)
+  assert.equal(deploymentProgress('READY', 'RUNNER', 'PER_INSTANCE_V1').active, 6)
+  assert.equal(deploymentProgress('READY', 'RUNNER').active, 5)
+  assert.equal(failedStageIndex([{ step: 'CONNECTING_IDENTITY', status: 'FAILED' }], 'RUNNER', 'PER_INSTANCE_V1'), 4)
+})

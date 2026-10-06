@@ -26,12 +26,14 @@
       <el-tag :class="{ 'is-active': activeSection === 'attribution' }" :effect="activeSection === 'attribution' ? 'dark' : 'plain'" @click="activeSection = 'attribution'">投入产出</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'connectors' }" :effect="activeSection === 'connectors' ? 'dark' : 'plain'" @click="activeSection = 'connectors'">业务连接器</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'budget' }" :effect="activeSection === 'budget' ? 'dark' : 'plain'" @click="activeSection = 'budget'">预算与准入</el-tag>
     </div>
+    <BudgetPanel v-if="activeSection === 'budget'" />
 
-    <el-alert v-if="summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
-    <p class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
+    <el-alert v-if="activeSection!=='budget'&&summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
+    <p v-if="activeSection!=='budget'" class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
 
-    <div class="analysis-hero management-hero">
+    <div v-if="activeSection!=='budget'" class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">价值分析 / 最近 {{ windowHours }} 小时</span>
         <h2>价值回路</h2>
@@ -45,7 +47,7 @@
       </div>
     </div>
 
-    <div class="management-flow-strip">
+    <div v-if="activeSection!=='budget'" class="management-flow-strip">
       <div class="management-flow-step">
         <span class="management-flow-index">01</span>
         <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
@@ -599,6 +601,7 @@ import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
 import TrendChart from '@/components/TrendChart.vue'
+import BudgetPanel from '@/components/BudgetPanel.vue'
 import type { EChartsOption } from 'echarts'
 import type {
   Agent,
@@ -642,8 +645,9 @@ const emptySummary: ManagementSummary = {
 const windowHours = ref(24)
 const selectedCurrency = ref('')
 const currencyOptions = computed(() => [...new Set([...summary.value.availableCurrencies, ...(selectedCurrency.value ? [selectedCurrency.value] : [])])].sort())
+const route = useRoute()
 let loadRequestId = 0
-const activeSection = ref<'overview' | 'attribution' | 'connectors' | 'value'>('overview')
+const activeSection = ref<'overview' | 'attribution' | 'connectors' | 'value' | 'budget'>(route.query.section==='budget'?'budget':'overview')
 const loading = ref(false)
 const saving = ref(false)
 const connectorSaving = ref(false)
@@ -723,7 +727,6 @@ function emptyConnectorForm(): ManagementConnectorRequest {
   }
 }
 const connectorForm = reactive<ManagementConnectorRequest>(emptyConnectorForm())
-const route = useRoute()
 const router = useRouter()
 const contextAgentId = computed(() => {
   const value = Number(route.query.agentId)

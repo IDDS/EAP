@@ -149,6 +149,10 @@ eap:
   # Agent Substrate runtime (docs/SUBSTRATE_RUNTIME_INTEGRATION.md). Only for a backend running in the
   # Substrate cluster: the token file is a projected service account token with audience api.ate-system.svc,
   # the CA file the servicedns.podcert.ate.dev ClusterTrustBundle.
+  optimization:
+    enabled: ${EAP_OPTIMIZATION_ENABLED:false}
+    worker-initial-delay-ms: ${EAP_OPTIMIZATION_WORKER_INITIAL_DELAY_MS:30000}
+
   substrate:
     enabled: ${EAP_SUBSTRATE_ENABLED:false}
     api-target: ${EAP_SUBSTRATE_API_TARGET:api.ate-system.svc:443}

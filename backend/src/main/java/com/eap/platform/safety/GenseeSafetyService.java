@@ -65,6 +65,16 @@ public class GenseeSafetyService {
 
     @Transactional
     public SafetyDtos.SafetyEvaluationResponse evaluate(SafetyDtos.SafetyEventRequest request) {
+        return evaluate(request,true);
+    }
+
+    /** Runtime tool arguments are inspected in memory and never persisted as safety payloads. */
+    @Transactional
+    public SafetyDtos.SafetyEvaluationResponse evaluateMetadata(SafetyDtos.SafetyEventRequest request) {
+        return evaluate(request,false);
+    }
+
+    private SafetyDtos.SafetyEvaluationResponse evaluate(SafetyDtos.SafetyEventRequest request,boolean retainPayload) {
         sessionRepository.findBySessionKey(request.sessionKey())
                 .orElseThrow(() -> new BusinessException("安全会话不存在"));
 
@@ -74,9 +84,9 @@ public class GenseeSafetyService {
         event.parentAgentId = request.parentAgentId();
         event.eventType = request.eventType();
         event.action = request.action();
-        event.target = request.target();
-        event.payloadSummary = request.payloadSummary();
-        event.payloadJson = request.payloadJson();
+        event.target = retainPayload ? request.target() : "tool://" + request.action();
+        event.payloadSummary = retainPayload ? request.payloadSummary() : "运行实例工具执行检查；参数不保存";
+        event.payloadJson = retainPayload ? request.payloadJson() : null;
         event = eventRepository.save(event);
 
         DecisionResult result = decide(request);

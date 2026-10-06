@@ -54,6 +54,8 @@ public final class SubstrateDeploymentDtos {
     public record InstanceResponse(String instanceKey, String name, Integer version, String state, String eapStatus, String detail) {
     }
 
+    public record CreateInstanceRequest(@NotBlank @Size(max=36) String requestKey) {}
+
     public record ChatRequest(@NotBlank @Size(max = 4000) String message) {
     }
 

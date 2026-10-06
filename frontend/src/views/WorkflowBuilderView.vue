@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid workflow-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <strong>智能体工作流</strong>
@@ -9,20 +9,23 @@
         <el-select v-model="selectedWorkflowId" class="agent-select" @change="loadWorkflow">
           <el-option v-for="workflow in workflows" :key="workflow.id" :label="`${workflow.name} · ${workflow.code}`" :value="workflow.id" />
         </el-select>
-        <el-button type="primary" :icon="VideoPlay" :loading="running" @click="runWorkflow">安全预演</el-button>
+        <el-button type="primary" :icon="VideoPlay" :loading="running" :disabled="!permissions.can('runWorkflows')" @click="runWorkflow">安全预演</el-button>
         <el-button :disabled="!selectedWorkflowId" @click="loadWorkflow">重新加载流程</el-button>
-        <el-button type="success" :disabled="!executionAvailability.enabled || !selectedWorkflowId" :loading="submittingExecution" @click="executeWorkflow">真实执行</el-button>
-        <el-button type="primary" :icon="Plus" @click="createWorkflow">新建工作流</el-button>
+        <el-button type="success" :disabled="!permissions.can('runWorkflows') || !executionAvailability.enabled || !selectedWorkflowId || hasUnsavedConfig || !!nodeConfigError" :loading="submittingExecution" @click="executeWorkflow">真实执行</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="!permissions.can('runWorkflows')" @click="createWorkflow">新建工作流</el-button>
       </div>
     </div>
 
+    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon>
+      <el-button @click="load">重新读取工作流</el-button>
+    </el-alert>
     <div class="workflow-view-tabs" aria-label="工作流视图">
       <button :class="{ active: workflowTab === 'design' }" @click="workflowTab = 'design'">流程设计</button>
       <button :class="{ active: workflowTab === 'runs' }" @click="workflowTab = 'runs'">执行过程 <span>{{ executions.length }}</span></button>
     </div>
     <template v-if="workflowTab === 'design'">
     <el-alert title="安全预演：检查节点策略与分支路径，不调用 Agent、不生成制品；预演通过不代表任务执行成功。" type="info" :closable="false" show-icon />
-    <el-alert :title="executionAvailability.message" :type="executionAvailability.enabled ? 'warning' : 'info'" :closable="false" />
+    <el-alert :title="executionAvailability.enabled ? '支持常规执行与隔离沙箱串行协作；结果未知时不会自动重试。' : executionAvailability.message" :type="executionAvailability.enabled ? 'warning' : 'info'" :closable="false" />
     <div class="button-row">
       <span>预演场景</span>
       <el-select v-model="previewSeverity" aria-label="预演严重程度" style="width: 140px">
@@ -38,7 +41,7 @@
           v-for="agent in agents"
           :key="agent.id"
           class="palette-agent"
-          draggable="true"
+          :draggable="permissions.can('runWorkflows')"
           @dragstart="onPaletteDrag(agent, $event)"
         >
           <strong>{{ agent.name }}</strong>
@@ -49,7 +52,7 @@
           v-for="node in systemNodes"
           :key="node.nodeType"
           class="palette-agent system"
-          draggable="true"
+          :draggable="permissions.can('runWorkflows')"
           @dragstart="onSystemDrag(node, $event)"
         >
           <strong>{{ node.label }}</strong>
@@ -95,7 +98,7 @@
           >
             <div class="node-type">{{ node.nodeType }}</div>
             <strong>{{ node.label }}</strong>
-            <span>{{ node.capability || 'system' }}</span>
+            <span>{{ nodeToolLabel(node) || node.capability || 'system' }}</span>
           </div>
         </div>
 
@@ -107,7 +110,7 @@
       <aside class="workflow-inspector">
         <div class="palette-title">节点配置</div>
         <template v-if="selectedNode">
-          <el-form label-position="top">
+          <el-form label-position="top" :disabled="!permissions.can('runWorkflows')">
             <el-form-item label="节点名称">
               <el-input v-model="selectedNode.label" />
             </el-form-item>
@@ -117,10 +120,23 @@
             <el-form-item label="能力">
               <el-input v-model="selectedNode.capability" />
             </el-form-item>
-            <el-form-item label="配置 JSON">
-              <el-input v-model="selectedNode.configJson" type="textarea" :rows="5" />
+            <el-form-item v-if="['AGENT','ARTIFACT'].includes(selectedNode.nodeType)" label="执行智能体">
+              <el-input :model-value="agents.find(agent => agent.id === selectedNode?.agentId)?.name || '尚未绑定（请从左侧拖入智能体）'" disabled />
             </el-form-item>
-            <el-button type="primary" :icon="Check" @click="saveSelectedNode">保存节点</el-button>
+            <el-form-item v-if="['AGENT','ARTIFACT'].includes(selectedNode.nodeType)" label="执行方式">
+              <el-select :model-value="nodeBackend" @change="setNodeBackend"><el-option label="常规执行" value="RUNTIME" /><el-option label="隔离沙箱" value="AX" :disabled="nodeHasTool" /></el-select>
+              <small v-if="nodeBackend === 'AX'">隔离沙箱默认执行模型任务，完成后自动休眠；可通过 inputFrom 接收上游结果。</small>
+            </el-form-item>
+            <WorkflowTaskConfig v-if="['AGENT','ARTIFACT'].includes(selectedNode.nodeType)" :key="`${selectedWorkflowId}:${selectedNode.nodeKey}`"
+              :model-value="selectedNode.configJson" :node-type="selectedNode.nodeType" :agent-id="selectedNode.agentId"
+              :disabled="!permissions.can('runWorkflows')" @update:model-value="setNodeConfig" />
+            <details class="advanced-node-config">
+              <summary>高级配置 JSON</summary>
+              <el-form-item label="节点配置"><el-input v-model="selectedNode.configJson" aria-label="节点配置 JSON" type="textarea" :rows="7" /></el-form-item>
+            </details>
+            <el-alert v-if="hasUnsavedConfig" title="节点配置尚未保存；请保存后再真实执行。" type="warning" :closable="false" />
+            <el-alert v-if="nodeConfigError" :title="nodeConfigError" type="error" :closable="false" />
+            <el-button type="primary" :icon="Check" :disabled="!permissions.can('runWorkflows') || !!nodeConfigError" @click="saveSelectedNode">保存节点</el-button>
           </el-form>
         </template>
         <el-empty v-else description="选择一个节点查看配置" />
@@ -161,6 +177,8 @@
         <el-table-column prop="reason" label="结果说明" min-width="220" />
       </el-table>
       <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
+      <PlanOutputs v-if="selectedExecution" :workflow-id="selectedExecution.workflowId" :run-key="selectedExecution.runKey"
+        :node-labels="Object.fromEntries(selectedExecution.steps.map(step => [step.nodeKey, step.label]))" />
       <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
         <el-table-column prop="label" label="节点" /><el-table-column prop="taskKey" label="任务标识" min-width="240" />
         <el-table-column prop="runtimeInstanceKey" label="运行实例" />
@@ -176,8 +194,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Plus, VideoPlay } from '@element-plus/icons-vue'
+import { usePermissions } from '@/stores/permissions'
 import { EapApi } from '@/api/eap'
 import ExecutionTimeline from '@/components/workflow/ExecutionTimeline.vue'
+import PlanOutputs from '@/components/workflow/PlanOutputs.vue'
+import WorkflowTaskConfig from '@/components/workflow/WorkflowTaskConfig.vue'
+import { toolConfigError } from '@/api/workflowTaskConfig'
 import type { Agent, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowRun, WorkflowExecution } from '@/types/domain'
 
 type DragPayload = {
@@ -187,14 +209,33 @@ type DragPayload = {
   capability?: string
 }
 
+const permissions = usePermissions()
 const canvasRef = ref<HTMLElement>()
 const workflowTab = ref('design')
 const workflows = ref<WorkflowDefinition[]>([])
+const loadError = ref('')
 const selectedWorkflowId = ref<number>()
 const agents = ref<Agent[]>([])
 const nodes = ref<WorkflowNode[]>([])
 const edges = ref<WorkflowEdge[]>([])
 const selectedNode = ref<WorkflowNode>()
+const savedNodeConfigs = ref<Record<string, string | undefined>>({})
+const hasUnsavedConfig = computed(() => nodes.value.some(node => node.configJson !== savedNodeConfigs.value[node.nodeKey]))
+const nodeConfigError = computed(() => nodes.value.map(node => toolConfigError(node.configJson, node.nodeType, node.agentId)).find(Boolean) || '')
+const nodeHasTool = computed(() => { try { return Object.hasOwn(JSON.parse(selectedNode.value?.configJson || '{}'), 'eapTool') } catch { return false } })
+function nodeToolLabel(node: WorkflowNode) {
+  try { return JSON.parse(node.configJson || '{}').eapTool?.name === 'calculate_sum' ? '工具 · 求和计算' : '' } catch { return '' }
+}
+function setNodeConfig(value: string) {
+  if (permissions.can('runWorkflows') && selectedNode.value && nodes.value.includes(selectedNode.value)) selectedNode.value.configJson = value
+}
+const nodeBackend = computed(() => { try { return JSON.parse(selectedNode.value?.configJson || '{}').executionBackend || 'RUNTIME' } catch { return '' } })
+function setNodeBackend(value: string) {
+  if (!selectedNode.value || !permissions.can('runWorkflows')) return
+  if (value === 'AX' && nodeHasTool.value) { ElMessage.error('请先将工具任务改为模型任务'); return }
+  try { const config = JSON.parse(selectedNode.value.configJson || '{}'); selectedNode.value.configJson = JSON.stringify({ ...config, executionBackend: value }, null, 2) }
+  catch { ElMessage.error('请先修正配置 JSON，再选择执行方式') }
+}
 const pendingSourceKey = ref<string>()
 const movingNode = ref<WorkflowNode>()
 const movingOffset = ref({ x: 0, y: 0 })
@@ -231,8 +272,10 @@ async function loadExecutions() {
   } finally { if (requestId === executionRequestId) executionsLoading.value = false }
 }
 async function executeWorkflow() {
+  if (!permissions.can('runWorkflows')) return
   const id = selectedWorkflowId.value
   if (!id || !executionAvailability.value.enabled || submittingExecution.value) return
+  if (hasUnsavedConfig.value || nodeConfigError.value) { ElMessage.error(nodeConfigError.value || '请先保存节点配置'); return }
   const revision = workflowRequestId
   submittingExecution.value = true
   try {
@@ -290,12 +333,17 @@ const blockedNodeKeys = computed(
 )
 
 async function load() {
-  const [nextAgents, nextWorkflows] = await Promise.all([EapApi.listAgents(), EapApi.listWorkflows()])
-  if (disposed) return
-  agents.value = nextAgents
-  workflows.value = nextWorkflows
-  selectedWorkflowId.value = nextWorkflows[0]?.id
-  await loadWorkflow()
+  loadError.value = ''
+  try {
+    const [nextAgents, nextWorkflows] = await Promise.all([EapApi.listAgents(), EapApi.listWorkflows()])
+    if (disposed) return
+    agents.value = nextAgents
+    workflows.value = nextWorkflows
+    selectedWorkflowId.value = nextWorkflows[0]?.id
+    await loadWorkflow()
+  } catch {
+    if (!disposed) loadError.value = '工作流加载失败，请确认登录状态后重试'
+  }
 }
 
 let workflowRequestId = 0
@@ -308,22 +356,30 @@ async function loadWorkflow() {
   running.value = false
   const workflowId = selectedWorkflowId.value
   nodes.value = []
+  savedNodeConfigs.value = {}
   edges.value = []
   selectedNode.value = undefined
   movingNode.value = undefined
   pendingSourceKey.value = undefined
   lastRun.value = undefined
   if (!workflowId) return
-  const detail = await EapApi.getWorkflow(workflowId)
-  if (disposed || requestId !== workflowRequestId || workflowId !== selectedWorkflowId.value) return
-  nodes.value = detail.nodes
-  edges.value = detail.edges
-  selectedNode.value = nodes.value[0]
-  pendingSourceKey.value = undefined
-  lastRun.value = undefined
+  loadError.value = ''
+  try {
+    const detail = await EapApi.getWorkflow(workflowId)
+    if (disposed || requestId !== workflowRequestId || workflowId !== selectedWorkflowId.value) return
+    nodes.value = detail.nodes
+    savedNodeConfigs.value = Object.fromEntries(detail.nodes.map(node => [node.nodeKey, node.configJson]))
+    edges.value = detail.edges
+    selectedNode.value = nodes.value[0]
+    pendingSourceKey.value = undefined
+    lastRun.value = undefined
+  } catch {
+    if (!disposed && requestId === workflowRequestId && workflowId === selectedWorkflowId.value) loadError.value = '流程读取失败，请重试'
+  }
 }
 
 function onPaletteDrag(agent: Agent, event: DragEvent) {
+  if (!permissions.can('runWorkflows')) return
   dragPayload.value = {
     nodeType: 'AGENT',
     label: agent.name,
@@ -334,11 +390,13 @@ function onPaletteDrag(agent: Agent, event: DragEvent) {
 }
 
 function onSystemDrag(node: DragPayload, event: DragEvent) {
+  if (!permissions.can('runWorkflows')) return
   dragPayload.value = node
   event.dataTransfer?.setData('text/plain', node.nodeType)
 }
 
 async function onCanvasDrop(event: DragEvent) {
+  if (!permissions.can('runWorkflows')) return
   if (!selectedWorkflowId.value || !canvasRef.value || !dragPayload.value || creatingNode.value) return
   const workflowId = selectedWorkflowId.value
   const revision = workflowRequestId
@@ -361,11 +419,13 @@ async function onCanvasDrop(event: DragEvent) {
     })
     if (disposed || workflowId !== selectedWorkflowId.value || revision !== workflowRequestId) return
     nodes.value.push(node)
+    savedNodeConfigs.value[node.nodeKey] = node.configJson
     selectedNode.value = node
   } finally { creatingNode.value = false }
 }
 
 function startNodeMove(node: WorkflowNode, event: MouseEvent) {
+  if (!permissions.can('runWorkflows')) return
   movingNode.value = node
   movedDuringDrag.value = false
   movingOffset.value = {
@@ -375,6 +435,7 @@ function startNodeMove(node: WorkflowNode, event: MouseEvent) {
 }
 
 function onNodeMove(event: MouseEvent) {
+  if (!permissions.can('runWorkflows')) return
   if (!movingNode.value || !canvasRef.value) return
   const rect = canvasRef.value.getBoundingClientRect()
   movedDuringDrag.value = true
@@ -383,10 +444,12 @@ function onNodeMove(event: MouseEvent) {
 }
 
 async function stopNodeMove() {
+  if (!permissions.can('runWorkflows')) return
   if (!selectedWorkflowId.value || !movingNode.value) return
   const node = movingNode.value
   movingNode.value = undefined
   if (!movedDuringDrag.value) return
+  const config = node.configJson
   const saved = await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
     expectedVersion: node.version,
     nodeKey: node.nodeKey,
@@ -399,9 +462,11 @@ async function stopNodeMove() {
     configJson: node.configJson,
   })
   node.version = saved.version
+  if (nodes.value.includes(node)) savedNodeConfigs.value[node.nodeKey] = config
 }
 
 async function selectOrConnect(node: WorkflowNode) {
+  if (!permissions.can('runWorkflows')) { selectedNode.value = node; pendingSourceKey.value = undefined; return }
   if (!selectedWorkflowId.value || creatingEdge.value || !nodes.value.includes(node)) return
   if (movedDuringDrag.value) {
     movedDuringDrag.value = false
@@ -436,6 +501,7 @@ async function selectOrConnect(node: WorkflowNode) {
 }
 
 async function runWorkflow() {
+  if (!permissions.can('runWorkflows')) return
   if (!selectedWorkflowId.value) return
   const workflowId = selectedWorkflowId.value
   const revision = workflowRequestId
@@ -456,10 +522,13 @@ async function runWorkflow() {
 }
 
 async function saveSelectedNode() {
+  if (!permissions.can('runWorkflows')) return
+  if (nodeConfigError.value) { ElMessage.error(nodeConfigError.value); return }
   if (!selectedWorkflowId.value || !selectedNode.value || !nodes.value.includes(selectedNode.value)) return
   const workflowId = selectedWorkflowId.value
   const revision = workflowRequestId
   const node = selectedNode.value
+  const config = node.configJson
   const saved = await EapApi.upsertWorkflowNode(selectedWorkflowId.value, {
     expectedVersion: node.version,
     nodeKey: node.nodeKey,
@@ -472,10 +541,12 @@ async function saveSelectedNode() {
     configJson: node.configJson,
   })
   node.version = saved.version
+  if (nodes.value.includes(node)) savedNodeConfigs.value[node.nodeKey] = config
   if (!disposed && workflowId === selectedWorkflowId.value && revision === workflowRequestId && selectedNode.value === node) ElMessage.success('节点已保存')
 }
 
 async function createWorkflow() {
+  if (!permissions.can('runWorkflows')) return
   const revision = workflowRequestId
   const created = await EapApi.createWorkflow({
     code: `FLOW-${Date.now()}`,
@@ -493,6 +564,7 @@ async function createWorkflow() {
   pendingSourceKey.value = undefined
   selectedWorkflowId.value = created.id
   nodes.value = []
+  savedNodeConfigs.value = {}
   edges.value = []
   selectedNode.value = undefined
 }
@@ -522,6 +594,10 @@ function runStatusLabel(status: string) {
     FAILED_LOOP_GUARD: '超过预演步数限制' } as Record<string, string>)[status] || status
 }
 
+watch(() => permissions.can('runWorkflows'), allowed => {
+  if (!allowed) { movingNode.value = undefined; pendingSourceKey.value = undefined; dragPayload.value = undefined }
+}, { flush: 'sync' })
+
 onMounted(() => {
   void load()
   EapApi.workflowExecutionStatus().then(value => { if (!disposed) executionAvailability.value = value })
@@ -534,5 +610,23 @@ onUnmounted(() => { disposed = true; ++executionRequestId; ++workflowRequestId; 
 </script>
 
 <style scoped>
+.advanced-node-config { margin: 12px 0 18px; }
+.advanced-node-config summary { cursor: pointer; margin-bottom: 12px; color: var(--el-text-color-secondary); }
 .workflow-view-tabs{display:flex;border-bottom:1px solid #dbe3eb;gap:8px}.workflow-view-tabs button{font:inherit;border:0;border-bottom:3px solid transparent;background:none;min-height:44px;padding:12px 20px;color:#526175;cursor:pointer}.workflow-view-tabs button.active{color:#176b9b;font-weight:600;border-bottom-color:#2683b8}.workflow-view-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.workflow-view-tabs span{font-size:12px;border-radius:4px;background:#e8eef4;padding:2px 6px;margin-left:8px}
+
+@media (max-width: 1100px) {
+  .workflow-builder { grid-template-columns: minmax(0, 1fr); max-height: none; }
+  .workflow-palette { max-height: 230px; overflow: auto; }
+  .workflow-canvas { min-height: 420px; height: 420px; }
+  .workflow-inspector { overflow: visible; border-left: 0; }
+}
+@media (max-width: 760px) {
+  .workflow-page, .workflow-page > *, .workflow-builder > * { min-width: 0; max-width: 100%; }
+  .button-row { flex-wrap: wrap; align-items: center; }
+  .button-row .el-button { margin-left: 0; }
+  .agent-select { width: 100%; min-width: 0; }
+  .button-row .el-checkbox { height: auto; white-space: normal; }
+  .button-row :deep(.el-checkbox__label) { white-space: normal; overflow-wrap: anywhere; }
+  .workflow-view-tabs button { padding: 12px; }
+}
 </style>

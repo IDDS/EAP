@@ -15,14 +15,16 @@
       <el-tag :class="{ 'is-active': activeSection === 'identity' }" :effect="activeSection === 'identity' ? 'dark' : 'plain'" @click="activeSection = 'identity'">身份关联</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">资产清单</el-tag>
       <el-tag :class="{ 'is-active': activeSection === 'runtime' }" :effect="activeSection === 'runtime' ? 'dark' : 'plain'" @click="activeSection = 'runtime'">运行时注册</el-tag>
+      <el-tag :class="{ 'is-active': activeSection === 'environment' }" :effect="activeSection === 'environment' ? 'dark' : 'plain'" @click="activeSection = 'environment'">运行环境发现</el-tag>
     </div>
 
+    <RuntimeInventoryPanel v-if="activeSection === 'environment'" />
     <div v-show="activeSection === 'discovery'" class="registry-section-stack">
     <el-alert
       type="info"
       :closable="false"
       show-icon
-      title="EAP 仅负责控制、分析与审批；各机器上的独立 Discovery Agent 执行本机扫描并主动上报。"
+      title="端点探针主动上报本机发现数据；托管运行实例可在“运行环境发现”中直接查询并复核纳管。"
     />
 
     <div v-if="drilldownLabel" class="drilldown-context">
@@ -511,6 +513,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
+import RuntimeInventoryPanel from '@/components/RuntimeInventoryPanel.vue'
 import { useRoute, useRouter } from 'vue-router'
 import type {
   Agent,
@@ -555,7 +558,7 @@ const identityPage = ref(1)
 const identityPageSize = ref(20)
 const assetPage = ref(1)
 const assetPageSize = ref(20)
-const activeSection = ref<'discovery' | 'probes' | 'identity' | 'assets' | 'runtime'>('discovery')
+const activeSection = ref<'discovery' | 'probes' | 'identity' | 'assets' | 'runtime' | 'environment'>('discovery')
 const onlineProbeCount = computed(() => probeAgents.value.filter(item => item.status === 'ONLINE').length)
 const contentEnabledProbeCount = computed(() => probeAgents.value.filter(item => item.contentCaptureEnabled).length)
 const fingerprintReviewCount = computed(() => probeAgents.value.filter(item => item.fingerprintReviewRequired).length)
@@ -586,6 +589,9 @@ const protocolForm = reactive({
 })
 const route = useRoute()
 const router = useRouter()
+watch(() => route.query.section, section => {
+  if (section === 'environment') activeSection.value='environment'
+}, { immediate:true })
 const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
 const drilldownLabel = computed(() => contextEndpointKey.value ? `端点 ${contextEndpointKey.value}` : '')
 const visibleDiscoveryEndpoints = computed(() => contextEndpointKey.value

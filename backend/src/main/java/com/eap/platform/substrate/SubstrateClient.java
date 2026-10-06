@@ -10,6 +10,12 @@ import java.util.Map;
 public interface SubstrateClient {
     ActorState get(SubstrateActorRef actor);
 
+    /** Metadata only: never return template environment, command arguments or credentials. */
+    default ActorInventory inspect(SubstrateActorRef actor) { throw new SubstrateException("UNIMPLEMENTED", "实例发现未实现"); }
+    default ActorPage listActors(String atespace, String pageToken) { throw new SubstrateException("UNIMPLEMENTED", "实例发现未实现"); }
+    record ActorInventory(String atespace, String name, String uid, String template, String state) {}
+    record ActorPage(List<ActorInventory> actors, String nextPageToken) {}
+
     ActorState suspend(SubstrateActorRef actor);
 
     /** Returns only after every container wakeup probe has succeeded. */
@@ -27,6 +33,11 @@ public interface SubstrateClient {
 
     /** Creates a suspended actor; the first request or ResumeActor wakes it. */
     ActorState createActor(SubstrateActorRef actor, String template);
+
+    /** Returns server identity from the creation response; never reconstruct ownership from its name. */
+    default ActorInventory createActorWithIdentity(SubstrateActorRef actor, String template) {
+        throw new SubstrateException("UNIMPLEMENTED", "带身份的实例创建未实现");
+    }
 
     /** Deletes an actor in any state, including one stuck mid-operation. */
     void deleteActor(SubstrateActorRef actor);
@@ -47,7 +58,12 @@ public interface SubstrateClient {
      */
     record TemplateSpec(String atespace, String name, String image, List<String> command, Map<String, String> env,
                         String wakeupPath, int wakeupPort, String cpu, String memory, boolean microVm,
-                        Map<String, String> workerLabels, String snapshotLocation) {
+                        Map<String, String> workerLabels, String snapshotLocation, boolean projectIdentity) {
+        public TemplateSpec(String atespace, String name, String image, List<String> command, Map<String,String> env,
+                String wakeupPath, int wakeupPort, String cpu, String memory, boolean microVm,
+                Map<String,String> workerLabels, String snapshotLocation) {
+            this(atespace,name,image,command,env,wakeupPath,wakeupPort,cpu,memory,microVm,workerLabels,snapshotLocation,false);
+        }
     }
 
     /** A failed Control API call; {@code code} is the gRPC status code name, e.g. RESOURCE_EXHAUSTED. */

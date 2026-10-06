@@ -1,7 +1,7 @@
 <template>
   <div class="substrate-deploy">
     <el-alert v-if="capabilities && !capabilities.enabled" type="warning" :closable="false" show-icon
-      title="Substrate 运行时未启用：请联系平台管理员配置 EAP_SUBSTRATE_ENABLED。" />
+      title="托管运行环境未启用，请联系平台管理员启用。" />
 
     <el-card shadow="never" class="panel">
       <template #header>
@@ -17,6 +17,7 @@
         </el-form-item>
 
         <template v-if="form.sourceType === 'RUNNER'">
+          <p class="muted">创建后自动配置专属实例身份，接入授权有效期为24小时；任务派发前按需续期短期凭证，撤销后停止派发。</p>
           <el-form-item label="系统提示词">
             <el-input v-model="form.systemPrompt" type="textarea" :rows="4" maxlength="8000" show-word-limit
               placeholder="描述 Agent 的角色、能力和回答要求，例如：你是财务助手，只回答报销制度相关问题。" />
@@ -54,7 +55,7 @@
           </el-form-item>
           <el-form-item label="启动命令">
             <el-input v-model="form.command" type="textarea" :rows="2" placeholder="每行一个参数；留空使用镜像默认命令" />
-            <span class="field-hint no-margin">注意：Substrate 始终在根目录 / 启动进程，不使用镜像的 WORKDIR；依赖相对路径的程序请在命令中写绝对路径，例如 serve -s /app/build。</span>
+            <span class="field-hint no-margin">注意：运行环境始终在根目录 / 启动进程，不使用镜像的 WORKDIR；依赖相对路径的程序请在命令中写绝对路径，例如 serve -s /app/build。</span>
           </el-form-item>
         </template>
 
@@ -100,12 +101,12 @@
         <div class="deployment-head">
           <strong>v{{ deployment.version }}</strong>
           <el-tag size="small" effect="plain">{{ sourceLabel(deployment.sourceType) }}</el-tag>
-          <el-tag size="small" :type="progress(deployment.status, deployment.sourceType).tone">{{ progress(deployment.status, deployment.sourceType).label }}</el-tag>
+          <el-tag size="small" :type="progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).tone">{{ progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).label }}</el-tag>
           <span class="muted">{{ deployment.requestedBy }} · {{ formatTime(deployment.createdAt) }}</span>
         </div>
-        <el-steps :active="deployment.status === 'FAILED' ? failedStageIndex(deployment.steps, deployment.sourceType) : progress(deployment.status, deployment.sourceType).active"
-          :process-status="progress(deployment.status, deployment.sourceType).state" finish-status="success" simple>
-          <el-step v-for="stage in deployStages(deployment.sourceType)" :key="stage" :title="stage" />
+        <el-steps :active="deployment.status === 'FAILED' ? failedStageIndex(deployment.steps, deployment.sourceType, String(deployment.config.identityMode ?? '')) : progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).active"
+          :process-status="progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).state" finish-status="success" simple>
+          <el-step v-for="stage in deployStages(deployment.sourceType, String(deployment.config.identityMode ?? ''))" :key="stage" :title="stage" />
         </el-steps>
         <p v-if="deployment.reason" class="deployment-reason">
           {{ deployment.reason }}
@@ -134,11 +135,12 @@
         <div class="panel-header">
           <span>运行实例</span>
           <span>
-            <el-button size="small" :loading="creating" :disabled="!actions.createInstance || !hasReadyVersion" @click="createInstance">新建实例</el-button>
+            <el-button size="small" :loading="creating" :disabled="!actions.createInstance || !hasReadyVersion" @click="createInstance">{{ pendingCreation ? '核对原创建请求' : '新建实例' }}</el-button>
             <el-button link type="primary" @click="loadInstances">刷新</el-button>
           </span>
         </div>
       </template>
+      <p v-if="!hasReadyVersion" class="muted">新建会话需要当前版本支持专属实例身份</p>
       <el-table v-loading="instancesLoading" :data="instances" size="small">
         <el-table-column prop="name" label="实例" min-width="170" />
         <el-table-column label="版本" width="80"><template #default="{ row }">{{ row.version ? `v${row.version}` : '—' }}</template></el-table-column>
@@ -147,11 +149,11 @@
         </el-table-column>
         <el-table-column label="操作" min-width="300">
           <template #default="{ row }">
-            <el-button link type="primary" :disabled="!actions.chat" @click="openChat(row)">试运行</el-button>
+            <el-button v-if="row.version != null" link type="primary" :disabled="!actions.chat" @click="openChat(row)">试运行</el-button>
             <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'RESUME'" @click="control(row, 'RESUME')">唤醒</el-button>
             <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'PAUSE'" @click="control(row, 'PAUSE')">休眠</el-button>
-            <el-button v-if="row.state === 'CRASHED'" link type="warning" :disabled="!actions.control" :loading="busy === row.instanceKey + 'REVERT'" @click="control(row, 'REVERT')">回退</el-button>
-            <el-button link type="danger" :disabled="!actions.remove" @click="remove(row)">删除</el-button>
+            <el-button v-if="row.version != null && row.state === 'CRASHED'" link type="warning" :disabled="!actions.control" :loading="busy === row.instanceKey + 'REVERT'" @click="control(row, 'REVERT')">回退</el-button>
+            <el-button v-if="row.version != null" link type="danger" :disabled="!actions.remove" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -209,11 +211,13 @@ const chatting = ref(false)
 const chatMessages = ref<{ role: 'user' | 'agent' | 'error'; text: string }[]>([])
 // Reused while a submission's outcome is uncertain, so a retry cannot create a second version.
 let pendingRequestKey = ''
+const creationStorageKey = () => 'eap.instance.create.' + props.agentId + '.' + permissions.state.user?.subject
+const pendingCreation = ref(globalThis.sessionStorage?.getItem(creationStorageKey()) || '')
 let timer: ReturnType<typeof setInterval> | undefined
 
 const progress = deploymentProgress
 const actorState = actorStateLabel
-const hasReadyVersion = computed(() => deployments.value.some(item => item.status === 'READY'))
+const hasReadyVersion = computed(() => deployments.value.find(item => item.status === 'READY')?.config.identityMode === 'PER_INSTANCE_V1')
 
 function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : ''
@@ -287,10 +291,18 @@ async function retry(deployment: SubstrateDeployment) {
 async function createInstance() {
   if (!actions.value.createInstance) return
   creating.value = true
+  const agentId=props.agentId,user=permissions.state.user,storageKey=creationStorageKey()
   try {
-    const instance = await SubstrateApi.createInstance(props.agentId)
+    pendingCreation.value ||= crypto.randomUUID()
+    sessionStorage.setItem(storageKey, pendingCreation.value)
+    const instance = await SubstrateApi.createInstance(agentId, pendingCreation.value)
+    sessionStorage.removeItem(storageKey)
+    if(user!==permissions.state.user||agentId!==props.agentId||!actions.value.createInstance)return
+    pendingCreation.value = ''
     ElMessage.success(`已创建实例 ${instance.name}`)
     await loadInstances()
+  } catch {
+    ElMessage.warning('创建结果未确认，已保留原请求；再次点击核对，不会创建另一个实例')
   } finally { creating.value = false }
 }
 
@@ -345,7 +357,8 @@ onMounted(async () => {
   if (capabilities.value && !capabilities.value.runnerAvailable) form.sourceType = 'IMAGE'
   await load()
 })
-watch(() => props.agentId, () => { deployments.value = []; instances.value = []; void load() })
+watch(() => permissions.state.user, () => { pendingCreation.value = globalThis.sessionStorage?.getItem(creationStorageKey()) || '' })
+watch(() => props.agentId, () => { pendingCreation.value = globalThis.sessionStorage?.getItem(creationStorageKey()) || '';  deployments.value = []; instances.value = []; void load() })
 onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
@@ -373,6 +386,9 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 .chat-message.error { align-self: center; color: var(--el-color-danger); font-size: 12px; }
 .chat-input { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 @media (max-width: 640px) {
+  .deployment-item :deep(.el-steps--simple) { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .deployment-item :deep(.el-step.is-simple) { max-width: none !important; width: 100%; }
+  .deployment-item :deep(.el-step__arrow) { display: none; }
   .env-row { grid-template-columns: 1fr; }
   .inline-input, .short-input { width: 100%; margin: 8px 0 0; }
 }

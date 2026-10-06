@@ -110,7 +110,7 @@
   - EAP 设置 `EAP_WORKFLOW_EXECUTION_READ_TIMEOUT_MS=900000`，原默认 10 秒不足以等待模型回答。
   - 调整后，EAP 工作流派发一个 600 秒任务，经路由器同步等待，10 分 1 秒后 SUCCEEDED [已验证]。
 - 注意：路由器滚动升级或重启时，只有约 10 秒排空时间，正在执行的长任务会被中断，EAP 记为 `EXECUTION_UNKNOWN`（源码注释：长请求不随升级保留）。
-  - 当前同步协议可以支持 15 分钟以内的任务，暂不需要 V2 异步协议。
+  - 历史 600 秒成功只能证明该时长。2026-09-27 补测确认 900 秒任务会到达 EAP 整条工作流期限并进入 EXECUTION_UNKNOWN；直接经路由器 900 秒成功。详见 LONG_TASK_TIMEOUT.md，不能承诺完整 15 分钟任务成功。
   - 若任务更长，或者需要跨过路由器升级，再改为 `EAP_HTTP_TASK_V2`：提交后返回 202，再轮询状态。
 
 ### 4.3 观测：OTLP 汇入 EAP，并带上身份
@@ -307,7 +307,7 @@
     - Substrate 总是以 `/` 为工作目录启动进程，不使用镜像的 WORKDIR（`internal/ocispec` 写死 `Cwd: "/"`）。依赖相对路径的程序需要在启动命令里写绝对路径，前端已加提示。
     - 路由器的普通 HTTP 请求只转发到 actor 的 80 端口，其他端口只能经 CONNECT 隧道访问。任务派发和试运行都走普通 HTTP，所以部署的 agent 应监听 80，前端已加提示。
 - **未完成：**
-  - 长任务超时实测；
+  - 长任务 30/300/900 秒边界已补测，故障/升级中断和真实长模型生成仍未测试；
   - agent 的任务令牌目前以明文写在 ActorTemplate 中（Substrate 限制，见第 8 节），PoC 可接受，生产环境需改用第 4.4 节的注入方案。
 
 环境：上述两节点集群。EAP 部署在同一集群，以避免跨网络问题；部署前先清理不再使用的 demo 和压测组件，腾出资源。
@@ -333,3 +333,32 @@
 - Substrate 源码：`pkg/proto/ateapipb/ateapi.proto`（Control API）、`docs/api-guide.md`、`docs/network-egress.md`、`docs/egress-traffic.md`、`docs/egress-trust-bundle.md`、`demos/egress/README.md`。
 - EAP 源码：`control/AgentControlAdapter.java`、`control/HttpAgentControlAdapter.java`、`workflow/WorkflowExecutionService.java`、`gateway/OpenAiCompatibleGatewayController.java`、`observability/OtlpTraceIngestionController.java`；文档 [`WORKFLOW_EXECUTION.md`](WORKFLOW_EXECUTION.md)、[`PROJECT_MEMORY.md`](PROJECT_MEMORY.md)。
 - 同类开源方案：kagent（CNCF 沙箱项目，其官方博客称运行时将全面迁往 Substrate）；Google AX / Agent Executor（基于 Substrate 的任务型编排器，README 声明正式版前还会有重大变更）。
+
+
+### 2026-09-27 Codex：串行多 Agent 真实验收
+
+工作流已支持显式 inputFrom、受内容权限控制的输出读取及可选 suspendAfterTask。两独立 actor 实测完成上游产出、下游复核、自动休眠，并关联 taskKey、Agent Span 和网关模型调用；后端 264/264、Runner 2/2。解决了容量占用导致第二 actor 唤醒失败，以及 JWT 切换后未配置/注入 OTLP 机器凭证的实际缺口。原有 demo 模板未升级。
+
+P2 仅完成串行工作流协作基础，Team/Plan 自动执行仍待实现；P3 后台空闲休眠、并发容量调度、生产身份注入和回滚验收仍未完成。详细协议见 WORKFLOW_EXECUTION.md，当前部署与证据见 PROJECT_MEMORY.md 最新进展及 K8Substrate artifacts/eap-multi-agent-20260927/。
+
+
+### 2026-09-27 Codex：Team/Plan 串行自动执行
+
+P2 的 Team/Plan 执行桥接已完成：冻结计划→持久化工作流→两个独立 actor 结果交接→后台回写状态，真实集群验收 PASS；四并发提交只有一个运行，任务与模型调用可追溯，完成后两个 actor 休眠。远程后端 272/272、前端 89/89 与构建通过，MySQL V49 已应用。协议及边界见 PLAN_EXECUTION.md，证据在 K8Substrate artifacts/eap-plan-20260927/。
+
+这一进展替代上一节“Team/Plan 待实现”的历史状态；并行编排、通用计划编辑器、原始结果 UI 和 P3 生产能力仍待推进，不能据此宣称完整生产集成。
+
+
+### 2026-09-27 Codex：计划表单与结果查看
+
+前端已支持真实填写计划/步骤、分配成员，以及按 VIEW_CONTENT 主动查看原始结果；四角色浏览器和前端 95/95 通过。已保存文本修改/删除、并行与 P3 能力仍待完成。详见 PLAN_EXECUTION.md 与 PROJECT_MEMORY.md 最新进展。
+
+
+### 2026-09-27 Codex：长任务边界补测
+
+30 秒/300 秒工作流成功；900 秒在 900.006 秒处进入 EXECUTION_UNKNOWN，actor 最终完成且重放不重复执行。直接路由 900 秒为 200。独立 Agent 12 已休眠。精确证据、配置与协议决策见 [LONG_TASK_TIMEOUT.md](LONG_TASK_TIMEOUT.md)。
+
+
+### Substrate 监控进展（2026-09-28）
+
+已上线只读运行监控与实例下钻，远程后端 279/279、前端 99/99、四角色 API/浏览器验收通过。指标为池/模板聚合，空缺不当零；监控、权限与测试边界见 SUBSTRATE_MONITORING.md。历史日志、基础设施 Trace 自动关联、自动告警和容量操作仍未接入。AX 仅完成可行性评估，尚未部署。

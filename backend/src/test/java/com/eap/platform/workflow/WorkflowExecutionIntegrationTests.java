@@ -32,6 +32,7 @@ class WorkflowExecutionIntegrationTests {
     static HttpServer server;
     static final AtomicReference<String> reply = new AtomicReference<>("SUCCEEDED");
     static final AtomicReference<JsonNode> received = new AtomicReference<>();
+    static final AtomicReference<JsonNode> output = new AtomicReference<>();
     static final AtomicInteger delayMs = new AtomicInteger();
     static final AtomicInteger requests = new AtomicInteger();
     static final ObjectMapper json = new ObjectMapper();
@@ -42,6 +43,11 @@ class WorkflowExecutionIntegrationTests {
     @Autowired AgentRegistryService registry;
     @Autowired AgentRepository agents;
     @MockitoBean GenseeSafetyService safety;
+    @MockitoBean com.eap.platform.substrate.SubstrateClient substrateClient;
+    @Autowired com.eap.platform.substrate.SubstrateProperties substrateProperties;
+    @Autowired AgentRuntimeInstanceRepository runtimes;
+    @MockitoBean RuntimeConnectionService connections;
+    static final java.util.List<JsonNode> allReceived = new java.util.concurrent.CopyOnWriteArrayList<>();
     Long workflowId;
     Long agentId;
 
@@ -53,14 +59,22 @@ class WorkflowExecutionIntegrationTests {
                 exchange.sendResponseHeaders(401, -1); exchange.close(); return;
             }
             JsonNode request = json.readTree(exchange.getRequestBody());
-            received.set(request); requests.incrementAndGet();
+            received.set(request); allReceived.add(request); requests.incrementAndGet();
             String state = reply.get();
             try { Thread.sleep(delayMs.get()); } catch (InterruptedException exception) { Thread.currentThread().interrupt(); }
-            byte[] body = json.writeValueAsBytes(Map.of("taskKey", state.equals("WRONG_KEY") ? "wrong" : request.path("taskKey").asText(),
-                    "status", state));
+            Map<String, Object> response = new java.util.LinkedHashMap<>();
+            response.put("taskKey", state.equals("WRONG_KEY") ? "wrong" : request.path("taskKey").asText());
+            response.put("status", state);
+            if (request.path("context").has("eapTool")) response.put("tool", Map.of("state", "SUCCEEDED", "executed", true, "receiptConfirmed", true));
+            if (output.get() != null) response.put("output", output.get());
+            byte[] body = json.writeValueAsBytes(response);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.createContext("/eap/state", exchange -> {
+            byte[] body = "{\"tools\":{\"enabled\":true}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
         });
         server.start();
     }
@@ -68,7 +82,7 @@ class WorkflowExecutionIntegrationTests {
 
     @BeforeEach
     void setup() {
-        requests.set(0); delayMs.set(0); reply.set("SUCCEEDED");
+        allReceived.clear(); requests.set(0); delayMs.set(0); reply.set("SUCCEEDED"); output.set(null);
         allow(SafetyDecision.ALLOW);
         Agent agent = new Agent(); agent.setCode("WF-" + UUID.randomUUID()); agent.setName("Workflow test");
         agent.setOwnerDepartment("test"); agent.setOwnerUser("test"); agent.setCategory("test");
@@ -198,6 +212,205 @@ class WorkflowExecutionIntegrationTests {
         assertThat(other.runKey()).isNotEqualTo(keys.getFirst());
         executions.processNext();
         assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void handsOffOnlySelectedFrozenResultsAndKeepsRawContentOutOfMetadata() throws Exception {
+        output.set(json.readTree("{\"finding\":\"handoff-proof\"}"));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("collaborate", Map.of("request", "original")), "operator");
+        downstream("{}"); // Later edits must not remove a submitted handoff.
+        executions.processNext();
+        var result = executions.get(workflowId, queued.runKey());
+        assertThat(result.status()).isEqualTo("SUCCEEDED");
+        assertThat(requests.get()).isEqualTo(2);
+        var previous = received.get().path("context").path("eapPreviousResults").path("task");
+        assertThat(previous.path("output")).isEqualTo(output.get());
+        assertThat(previous.path("taskKey").asText()).isEqualTo(queued.runKey() + ":1");
+        assertThat(previous.path("agentId").asLong()).isEqualTo(agentId);
+        assertThat(previous.path("outputSha256").asText()).matches("[0-9a-f]{64}");
+        assertThat(received.get().path("context").path("request").asText()).isEqualTo("original");
+        assertThat(result.steps()).allMatch(step -> step.output() == null);
+        assertThat(executions.list(workflowId).getFirst().steps()).allMatch(step -> step.output() == null);
+        assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
+        verify(safety).evaluate(argThat(event -> event.payloadJson().contains("handoff-proof")));
+    }
+
+    @Test
+    void rejectsSpoofedContextAndInvalidOrForwardResultReferencesBeforeDispatch() {
+        assertThatThrownBy(() -> executions.submit(workflowId,
+                new WorkflowDtos.RunRequest("spoof", Map.of("eapPreviousResults", Map.of())), "operator"))
+                .isInstanceOf(BusinessException.class);
+        for (String config : new String[]{"{\"inputFrom\":[\"missing\"]}", "{\"inputFrom\":[\"end\"]}",
+                "{\"inputFrom\":[\"start\"]}", "{\"inputFrom\":[\"task\",\"task\"]}", "{\"inputFrom\":\"task\"}"}) {
+            downstream(config);
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("invalid"), "operator"))
+                    .isInstanceOf(BusinessException.class);
+        }
+        assertThat(requests.get()).isZero();
+    }
+
+    @Test
+    void absentOutputStopsDependentTaskButUnboundTasksRemainCompatible() {
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("missing output"), "operator");
+        executions.processNext();
+        assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("FAILED");
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(executions.outputs(workflowId, queued.runKey())).isEmpty();
+    }
+
+    @Test
+    void oversizedOutputIsUnknownAndNeverTruncatedOrForwarded() {
+        output.set(json.getNodeFactory().textNode("界".repeat(6000)));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("large output"), "operator");
+        executions.processNext();
+        assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(executions.outputs(workflowId, queued.runKey())).isEmpty();
+    }
+
+    @Test
+    void mergedPayloadLimitStopsBeforeDispatch() {
+        output.set(json.getNodeFactory().textNode("x".repeat(16000)));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("limit", Map.of("large", "x".repeat(45000))), "operator");
+        executions.processNext();
+        var result = executions.get(workflowId, queued.runKey());
+        assertThat(result.status()).isEqualTo("FAILED");
+        assertThat(result.reason()).contains("60KB");
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void downstreamGovernanceCanDenyActualMergedOutput() {
+        output.set(json.getNodeFactory().textNode("restricted-handoff"));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        when(safety.evaluate(any())).thenAnswer(invocation -> {
+            SafetyDtos.SafetyEventRequest event = invocation.getArgument(0);
+            SafetyDecision decision = event.payloadJson().contains("restricted-handoff") ? SafetyDecision.DENY : SafetyDecision.ALLOW;
+            return new SafetyDtos.SafetyEvaluationResponse(null,
+                    new SafetyDtos.DecisionResponse(1L, 1L, "test", decision, null, null, "test", null, null, null));
+        });
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("governed handoff"), "operator");
+        executions.processNext();
+        assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("BLOCKED");
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void suspendsSuccessfulActorBeforeDispatchingNextNode() {
+        configureSubstrateTask();
+        downstream("{}");
+        when(substrateClient.suspend(any())).thenAnswer(invocation -> {
+            assertThat(requests.get()).isEqualTo(1); // Next task cannot have been dispatched yet.
+            return new com.eap.platform.substrate.SubstrateClient.ActorState("SUSPENDED");
+        });
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("release capacity"), "operator");
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("SUCCEEDED");
+            assertThat(requests.get()).isEqualTo(2);
+            assertThat(result.steps().get(1).reason()).contains("已休眠");
+            var order = inOrder(substrateClient);
+            order.verify(substrateClient).resume(any());
+            order.verify(substrateClient).suspend(any());
+            order.verify(substrateClient).resume(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
+    void unconfirmedSuspendStopsNextTaskWithoutLosingCompletedOutput() {
+        configureSubstrateTask();
+        downstream("{}");
+        output.set(json.getNodeFactory().textNode("completed-result"));
+        when(substrateClient.suspend(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("RUNNING"));
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("release failed"), "operator");
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("休眠未确认");
+            assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
+            assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
+            assertThat(requests.get()).isEqualTo(1);
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
+    void unknownTaskResultMustNeverSuspendActor() {
+        configureSubstrateTask();
+        reply.set("RUNNING");
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("unknown"), "operator");
+            executions.processNext();
+            assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("EXECUTION_UNKNOWN");
+            verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
+    void rejectsSuspendForHttpRuntimeAndNonBooleanConfiguration() {
+        for (String config : new String[]{"{\"suspendAfterTask\":true}", "{\"suspendAfterTask\":\"true\"}"}) {
+            downstream(config);
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("invalid release"), "operator"))
+                    .isInstanceOf(BusinessException.class);
+        }
+        assertThat(requests.get()).isZero();
+    }
+
+    @Test
+    void savedToolsAreFrozenAndNeverLeakIntoOtherNodes() {
+        configureSubstrateTask();
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        org.springframework.test.util.ReflectionTestUtils.setField(runtime, "importedActorUid", "tool-fixture");
+        runtimes.save(runtime);
+        when(connections.executable(any())).thenReturn(true);
+        when(connections.dispatchToken(any())).thenReturn("local-test-secret");
+        when(substrateClient.inspect(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorInventory("test", "actor", "tool-fixture", "template", "RUNNING"));
+        String config = "{\"eapTool\":{\"name\":\"calculate_sum\",\"arguments\":{\"numbers\":[10,20,12]}}}";
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "calculate", "AGENT", agentId, null, 0, 0, config));
+        downstream("{}");
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("tool and model"), "operator");
+            node("task", "AGENT", agentId);
+            executions.processNext();
+            assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("SUCCEEDED");
+            assertThat(allReceived).hasSize(2);
+            assertThat(allReceived.get(0).path("context").path("eapTool").path("arguments").path("numbers").toString()).isEqualTo("[10,20,12]");
+            assertThat(allReceived.get(1).path("context").has("eapTool")).isFalse();
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
+    void globalToolsAndSharedCredentialRuntimesCannotQueueNewToolTasks() {
+        assertThatThrownBy(() -> executions.submit(workflowId,
+                new WorkflowDtos.RunRequest("invalid", Map.of("eapTool", Map.of("name", "calculate_sum"))), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("节点配置");
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "tool", "AGENT", agentId, null, 0, 0,
+                "{\"eapTool\":{\"name\":\"calculate_sum\",\"arguments\":{\"numbers\":[1]}}}"));
+        assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("invalid"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("实例专属接入");
+        assertThat(executions.list(workflowId)).isEmpty();
+        assertThat(requests.get()).isZero();
+    }
+
+    private void configureSubstrateTask() {
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
+                "substrate://test/actor", "SUBSTRATE", false));
+        substrateProperties.setEnabled(true);
+        substrateProperties.setRouterUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        substrateProperties.setTaskPath("/tasks");
+        when(substrateClient.resume(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("RUNNING"));
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "task", "AGENT", agentId, null, 0, 0,
+                "{\"suspendAfterTask\":true}"));
+    }
+
+    private void downstream(String config) {
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("end", "consumer", "AGENT", agentId, null, 0, 0, config));
     }
 
     private void allow(SafetyDecision decision) {

@@ -1,0 +1,17 @@
+{
+  "internal/controller/actor_identity.go": null,
+  "internal/controller/actor_identity_test.go": null,
+  "internal/controller/reconciler.go": "081b6f2ffdb1574960e735b2dc806fc0ed435e53e90151007c682ea6bf2b0387",
+  "internal/controller/worker.go": "d8ed22340127fbb263f8604331c050828524b98f0a99599b4fc1adc1fb7f2318",
+  "internal/server/actor_identity_test.go": null,
+  "internal/server/server.go": "2353cd2239ce78a300e2ca1e89caa72f7e3c13d69db8591419156d01cec257fa",
+  "internal/store/actor_identity.go": null,
+  "internal/store/memory/actor_identity.go": null,
+  "internal/store/memory/actor_identity_test.go": null,
+  "internal/store/memory/store.go": "8c9bc5ad4aa0d994c01663b8b8faeab67e20c83c2893606dd6de7c505ec8e13a",
+  "internal/store/redis/actor_identity.go": null,
+  "internal/store/redis/actor_identity_test.go": null,
+  "internal/substrate/client.go": "7e33c4a79d38c98359ea4914008d3ea9c2227028984b6da101efd33ec811fbd9",
+  "internal/substrate/identity.go": null,
+  "internal/substrate/identity_test.go": null
+}

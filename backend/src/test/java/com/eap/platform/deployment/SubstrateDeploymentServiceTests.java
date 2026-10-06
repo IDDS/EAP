@@ -43,16 +43,22 @@ class SubstrateDeploymentServiceTests {
     private final ImageBuilder builder = mock(ImageBuilder.class);
     private final SubstrateProperties properties = new SubstrateProperties();
     private final WorkflowExecutionProperties workflow = new WorkflowExecutionProperties();
+    private final com.eap.platform.observability.ObservationProperties observation = new com.eap.platform.observability.ObservationProperties();
     private SubstrateDeploymentService service;
     private SubstrateDeployment stored;
+    private final PlatformRuntimeCreationService owned=mock(PlatformRuntimeCreationService.class);
+    private final com.eap.platform.registry.RuntimeConnectionProperties identity=new com.eap.platform.registry.RuntimeConnectionProperties();
 
     @BeforeEach
     void setUp() {
+        identity.setSigningKey("synthetic-unit-identity-signing-material");identity.setDeliveryPrivateKey("synthetic-test-private");identity.setDeliveryPublicKey("synthetic-test-public");
+        when(owned.create(any(),anyString(),any())).thenReturn("eap-agents/a7-v1-123456789abc");
         properties.setEnabled(true);
         properties.setRunnerImage(RUNNER);
         properties.setGatewayUrl("http://backend.eap.svc.cluster.local:8080");
         properties.setGatewayHost("backend.eap.svc.cluster.local");
         properties.setGatewayToken("gateway-token");
+        observation.setIngestionToken("observation-test-token");
         workflow.setEnabled(true);
         workflow.setToken("task-token");
         workflow.setAllowedHosts("atenet-router.ate-system.svc");
@@ -72,7 +78,7 @@ class SubstrateDeploymentServiceTests {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service = new SubstrateDeploymentService(repository, agents, runtimes, registry, client,
-                properties, workflow, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions);
+                properties, workflow, observation, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions,owned,identity,mock(com.eap.platform.registry.RuntimeConnectionService.class));
     }
 
     @Test
@@ -81,14 +87,15 @@ class SubstrateDeploymentServiceTests {
         assertThat(response.status()).isEqualTo("QUEUED");
         assertThat(response.templateName()).isEqualTo("eap-a7-v1");
         assertThat(response.imageRef()).isEqualTo(RUNNER);
-        assertThat(stored.configJson).doesNotContain("task-token").doesNotContain("gateway-token");
+        assertThat(stored.configJson).doesNotContain("task-token").doesNotContain("gateway-token").doesNotContain("observation-test-token");
         when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
 
         service.processNext();
         ArgumentCaptor<SubstrateClient.TemplateSpec> spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);
         verify(client).createTemplate(spec.capture());
-        assertThat(spec.getValue().env()).containsEntry("EAP_TASK_TOKEN", "task-token").containsEntry("EAP_GATEWAY_TOKEN", "gateway-token")
-                .containsEntry("AGENT_MODEL", "deepseek-flash").containsEntry("EAP_AGENT_ID", "7").containsEntry("TONE", "formal");
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+        assertThat(spec.getValue().env()).doesNotContainKeys("EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN", "EAP_OBSERVABILITY_TOKEN")
+                .containsEntry("EAP_IDENTITY_PUBLIC_KEY", "synthetic-test-public").containsEntry("EAP_IDENTITY_DIRECTORY", "/run/eap-identity").containsEntry("AGENT_MODEL", "deepseek-flash").containsEntry("EAP_AGENT_ID", "7").containsEntry("TONE", "formal");
         assertThat(stored.status).isEqualTo("BUILDING_GOLDEN");
 
         when(client.goldenStatus("eap-agents", "eap-a7-v1")).thenReturn(new SubstrateClient.GoldenStatus(true, null));
@@ -96,10 +103,37 @@ class SubstrateDeploymentServiceTests {
         assertThat(stored.status).isEqualTo("CREATING_INSTANCE");
 
         service.processNext();
+        assertThat(stored.status).isEqualTo("CONNECTING_IDENTITY");
+        service.processNext();
+        verify(owned).connect(eq(stored),eq(stored.deploymentKey.substring(4)),anyString());
         assertThat(stored.status).isEqualTo("READY");
-        assertThat(stored.instanceKey).matches("eap-agents/a7-v1-[a-z0-9]{6}");
-        verify(client).setEgressHostnames(any(SubstrateActorRef.class), org.mockito.ArgumentMatchers.eq(List.of("backend.eap.svc.cluster.local")));
-        verify(registry).registerRuntime(org.mockito.ArgumentMatchers.eq(7L), any());
+        assertThat(stored.instanceKey).matches("eap-agents/a7-v1-[a-z0-9]{12}");
+        verify(owned).create(eq(stored),eq(stored.deploymentKey.substring(4)),eq(List.of("backend.eap.svc.cluster.local")));
+        verify(registry,never()).registerRuntime(any(),any());
+    }
+
+    @Test void newRunnerFailsClosedWithoutDeliveryConfiguration() {
+        identity.setDeliveryPrivateKey("");
+        assertThatThrownBy(()->service.submit(7L,runner(Map.of(),List.of()),"operator")).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(client,owned);
+    }
+    @Test void failedDeliveryNeverReportsReadyAndRetryKeepsOriginalInstance() {
+        service.submit(7L,runner(Map.of(),List.of()),"operator");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c->Optional.of(stored));
+        when(client.goldenStatus(any(),any())).thenReturn(new SubstrateClient.GoldenStatus(true,null));
+        doThrow(new BusinessException("synthetic lost ack")).doNothing().when(owned).connect(any(),anyString(),anyString());
+        service.processNext();service.processNext();service.processNext();service.processNext();
+        assertThat(stored.status).isEqualTo("FAILED");String key=stored.instanceKey;
+        when(repository.findByAgentIdAndVersion(7L,1)).thenReturn(Optional.of(stored));
+        assertThat(service.retry(7L,1,"operator").status()).isEqualTo("CONNECTING_IDENTITY");service.processNext();
+        assertThat(stored.status).isEqualTo("READY");assertThat(stored.instanceKey).isEqualTo(key);verify(owned,times(1)).create(any(),anyString(),any());
+    }
+    @Test void legacyTemplateKeepsOriginalCredentialContract() throws Exception {
+        service.submit(7L,runner(Map.of(),List.of()),"operator");
+        var json=new ObjectMapper();var config=json.readValue(stored.configJson,Map.class);config.remove("identityMode");config.remove("identityPublicKey");stored.configJson=json.writeValueAsString(config);
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c->Optional.of(stored));service.processNext();
+        var spec=ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().projectIdentity()).isFalse();assertThat(spec.getValue().env()).containsEntry("EAP_TASK_TOKEN","task-token").containsEntry("EAP_GATEWAY_TOKEN","gateway-token");
     }
 
     @Test
@@ -145,18 +179,19 @@ class SubstrateDeploymentServiceTests {
         service.submit(7L, runner(Map.of(), List.of()), "operator");
         when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
         when(client.goldenStatus(any(), any())).thenReturn(new SubstrateClient.GoldenStatus(true, null));
-        doThrow(new SubstrateClient.SubstrateException("INVALID_ARGUMENT", "bad policy"))
-                .doNothing().when(client).setEgressHostnames(any(), any());
+        when(owned.create(any(),anyString(),any())).thenThrow(new SubstrateClient.SubstrateException("INVALID_ARGUMENT", "bad policy"))
+                .thenReturn("eap-agents/a7-v1-123456789abc");
         service.processNext();
         service.processNext();
         service.processNext();
         assertThat(stored.status).isEqualTo("FAILED");
-        verify(client).deleteActor(any());
+        verify(client,never()).deleteActor(any());
         when(repository.findByAgentIdAndVersion(7L, 1)).thenReturn(Optional.of(stored));
 
         assertThat(service.retry(7L, 1, "operator").status()).isEqualTo("CREATING_INSTANCE");
         service.processNext();
 
+        assertThat(stored.status).isEqualTo("CONNECTING_IDENTITY");service.processNext();
         assertThat(stored.status).isEqualTo("READY");
         assertThat(stored.templateName).isEqualTo("eap-a7-v1");
         verify(client, times(1)).createTemplate(any());

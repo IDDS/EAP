@@ -8,6 +8,17 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "eap.substrate")
 public class SubstrateProperties {
     private boolean enabled = false;
+    private String inventoryAtespaces = "";
+    public void setInventoryAtespaces(String value) { inventoryAtespaces = value; }
+    public java.util.Set<String> inventoryScopes() {
+        java.util.Set<String> scopes = new java.util.LinkedHashSet<>();
+        scopes.add(deployAtespace);
+        if (inventoryAtespaces != null) java.util.Arrays.stream(inventoryAtespaces.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).forEach(scopes::add);
+        if (scopes.size() > 8 || scopes.stream().anyMatch(s -> s == null || !s.matches("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")))
+            throw new IllegalArgumentException("发现范围配置无效");
+        return java.util.Collections.unmodifiableSet(scopes);
+    }
     private String apiTarget = "api.ate-system.svc:443";
     private String apiAuthority = "api.ate-system.svc";
     private String tokenFile = "/var/run/secrets/ate-api/token";

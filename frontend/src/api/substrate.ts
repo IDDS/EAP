@@ -48,13 +48,13 @@ export const SubstrateApi = {
   buildLog: (agentId: number, version: number) =>
     data<string>(http.get(`${base(agentId)}/deployments/${version}/build-log`, { timeout: 30000 })),
   instances: (agentId: number) => data<SubstrateInstance[]>(http.get(`${base(agentId)}/instances`, { timeout: 30000 })),
-  createInstance: (agentId: number) => data<SubstrateInstance>(http.post(`${base(agentId)}/instances`, {}, { timeout: 60000 })),
+  createInstance: (agentId: number, requestKey: string) => data<SubstrateInstance>(http.post(`${base(agentId)}/instances`, { requestKey }, { timeout: 60000 })),
   deleteInstance: (agentId: number, name: string) =>
     data<void>(http.delete(`${base(agentId)}/instances/${encodeURIComponent(name)}`, { timeout: 60000 })),
   // Waking a suspended instance and a reasoning model can take well over a minute.
   chat: (agentId: number, name: string, message: string) =>
     data<ChatReply>(http.post(`${base(agentId)}/instances/${encodeURIComponent(name)}/chat`, { message }, { timeout: 180000 })),
-  control: (agentId: number, runtimeInstanceKey: string, commandType: 'PAUSE' | 'RESUME' | 'REVERT') =>
+  control: (agentId: number, runtimeInstanceKey: string, commandType: 'PAUSE' | 'RESUME' | 'REVERT' | 'RUN_HEALTH_CHECK') =>
     data<AgentControlCommand>(http.post('/control/commands', { agentId, commandType, runtimeInstanceKey, issuedBy: 'console' },
       { timeout: 90000 })),
 }

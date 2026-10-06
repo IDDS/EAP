@@ -2,7 +2,7 @@
   <router-view v-if="route.meta.standalone" />
   <el-container v-else class="app-shell">
     <a class="skip-content-link" href="#main-content">跳到主要内容</a>
-    <el-aside :width="sidebarCollapsed ? '72px' : '248px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
+    <el-aside v-show="!compactViewport" :width="sidebarCollapsed ? '72px' : '248px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
         <div class="brand-copy">
@@ -12,72 +12,7 @@
         <el-button class="sidebar-toggle" :aria-label="sidebarCollapsed ? '展开导航' : '收起导航'" :aria-expanded="!sidebarCollapsed" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <el-menu
-          ref="navMenuRef"
-          router
-          :collapse="sidebarCollapsed"
-          :default-active="navActivePath"
-          :default-openeds="navOpenGroups"
-          class="nav-menu nav-menu-workspaces"
-        >
-          <el-menu-item index="/">
-            <el-icon><DataBoard /></el-icon>
-            <span>运营工作台</span>
-          </el-menu-item>
-          <el-menu-item index="/command-center"><el-icon><DataBoard /></el-icon><span>运行指挥大屏</span></el-menu-item>
-          <el-sub-menu index="workspace-agents">
-            <template #title>
-              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-agents', '/agents')">
-                <el-icon><Cpu /></el-icon><span>智能体中心</span>
-              </span>
-            </template>
-            <el-menu-item index="/agents">智能体目录</el-menu-item>
-            <el-menu-item index="/registry">发现与接入</el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="workspace-observe">
-            <template #title>
-              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-observe', '/physical')">
-                <el-icon><DataAnalysis /></el-icon><span>运行与观测</span>
-              </span>
-            </template>
-            <el-menu-item index="/physical">运行与遥测</el-menu-item>
-            <el-menu-item index="/knowledge">知识流转</el-menu-item>
-            <el-menu-item index="/operations">任务运行</el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="workspace-governance">
-            <template #title>
-              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-governance', '/governance')">
-                <el-icon><ScaleToOriginal /></el-icon><span>治理与响应</span>
-              </span>
-            </template>
-            <el-menu-item index="/governance">策略与审批</el-menu-item>
-            <el-menu-item index="/safety">安全响应</el-menu-item>
-            <el-menu-item index="/ethics">责任与伦理</el-menu-item>
-            <el-menu-item index="/audit">审计日志</el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="workspace-value">
-            <template #title>
-              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-value', '/management')">
-                <el-icon><Money /></el-icon><span>成本与价值</span>
-              </span>
-            </template>
-            <el-menu-item index="/management">成本与价值</el-menu-item>
-          </el-sub-menu>
-          <el-sub-menu index="workspace-orchestration">
-            <template #title>
-              <span class="workspace-menu-title-hit" @click.stop="openWorkspace('workspace-orchestration', '/orchestration')">
-                <el-icon><Connection /></el-icon><span>编排与学习</span>
-              </span>
-            </template>
-            <el-menu-item index="/orchestration">Agent 团队</el-menu-item>
-            <el-menu-item index="/workflow-builder">工作流自动化</el-menu-item>
-            <el-menu-item index="/learning">自适应学习</el-menu-item>
-          </el-sub-menu>
-          <el-menu-item index="/evaluation">
-            <el-icon><DataAnalysis /></el-icon>
-            <span>评估与可靠性</span>
-          </el-menu-item>
-        </el-menu>
+        <PlatformNavigation :collapsed="sidebarCollapsed" />
       </div>
       <div class="sidebar-status">
         <span class="status-dot" :class="{ 'status-unknown': !platformStatus || platformStatusLoading, 'status-development': platformStatus?.securityMode === 'DEVELOPMENT' }"></span>
@@ -90,13 +25,14 @@
 
     <el-container>
       <el-header class="topbar">
+        <el-button v-if="compactViewport" class="mobile-nav-trigger" :icon="Expand" aria-label="打开功能导航" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = true" />
         <div class="topbar-title">
           <div class="breadcrumb-line">
-            <span class="topbar-kicker">EAP · 企业智能体控制台</span>
+            <router-link to="/" class="topbar-kicker">EAP 工作台</router-link>
             <span class="breadcrumb-separator">/</span>
-            <span>{{ agentOpsContext.scopeLabel }} · {{ agentOpsContext.windowLabel }}</span>
+            <span>{{ navigationLocation.group?.label || '平台总览' }}</span>
           </div>
-          <h1>{{ routeTitle }}</h1>
+          <h1><el-icon v-if="navigationLocation.item" aria-hidden="true"><component :is="navigationIcons[navigationLocation.item.icon]" /></el-icon>{{ routeTitle }}</h1>
         </div>
         <div class="topbar-actions">
           <el-select
@@ -119,7 +55,7 @@
           <el-input
             v-model="globalSearchTerm"
             class="global-search"
-            placeholder="搜索智能体、资产、策略"
+            placeholder="搜索页面、智能体、策略"
             :prefix-icon="Search"
             readonly
             @focus="openSearchDialog"
@@ -167,6 +103,10 @@
   </el-container>
 
 
+  <el-drawer v-model="mobileNavigationOpen" title="功能导航" direction="ltr" size="min(300px, 90vw)" append-to-body :z-index="4000" class="mobile-navigation-drawer">
+    <PlatformNavigation @navigate="mobileNavigationOpen = false" />
+  </el-drawer>
+
   <div v-if="updateAvailable" class="app-update-banner" role="status">
     <span>检测到 EAP 前端有新版本</span>
     <el-button type="primary" size="small" @click="reloadForUpdate">立即刷新</el-button>
@@ -204,7 +144,7 @@
       autofocus
       clearable
       :prefix-icon="Search"
-      placeholder="输入智能体名称、代码、发现资产或治理策略"
+      placeholder="输入页面名称、任务、监控、智能体或策略"
       @input="scheduleGlobalSearch"
       @keyup.enter="runGlobalSearchNow"
     />
@@ -222,7 +162,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, ArrowRight, Connection, Cpu, DataAnalysis, DataBoard, Expand, Fold, Money, ScaleToOriginal, Search } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Expand, Fold, Search } from '@element-plus/icons-vue'
+import PlatformNavigation from '@/components/PlatformNavigation.vue'
+import { navigationForPath, searchNavigation } from '@/navigation/catalog'
+import { navigationIcons } from '@/navigation/icons'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
@@ -249,7 +192,9 @@ const fontScaleOptions: Array<{ value: FontScale; label: string; menuLabel: stri
 
 const route = useRoute()
 const agentOpsContext = useAgentOpsContextStore()
-const routeTitle = computed(() => String(route.meta.title ?? '工作台'))
+const navigationLocation = computed(() => navigationForPath(route.path))
+const routeTitle = computed(() => route.path.startsWith('/agents/') ? '智能体详情' : navigationLocation.value.item?.label || String(route.meta.title ?? '工作台'))
+const compactViewport = ref(false), mobileNavigationOpen = ref(false)
 const sidebarCollapsed = ref(false)
 let compactViewportQuery: MediaQueryList | undefined
 const authDialogVisible = ref(false)
@@ -277,35 +222,9 @@ const platformStatus = ref<PlatformStatus>()
 const platformStatusLoading = ref(true)
 
 const router = useRouter()
-const navMenuRef = ref<{ open: (index: string) => void } | null>(null)
-const navActivePath = computed(() => route.path.startsWith('/agents/') ? '/agents' : route.path)
-const navOpenGroups = computed(() => {
-  const path = route.path
-  if (path.startsWith('/agents') || path === '/registry') return ['workspace-agents']
-  if (['/physical', '/knowledge', '/operations'].includes(path)) return ['workspace-observe']
-  if (['/governance', '/safety', '/ethics', '/audit'].includes(path)) return ['workspace-governance']
-  if (path === '/management') return ['workspace-value']
-  if (['/orchestration', '/workflow-builder', '/learning'].includes(path)) return ['workspace-orchestration']
-  return []
-})
 const currentFontScaleLabel = computed(() => fontScaleOptions.find(option => option.value === fontScale.value)?.label || '舒适')
 
-function syncOpenNavigationGroup() {
-  const groups = navOpenGroups.value
-  if (!groups.length) return
-  void nextTick(() => {
-    groups.forEach(index => navMenuRef.value?.open(index))
-  })
-}
-
-watch(navOpenGroups, syncOpenNavigationGroup, { flush: 'post' })
-
-function openWorkspace(index: string, path: string) {
-  void router.push(path).then(() => {
-    navMenuRef.value?.open(index)
-    syncOpenNavigationGroup()
-  })
-}
+watch(() => route.path, () => { mobileNavigationOpen.value = false })
 
 function setFontScale(value: FontScale) {
   fontScale.value = value
@@ -381,6 +300,8 @@ async function runGlobalSearch() {
     globalSearchResults.value = []
     return
   }
+  const pageResults: GlobalSearchResult[] = searchNavigation(term).map(item => ({type:'功能页面',title:item.label,subtitle:item.description,path:item.path,query:{}}))
+  globalSearchResults.value = pageResults
   globalSearchLoading.value = true
   try {
     const [agents, assets, policies] = await Promise.all([
@@ -390,10 +311,13 @@ async function runGlobalSearch() {
     ])
     if (requestId !== searchRequestId) return
     globalSearchResults.value = [
+      ...pageResults,
       ...agents.filter(agent => matchesSearch(agent, term)).slice(0, 8).map(agentResult),
       ...assets.filter(asset => matchesSearch(asset, term)).slice(0, 8).map(assetResult),
       ...policies.filter(policy => matchesSearch(policy, term)).slice(0, 8).map(policyResult),
-    ].slice(0, 16)
+    ].slice(0, 20)
+  } catch {
+    if (requestId === searchRequestId) globalSearchResults.value = pageResults
   } finally {
     if (requestId === searchRequestId) globalSearchLoading.value = false
   }
@@ -468,6 +392,8 @@ async function checkForBuildUpdate() {
 async function loadPlatformStatus() {
   platformStatusLoading.value = true
   try {
+    // The initial lazy route must resolve before deciding whether to open the login dialog.
+    await router.isReady()
     platformStatus.value = await EapApi.getPlatformStatus()
     if (route.path !== '/auth/callback') {
       if (platformStatus.value.securityMode === 'DEVELOPMENT' || getAccessToken()) await loadCurrentUser()
@@ -489,16 +415,17 @@ function reloadForUpdate() {
 }
 
 function syncSidebarForViewport(event?: MediaQueryListEvent) {
-  if (compactViewportQuery?.matches) sidebarCollapsed.value = true
+  compactViewport.value = Boolean(compactViewportQuery?.matches)
+  mobileNavigationOpen.value = false
+  if (compactViewportQuery?.matches) sidebarCollapsed.value = false
   else if (event && !event.matches) sidebarCollapsed.value = false
 }
 
 onMounted(() => {
   setFontScale(fontScale.value)
-  compactViewportQuery = window.matchMedia('(max-width: 760px)')
+  compactViewportQuery = window.matchMedia('(max-width: 900px)')
   syncSidebarForViewport()
   compactViewportQuery.addEventListener('change', syncSidebarForViewport)
-  syncOpenNavigationGroup()
   window.addEventListener('eap-auth-required', requireAuthentication)
   window.addEventListener('eap-auth-changed', syncAuthentication)
   document.addEventListener('visibilitychange', handleVisibilityChange)

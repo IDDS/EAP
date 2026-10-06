@@ -26,7 +26,9 @@ public final class OrchestrationDtos {
     public record PlanRequest(@NotNull Long teamId, @NotBlank @Size(max = 128) String goal, @Size(max = 1024) String contextSummary) {
     }
 
-    public record StepRequest(@NotNull Integer stepOrder, @NotBlank @Size(max = 128) String title, @NotBlank @Size(max = 128) String requiredCapability) {
+    public record StepRequest(@NotNull @jakarta.validation.constraints.Min(1) Integer stepOrder, @NotBlank @Size(max = 128) String title, @NotBlank @Size(max = 128) String requiredCapability,
+            @jakarta.validation.constraints.Pattern(regexp="RUNTIME|AX") String executionBackend) {
+        public StepRequest(Integer stepOrder,String title,String requiredCapability){this(stepOrder,title,requiredCapability,"RUNTIME");}
     }
 
     public record AssignRequest(Long assignedAgentId, @NotNull StepStatus status) {
@@ -38,10 +40,10 @@ public final class OrchestrationDtos {
     public record MemberResponse(Long id, Long teamId, Long agentId, String role, String responsibility, Instant createdAt, Instant updatedAt) {
     }
 
-    public record PlanResponse(Long id, Long teamId, String goal, String contextSummary, PlanStatus status, Instant createdAt, Instant updatedAt) {
+    public record PlanResponse(Long id, Long teamId, String goal, String contextSummary, PlanStatus status, Instant createdAt, Instant updatedAt, Long executionWorkflowId, String executionRunKey) {
     }
 
-    public record StepResponse(Long id, Long planId, Integer stepOrder, String title, String requiredCapability, Long assignedAgentId, StepStatus status, Instant createdAt, Instant updatedAt) {
+    public record StepResponse(Long id, Long planId, Integer stepOrder, String title, String requiredCapability, Long assignedAgentId, StepStatus status, Instant createdAt, Instant updatedAt, String executionBackend) {
     }
 
     public record PlanDetail(PlanResponse plan, List<StepResponse> steps) {
@@ -56,11 +58,11 @@ public final class OrchestrationDtos {
     }
 
     static PlanResponse from(AgentPlan plan) {
-        return new PlanResponse(plan.id, plan.teamId, plan.goal, plan.contextSummary, plan.status, plan.createdAt, plan.updatedAt);
+        return new PlanResponse(plan.id, plan.teamId, plan.goal, plan.contextSummary, plan.status, plan.createdAt, plan.updatedAt, plan.executionWorkflowId, plan.executionRunKey);
     }
 
     static StepResponse from(AgentPlanStep step) {
-        return new StepResponse(step.id, step.planId, step.stepOrder, step.title, step.requiredCapability, step.assignedAgentId, step.status, step.createdAt, step.updatedAt);
+        return new StepResponse(step.id, step.planId, step.stepOrder, step.title, step.requiredCapability, step.assignedAgentId, step.status, step.createdAt, step.updatedAt, step.executionBackend);
     }
 }
 

@@ -1,5 +1,5 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid physical-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">物理 · 观测</span>
@@ -13,7 +13,7 @@
           <el-option label="最近 7 天" :value="168" />
           <el-option label="最近 30 天" :value="720" />
         </el-select>
-        <el-button :icon="Search" :loading="scanLoading" @click="triggerDiscovery">自主发现</el-button>
+        <el-button :icon="Search" :loading="scanLoading" :disabled="!permissions.can('deployAgents')" @click="triggerDiscovery">自主发现</el-button>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
@@ -25,6 +25,9 @@
       <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">深度 Trace</el-tag>
     </div>
 
+    <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" />
+    <el-empty v-if="!summaryLoaded" :description="loading ? '正在加载遥测' : '遥测数据暂不可用'" />
+    <template v-if="summaryLoaded">
     <div class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">最近 {{ windowHours }} 小时</span>
@@ -64,7 +67,6 @@
       <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
     </div>
 
-    <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" />
     <el-card v-if="contextTraceId" shadow="never" class="panel trace-inspector">
       <template #header>
         <div class="panel-header">
@@ -81,7 +83,7 @@
         <div><span>模型 / 工具</span><strong>{{ traceStats.models }} / {{ traceStats.tools }}</strong></div>
         <div><span>MCP / RAG / A2A</span><strong>{{ traceStats.mcp }} / {{ traceStats.rag }} / {{ traceStats.a2a }}</strong></div>
         <div><span>最长 Span</span><strong>{{ traceStats.maxDuration }} ms</strong></div>
-        <div><span>内容观测</span><strong>{{ visibleContentObservations.length }}</strong></div>
+        <div><span>内容观测</span><strong>{{ permissions.can('viewContent') ? visibleContentObservations.length : '无权限' }}</strong></div>
       </div>
       <TraceDiagnostics :spans="visibleTraceSpans" :trace-id="contextTraceId" :possibly-truncated="traceSpans.length >= 500" />
       <div class="trace-inspector-grid">
@@ -96,7 +98,7 @@
           </div>
           <el-empty v-if="visibleTraceSpans.length === 0" description="当前 Trace 尚无 Span 观测" />
         </div>
-        <div class="trace-evidence-panel">
+        <div v-if="permissions.can('viewContent')" class="trace-evidence-panel">
           <div class="trace-evidence-heading"><span>内容观测</span><small>仅展示脱敏元数据</small></div>
           <div v-for="observation in visibleContentObservations" :key="observation.id" class="trace-evidence-row">
             <el-tag size="small" :type="observation.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(observation.direction) }}</el-tag>
@@ -184,7 +186,7 @@
         </div>
         <div class="button-row governance-submit-row">
           <span class="muted">不提交提示词和模型输出正文；阻断或待脱敏时不会写入模型调用记录。</span>
-          <el-button type="primary" :loading="telemetrySaving" @click="recordInvocation">预检并记录调用</el-button>
+          <el-button type="primary" :loading="telemetrySaving" :disabled="!permissions.can('governance')" @click="recordInvocation">预检并记录调用</el-button>
         </div>
       </el-form>
     </el-card>
@@ -436,7 +438,9 @@
           <span class="muted">输入 / 输出正文仅在 REDACTED 模式保存；HASH_ONLY 只保留哈希、长度和 Token 估算</span>
         </div>
       </template>
-      <HistoryTable ref="contentHistory" :fetch-page="fetchContentHistory" :reset-key="route.fullPath" :statuses="['INPUT','OUTPUT','TOOL_INPUT','TOOL_OUTPUT','SYSTEM']" placeholder="搜索标识、名称或 Trace">
+      <el-alert v-if="!permissions.can('viewContent')" title="当前账号无内容查看权限；普通遥测与 Trace 元数据仍可查看。" type="info" :closable="false" />
+      <el-alert v-else-if="contentError" :title="contentError" type="warning" :closable="false" />
+      <HistoryTable v-if="permissions.can('viewContent')" ref="contentHistory" :fetch-page="fetchContentHistory" :reset-key="route.fullPath" :statuses="['INPUT','OUTPUT','TOOL_INPUT','TOOL_OUTPUT','SYSTEM']" placeholder="搜索标识、名称或 Trace">
         <el-table-column label="方向" width="100">
           <template #default="{ row }">
             <el-tag :type="row.direction === 'INPUT' ? 'warning' : 'success'">{{ contentDirectionLabel(row.direction) }}</el-tag>
@@ -523,7 +527,7 @@
           <template #default="{ row }"><el-tag size="small" :type="row.agentId ? 'success' : 'info'">{{ row.agentId ? `#${row.agentId}` : '未归因' }}</el-tag></template>
         </el-table-column>
         <el-table-column label="来源" width="95">
-          <template #default="{ row }">{{ row.observationSource === 'OTLP' ? 'OTLP' : '模型网关' }}</template>
+          <template #default="{ row }">{{ row.observationSource === 'OTLP' ? 'OTLP' : row.observationSource === 'RUNTIME_GUARD' ? '工具接入' : '模型网关' }}</template>
         </el-table-column>
         <el-table-column label="状态 / 耗时" width="145">
           <template #default="{ row }"><el-tag size="small" :type="toolStatusType(row.status)">{{ toolStatusLabel(row.status) }}</el-tag> · {{ row.durationMs }} ms</template>
@@ -541,6 +545,7 @@
       </HistoryTable>
       <el-empty v-if="visibleToolInvocations.length === 0" description="当前筛选条件下没有工具调用明细" />
     </el-card>
+    </template>
   </section>
 </template>
 
@@ -551,6 +556,7 @@ import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { usePermissions } from '@/stores/permissions'
 import { EapApi } from '@/api/eap'
 import { useRoute, useRouter } from 'vue-router'
 import TrendChart from '@/components/TrendChart.vue'
@@ -572,6 +578,9 @@ import type {
   ToolInvocationStatus,
 } from '@/types/domain'
 
+const permissions = usePermissions()
+const summaryLoaded = ref(false)
+const contentError = ref('')
 const emptySummary: PhysicalTelemetrySummary = {
   windowHours: 24,
   totalCalls: 0,
@@ -913,7 +922,24 @@ function clearDrilldown() {
 const modelHistory = ref<InstanceType<typeof HistoryTable>>()
 function fetchModelHistory(params:HistoryParams) { return EapApi.pageModelHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined,eventKey:contextEventKey.value || undefined}) }
 const contentHistory = ref<InstanceType<typeof HistoryTable>>()
-function fetchContentHistory(params:HistoryParams) { return EapApi.pageContentHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined,eventKey:contextEventKey.value || undefined}) }
+async function fetchContentHistory(params:HistoryParams) {
+  const user = permissions.state.user
+  if (!permissions.can('viewContent')) return { items: [], totalElements: 0 }
+  const result = await EapApi.pageContentHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined,eventKey:contextEventKey.value || undefined})
+  return user === permissions.state.user && permissions.can('viewContent') ? result : { items: [], totalElements: 0 }
+}
+async function fetchContentObservations() {
+  const version = loadVersion
+  const user = permissions.state.user
+  if (!permissions.can('viewContent')) return []
+  try {
+    const rows = await EapApi.listContentObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined })
+    return user === permissions.state.user && permissions.can('viewContent') ? rows : []
+  } catch {
+    if (version === loadVersion && user === permissions.state.user && permissions.can('viewContent')) contentError.value = '内容观测加载失败；普通遥测不受影响，请刷新重试。'
+    return []
+  }
+}
 const spanHistory = ref<InstanceType<typeof HistoryTable>>()
 function fetchSpanHistory(params:HistoryParams) { return EapApi.pageSpanHistory({...params,agentId:contextAgentId.value || undefined,endpointKey:contextEndpointKey.value || undefined,traceId:contextTraceId.value || undefined}) }
 const toolHistory = ref<InstanceType<typeof HistoryTable>>()
@@ -923,7 +949,11 @@ let loadVersion = 0
 let disposed = false
 async function load() {
   const version = ++loadVersion
+  summaryLoaded.value = false
+  contentObservations.value = []
+  if (!permissions.can('viewConsole')) { loading.value = false; return }
   loading.value = true
+  contentError.value = ''
   loadError.value = ''
   try {
     const [nextSummary, nextReconciliation, nextEvents, nextEndpoints, nextAssets, nextAgents, nextContent, nextTraceSpans, nextToolInvocations] = await Promise.all([
@@ -933,7 +963,7 @@ async function load() {
       EapApi.listDiscoveryEndpoints(),
       EapApi.listDiscoveredAgentAssets(),
       EapApi.listAgents(),
-      EapApi.listContentObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
+      fetchContentObservations(),
       EapApi.listTraceSpanObservations({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
       EapApi.listToolInvocationEvents({ limit: 500, agentId: contextAgentId.value || undefined, endpointKey: contextEndpointKey.value || undefined, traceId: contextTraceId.value || undefined }),
     ])
@@ -944,13 +974,14 @@ async function load() {
     endpoints.value = nextEndpoints
     assets.value = nextAssets
     agents.value = nextAgents
-    contentObservations.value = nextContent
+    contentObservations.value = permissions.can('viewContent') ? nextContent : []
+    summaryLoaded.value = true
     traceSpans.value = nextTraceSpans
     toolInvocations.value = nextToolInvocations
     if (!telemetryForm.agentId) telemetryForm.agentId = nextAgents[0]?.id
     for (const table of [modelHistory,contentHistory,spanHistory,toolHistory]) void table.value?.reload()
   } catch {
-    if (!disposed && version === loadVersion) loadError.value = '数据加载失败；保留当前筛选范围内已加载的记录，请刷新重试。'
+    if (!disposed && version === loadVersion) loadError.value = '遥测加载失败，当前未显示旧数据或零值指标，请刷新重试。'
   } finally {
     if (!disposed && version === loadVersion) loading.value = false
   }
@@ -964,6 +995,7 @@ function traceTagType(kind: TraceSpanKind) {
 }
 
 async function triggerDiscovery() {
+  if (!permissions.can('deployAgents')) return
   scanLoading.value = true
   try {
     const run = await EapApi.triggerAgentDiscoveryScan()
@@ -975,6 +1007,7 @@ async function triggerDiscovery() {
 }
 
 async function recordInvocation() {
+  if (!permissions.can('governance')) return
   if (!telemetryForm.eventKey.trim() || !telemetryForm.agentId || !telemetryForm.provider.trim() || !telemetryForm.modelName.trim()) {
     ElMessage.warning('请填写事件标识、智能体、模型供应商和模型名称')
     return
@@ -1127,6 +1160,22 @@ watch([contextAgentId, contextEndpointKey, contextTraceId, contextEventKey], () 
   toolInvocations.value = []
   void load()
 })
+watch(() => permissions.state.user, () => {
+  contentObservations.value = []
+  void load()
+}, { flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; loadVersion++ })
 onMounted(load)
 </script>
+
+<style scoped>
+@media (max-width: 760px) {
+  .physical-page, .physical-page > *, .analysis-hero-copy { min-width: 0; max-width: 100%; }
+  .button-row { flex-wrap: wrap; align-items: center; }
+  .button-row .el-button { margin-left: 0; }
+  .physical-hero { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .physical-health-panel { min-width: 0; width: 100%; box-sizing: border-box; }
+  .physical-health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .interface-tabs { flex-wrap: wrap; }
+}
+</style>

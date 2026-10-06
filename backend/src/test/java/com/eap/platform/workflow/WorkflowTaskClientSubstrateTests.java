@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class WorkflowTaskClientSubstrateTests {
@@ -24,6 +25,12 @@ class WorkflowTaskClientSubstrateTests {
     private final AtomicReference<String> routedActor = new AtomicReference<>();
     private final AtomicReference<String> path = new AtomicReference<>();
     private final SubstrateClient substrateClient = mock(SubstrateClient.class);
+    private final com.eap.platform.registry.RuntimeConnectionService connections = mock(com.eap.platform.registry.RuntimeConnectionService.class);
+    private final java.util.concurrent.atomic.AtomicInteger taskCalls = new java.util.concurrent.atomic.AtomicInteger();
+    private final AtomicReference<String> toolState = new AtomicReference<>("{}");
+    private final AtomicReference<Map<String, Object>> toolReceipt = new AtomicReference<>(Map.of());
+    private final com.eap.platform.registry.ScopedToolService scopedTools=mock(com.eap.platform.registry.ScopedToolService.class);
+    private final AtomicReference<Map<String,Object>> output=new AtomicReference<>(Map.of());
     private HttpServer router;
     private WorkflowTaskClient client;
 
@@ -33,8 +40,14 @@ class WorkflowTaskClientSubstrateTests {
         router.createContext("/", exchange -> {
             routedActor.set(exchange.getRequestHeaders().getFirst("ate-target-actor"));
             path.set(exchange.getRequestURI().getPath());
+            if (exchange.getRequestURI().getPath().equals("/eap/state")) {
+                assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("Bearer scoped-test");
+                byte[] body = toolState.get().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close(); return;
+            }
+            taskCalls.incrementAndGet();
             JsonNode request = json.readTree(exchange.getRequestBody());
-            byte[] body = json.writeValueAsBytes(Map.of("taskKey", request.path("taskKey").asText(), "status", "SUCCEEDED"));
+            byte[] body = json.writeValueAsBytes(Map.of("taskKey", request.path("taskKey").asText(), "status", "SUCCEEDED", "tool", toolReceipt.get(), "output", output.get()));
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
@@ -48,7 +61,7 @@ class WorkflowTaskClientSubstrateTests {
         SubstrateProperties substrate = new SubstrateProperties();
         substrate.setEnabled(true);
         substrate.setRouterUrl("http://127.0.0.1:" + router.getAddress().getPort() + "/");
-        client = new WorkflowTaskClient(properties, json, substrate, substrateClient);
+        client = new WorkflowTaskClient(properties, json, substrate, substrateClient, connections, scopedTools);
     }
 
     @AfterEach
@@ -88,6 +101,65 @@ class WorkflowTaskClientSubstrateTests {
         verifyNoInteractions(substrateClient);
         assertThat(routedActor.get()).isNull();
     }
+
+    @Test
+    void oldOrDisabledRuntimeNeverReceivesToolTaskAndRestoresSleep() {
+        var runtime = scopedRuntime();
+        for (String state : new String[]{"{}", "{\"tools\":{\"enabled\":false}}", "{\"tools\":{\"enabled\":\"true\"}}", "broken"}) {
+            toolState.set(state);
+            var receipt = client.invoke(runtime, toolPayload(), Instant.now().plusSeconds(30));
+            assertThat(receipt.status()).isEqualTo("FAILED");
+            assertThat(receipt.reason()).contains("未派发任务");
+        }
+        assertThat(taskCalls.get()).isZero();
+        verify(substrateClient, times(4)).suspend(any());
+    }
+
+    @Test
+    void toolNeedsConfirmedReceiptAndDoesNotRetryAnUncertainResult() {
+        var runtime = scopedRuntime();
+        toolState.set("{\"tools\":{\"enabled\":true}}");
+        assertThat(client.invoke(runtime, toolPayload(), Instant.now().plusSeconds(30)).status()).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(taskCalls.get()).isEqualTo(1);
+        verify(substrateClient, never()).suspend(any());
+        toolReceipt.set(Map.of("executed", true, "state", "SUCCEEDED", "receiptConfirmed", true));
+        assertThat(client.invoke(runtime, toolPayload(), Instant.now().plusSeconds(30)).status()).isEqualTo("SUCCEEDED");
+        assertThat(taskCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void scopedToolNeedsIndependentStoreProofAndOldReceiptCannotSubstitute() {
+        var runtime=scopedRuntime();when(runtime.getInstanceKey()).thenReturn("eap-demo/session-1");
+        toolState.set("{\"tools\":{\"enabled\":true}}");
+        var args=Map.of("grantId","00000000-0000-4000-8000-000000000002","operationId","00000000-0000-4000-8000-000000000003","resourceId","poc_test","delta",3);
+        var payload=Map.<String,Object>of("taskKey","counter-test","context",Map.of("eapTool",Map.of("name","controlled_counter_increment","arguments",args)));
+        toolReceipt.set(Map.of("executed",true,"state","TOOL_STORE_VERIFIED","receiptConfirmed",true));
+        output.set(Map.of("counterValue",3,"evidenceSource","TOOL_STORE_VERIFIED"));
+        when(scopedTools.verifyEffect(eq("eap-demo/session-1"),any(),any())).thenReturn(false);
+        assertThat(client.invoke(runtime,payload,Instant.now().plusSeconds(30)).status()).isEqualTo("EXECUTION_UNKNOWN");
+        when(scopedTools.verifyEffect(eq("eap-demo/session-1"),any(),any())).thenReturn(true);
+        assertThat(client.invoke(runtime,payload,Instant.now().plusSeconds(30)).status()).isEqualTo("SUCCEEDED");
+        toolReceipt.set(Map.of("executed",true,"state","SUCCEEDED","receiptConfirmed",true));
+        assertThat(client.invoke(runtime,payload,Instant.now().plusSeconds(30)).status()).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(taskCalls.get()).isEqualTo(3);
+    }
+
+    @Test void recreatedInstanceIsRejectedBeforeAnyWakeupOrTask(){
+        var runtime=scopedRuntime();doThrow(new com.eap.platform.common.ConflictException("identity changed")).when(connections).checkIdentity(runtime);
+        assertThatThrownBy(()->client.invoke(runtime,toolPayload(),Instant.now().plusSeconds(30))).isInstanceOf(com.eap.platform.common.ConflictException.class);
+        verify(substrateClient,never()).resume(any());assertThat(taskCalls.get()).isZero();
+    }
+    private AgentRuntimeInstance scopedRuntime() {
+        var runtime = runtime("substrate://eap-demo/session-1");
+        when(runtime.getImportedActorUid()).thenReturn("fixture");
+        when(runtime.hasBoundIdentity()).thenReturn(true);
+        when(connections.executable(runtime)).thenReturn(true);
+        when(connections.dispatchToken(runtime)).thenReturn("scoped-test");
+        when(substrateClient.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-demo", "session-1", "fixture", "template", "SUSPENDED"));
+        when(substrateClient.suspend(any())).thenReturn(new SubstrateClient.ActorState("SUSPENDED"));
+        return runtime;
+    }
+    private Map<String, Object> toolPayload() { return Map.of("taskKey", "tool-test", "context", Map.of("eapTool", Map.of("name", "calculate_sum"))); }
 
     private static AgentRuntimeInstance runtime(String endpoint) {
         AgentRuntimeInstance runtime = mock(AgentRuntimeInstance.class);

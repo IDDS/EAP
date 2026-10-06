@@ -7,7 +7,7 @@
         <button :aria-expanded="selected === step.sequence" @click="selected = selected === step.sequence ? undefined : step.sequence">
           <span class="stage-dot" :class="tone(step.status)">{{ step.sequence }}</span><span class="stage-body"><strong>{{ step.label }}</strong><span>{{ label(step.status) }}</span></span>
         </button>
-        <div v-if="selected === step.sequence" class="step-detail"><p>{{ step.reason }}</p><dl><dt>任务标识</dt><dd>{{ step.taskKey || '无外部任务' }}</dd><dt>运行实例</dt><dd>{{ step.runtimeInstanceKey || '平台节点' }}</dd><dt>策略决定</dt><dd>{{ step.safetyDecision }}</dd></dl></div>
+        <div v-if="selected === step.sequence" class="step-detail"><p>{{ step.reason }}</p><dl><dt>执行方式</dt><dd>{{ step.runtimeInstanceKey?.startsWith('ax://') ? '隔离沙箱' : step.taskKey ? '常规执行' : '平台控制节点' }}</dd><dt>任务标识</dt><dd>{{ step.taskKey || '无外部任务' }}</dd><dt>运行实例</dt><dd>{{ step.runtimeInstanceKey || '平台节点' }}</dd><dt>策略决定</dt><dd>{{ step.safetyDecision }}</dd></dl><router-link v-if="step.runtimeInstanceKey?.startsWith('ax://')" :to="{ path: '/ax-tasks', query: { taskKey: step.taskKey } }">查看任务与沙箱 →</router-link></div>
       </li>
     </ol>
     <el-empty v-else :image-size="48" :description="execution.status === 'QUEUED' ? '已入队，等待开始处理' : '暂无步骤记录'" />

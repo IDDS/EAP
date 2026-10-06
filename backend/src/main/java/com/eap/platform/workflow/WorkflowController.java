@@ -67,6 +67,12 @@ public class WorkflowController {
         return ApiResponse.ok(executions.list(workflowId));
     }
 
+    @GetMapping("/{workflowId}/executions/{runKey}/outputs")
+    public ApiResponse<java.util.Map<String, com.fasterxml.jackson.databind.JsonNode>> outputs(
+            @PathVariable Long workflowId, @PathVariable String runKey) {
+        return ApiResponse.ok(executions.outputs(workflowId, runKey));
+    }
+
     @GetMapping("/{workflowId}/executions/{runKey}")
     public ApiResponse<WorkflowExecutionService.Response> execution(@PathVariable Long workflowId, @PathVariable String runKey) {
         return ApiResponse.ok(executions.get(workflowId, runKey));

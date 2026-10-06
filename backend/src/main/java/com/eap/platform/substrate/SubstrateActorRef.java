@@ -8,6 +8,7 @@ import java.util.regex.Pattern;
  */
 public record SubstrateActorRef(String atespace, String name) {
     public static final String PROTOCOL = "SUBSTRATE";
+    public static final String OBSERVED_PROTOCOL = "SUBSTRATE_OBSERVED";
     public static final String ROUTING_HEADER = "ate-target-actor";
     private static final Pattern SEGMENT = Pattern.compile("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?");
 
@@ -23,7 +24,7 @@ public record SubstrateActorRef(String atespace, String name) {
     }
 
     public static boolean isSubstrate(String protocol) {
-        return PROTOCOL.equalsIgnoreCase(protocol);
+        return PROTOCOL.equalsIgnoreCase(protocol) || OBSERVED_PROTOCOL.equalsIgnoreCase(protocol);
     }
 
     public String routingValue() {

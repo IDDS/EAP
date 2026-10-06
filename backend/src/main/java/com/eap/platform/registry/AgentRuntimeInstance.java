@@ -56,13 +56,32 @@ public class AgentRuntimeInstance {
         Instant now = Instant.now();
         createdAt = now;
         updatedAt = now;
-        lastHeartbeatAt = lastHeartbeatAt == null ? now : lastHeartbeatAt;
+        lastHeartbeatAt = importedActorUid != null ? null : lastHeartbeatAt == null ? now : lastHeartbeatAt;
     }
 
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
     }
+
+    @Column(name = "imported_actor_uid", length = 64)
+    String importedActorUid;
+    @Column(name = "imported_actor_template", length = 128)
+    String importedActorTemplate;
+    @Column(name = "platform_actor_uid", length = 64)
+    String platformActorUid;
+    @Column(name = "platform_actor_template", length = 128)
+    String platformActorTemplate;
+    public String getBoundActorUid() { return importedActorUid != null ? importedActorUid : platformActorUid; }
+    public String getBoundActorTemplate() { return importedActorUid != null ? importedActorTemplate : platformActorTemplate; }
+    /** Any identity metadata blocks the legacy shared-credential path, even if the binding is incomplete. */
+    public boolean hasBoundIdentity() { return importedActorUid!=null||importedActorTemplate!=null||platformActorUid!=null||platformActorTemplate!=null; }
+    public boolean supportsMachineIdentity() {
+        return importedActorUid != null && importedActorTemplate != null && "SUBSTRATE_OBSERVED".equals(protocol)
+            || platformActorUid != null && platformActorTemplate != null && importedActorTemplate == null && importedActorUid == null && ("SUBSTRATE".equals(protocol)||"SUBSTRATE_TASK".equals(protocol));
+    }
+    public String getImportedActorUid() { return importedActorUid; }
+    public String getImportedActorTemplate() { return importedActorTemplate; }
 
     public Long getAgentId() {
         return agentId;
@@ -83,6 +102,8 @@ public class AgentRuntimeInstance {
     public Boolean getDispatchAuthenticated() {
         return dispatchAuthenticated;
     }
+
+    public void markOffline() { status=RuntimeStatus.OFFLINE; }
 
     public RuntimeStatus getStatus() {
         return status;

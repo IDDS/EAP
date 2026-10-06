@@ -50,6 +50,7 @@ public class SubstrateDeploymentService {
     static final String QUEUED = "QUEUED";
     static final String BUILDING = "BUILDING_GOLDEN";
     static final String CREATING = "CREATING_INSTANCE";
+    static final String CONNECTING = "CONNECTING_IDENTITY";
     static final String READY = "READY";
     static final String FAILED = "FAILED";
     static final String BLOCKED = "BLOCKED";
@@ -72,7 +73,7 @@ public class SubstrateDeploymentService {
     private static final Pattern GIT_URL = Pattern.compile("^(https?)://([A-Za-z0-9.-]+)(:\\d{1,5})?/[A-Za-z0-9._~/-]+$");
     private static final Pattern GIT_REF = Pattern.compile("^(?!.*\\.\\.)[A-Za-z0-9._/-]{1,200}$");
     private static final Pattern REPO_PATH = Pattern.compile("^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]{0,200}$");
-    private static final Pattern INSTANCE_NAME = Pattern.compile("^a(\\d+)-v(\\d+)-[a-z0-9]{6}$");
+    private static final Pattern INSTANCE_NAME = Pattern.compile("^a(\\d+)-v(\\d+)-[a-z0-9]{6,12}$");
 
     private final SubstrateDeploymentRepository repository;
     private final AgentRepository agents;
@@ -81,29 +82,36 @@ public class SubstrateDeploymentService {
     private final SubstrateClient client;
     private final SubstrateProperties properties;
     private final WorkflowExecutionProperties workflow;
+    private final com.eap.platform.observability.ObservationProperties observation;
     private final GenseeSafetyService safety;
     private final AuditLogRepository audits;
     private final ImageBuilder builder;
     private final ObjectMapper mapper;
     private final TransactionTemplate transaction;
+    private final PlatformRuntimeCreationService owned;
+    private final com.eap.platform.registry.RuntimeConnectionProperties identityConfig;
+    private final com.eap.platform.registry.RuntimeConnectionService connections;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
             .followRedirects(HttpClient.Redirect.NEVER).build();
 
     public SubstrateDeploymentService(SubstrateDeploymentRepository repository, AgentRepository agents,
                                       AgentRuntimeInstanceRepository runtimes, AgentRegistryService registry,
                                       SubstrateClient client, SubstrateProperties properties,
-                                      WorkflowExecutionProperties workflow, GenseeSafetyService safety,
+                                      WorkflowExecutionProperties workflow, com.eap.platform.observability.ObservationProperties observation, GenseeSafetyService safety,
                                       AuditLogRepository audits, ImageBuilder builder, ObjectMapper mapper,
-                                      PlatformTransactionManager manager) {
+                                      PlatformTransactionManager manager, PlatformRuntimeCreationService owned,
+                                      com.eap.platform.registry.RuntimeConnectionProperties identityConfig,
+                                      com.eap.platform.registry.RuntimeConnectionService connections) {
         this.repository = repository; this.agents = agents; this.runtimes = runtimes; this.registry = registry;
-        this.client = client; this.properties = properties; this.workflow = workflow; this.safety = safety;
+        this.client = client; this.properties = properties; this.workflow = workflow; this.observation = observation; this.safety = safety;
+        this.owned=owned;this.identityConfig=identityConfig;this.connections=connections;
         this.audits = audits; this.builder = builder; this.mapper = mapper;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     public SubstrateDeploymentDtos.CapabilityResponse capabilities() {
-        return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank(),
+        return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank() && identityConfig.deliveryReady(),
                 !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
                 properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled());
     }
@@ -127,7 +135,7 @@ public class SubstrateDeploymentService {
             submissionKey = request.requestKey();
             var existing = repository.findByAgentIdAndSubmissionKey(agentId, submissionKey);
             if (existing.isPresent()) {
-                if (!existing.get().configJson.equals(configJson)) throw new ConflictException("同一 requestKey 的部署配置已改变，请核对原部署记录");
+                if (!callerConfig(existing.get()).equals(config)) throw new ConflictException("同一 requestKey 的部署配置已改变，请核对原部署记录");
                 return response(existing.get());
             }
         }
@@ -141,7 +149,12 @@ public class SubstrateDeploymentService {
         deployment.agentId = agentId;
         deployment.version = version;
         deployment.sourceType = (String) config.get("sourceType");
-        deployment.configJson = configJson;
+        if ("RUNNER".equals(deployment.sourceType)) {
+            if(!identityConfig.deliveryReady())throw new BusinessException("专属实例身份安全配送尚未配置，无法创建平台运行程序");
+            config.put("identityMode", "PER_INSTANCE_V1");
+            config.put("identityPublicKey", identityConfig.getDeliveryPublicKey());
+        }
+        deployment.configJson = json(config);
         deployment.imageRef = image;
         deployment.atespace = properties.getDeployAtespace();
         deployment.templateName = "eap-a" + agentId + "-v" + version;
@@ -174,7 +187,8 @@ public class SubstrateDeploymentService {
         String failedStep = history.isEmpty() ? QUEUED : history.get(history.size() - 1).step();
         deployment.status = switch (failedStep) {
             case BUILDING_IMAGE, "BUILD_IMAGE" -> BUILDING_IMAGE;
-            case CREATING -> CREATING;
+            case CREATING, "CREATE_INSTANCE" -> CREATING;
+            case CONNECTING -> CONNECTING;
             case BUILDING, "GOLDEN_SNAPSHOT" -> BUILDING;
             default -> QUEUED;
         };
@@ -193,7 +207,7 @@ public class SubstrateDeploymentService {
     public void processNext() {
         if (!properties.isEnabled()) return;
         SubstrateDeployment deployment = transaction.execute(ignored ->
-                repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(List.of(BUILDING_IMAGE, QUEUED, BUILDING, CREATING)).orElse(null));
+                repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(List.of(BUILDING_IMAGE, QUEUED, BUILDING, CREATING, CONNECTING)).orElse(null));
         if (deployment == null) return;
         try {
             switch (deployment.status) {
@@ -220,14 +234,21 @@ public class SubstrateDeploymentService {
                     }
                 }
                 case CREATING -> {
-                    String instanceKey = createActor(deployment);
+                    String instanceKey = automatic(deployment)
+                            ? owned.create(deployment, creationRequest(deployment), egressHosts(config(deployment))) : createActor(deployment);
                     deployment.instanceKey = instanceKey;
-                    advance(deployment, READY, "CREATE_INSTANCE", "已创建实例 " + instanceKey + "（休眠，首个请求时唤醒）");
+                    advance(deployment, automatic(deployment) ? CONNECTING : READY, "CREATE_INSTANCE", "已创建实例 " + instanceKey + "（休眠，首个请求时唤醒）");
+                }
+                case CONNECTING -> {
+                    owned.connect(deployment, creationRequest(deployment), deployment.requestedBy);
+                    advance(deployment, READY, CONNECTING, "专属身份安全配送已确认；实例保持休眠，派发前按需续期");
                 }
                 default -> { }
             }
         } catch (SubstrateClient.SubstrateException exception) {
             fail(deployment, deployment.status, "Substrate " + exception.code() + "：" + truncate(exception.getMessage(), 300));
+        } catch (BusinessException | ConflictException exception) {
+            fail(deployment, deployment.status, "创建或专属身份未确认；原请求保留：" + truncate(exception.getMessage(), 240));
         } catch (ImageBuilder.BuildException exception) {
             fail(deployment, deployment.status, truncate(exception.getMessage(), 300));
         }
@@ -294,7 +315,7 @@ public class SubstrateDeploymentService {
                 .map(runtime -> {
                     SubstrateActorRef ref = SubstrateActorRef.parse(runtime.getEndpoint());
                     Matcher name = INSTANCE_NAME.matcher(ref.name());
-                    Integer version = name.matches() ? Integer.valueOf(name.group(2)) : null;
+                    Integer version = runtime.getImportedActorUid() == null && name.matches() ? Integer.valueOf(name.group(2)) : null;
                     try {
                         return new SubstrateDeploymentDtos.InstanceResponse(runtime.getInstanceKey(), ref.name(), version,
                                 client.get(ref).state(), runtime.getStatus().name(), null);
@@ -306,11 +327,15 @@ public class SubstrateDeploymentService {
     }
 
     /** Creates another session instance from the newest ready version. */
-    public SubstrateDeploymentDtos.InstanceResponse createInstance(Long agentId, String requester) {
-        SubstrateDeployment deployment = repository.findFirstByAgentIdAndStatusOrderByVersionDesc(agentId, READY)
+    public SubstrateDeploymentDtos.InstanceResponse createInstance(Long agentId, String requestKey, String requester) {
+        String original = owned.existingDeployment(agentId, requestKey);
+        SubstrateDeployment deployment = (original == null ? repository.findFirstByAgentIdAndStatusOrderByVersionDesc(agentId, READY)
+                : repository.findByDeploymentKey(original))
                 .orElseThrow(() -> new BusinessException("该智能体还没有部署成功的版本"));
         try {
-            String key = createActor(deployment);
+            if(!automatic(deployment))throw new BusinessException("旧版本需要部署新的专属身份版本后再创建实例");
+            String key = owned.create(deployment, requestKey, egressHosts(config(deployment)));
+            owned.connect(deployment, requestKey, requester);
             audit(requester, "CREATE_SUBSTRATE_INSTANCE", agentId, key, true);
             return new SubstrateDeploymentDtos.InstanceResponse(key, key.substring(key.indexOf('/') + 1), deployment.version,
                     "SUSPENDED", RuntimeStatus.ONLINE.name(), null);
@@ -321,6 +346,7 @@ public class SubstrateDeploymentService {
 
     public void deleteInstance(Long agentId, String name, String requester) {
         AgentRuntimeInstance runtime = substrateRuntime(agentId, name);
+        if(runtime.hasBoundIdentity()) { connections.checkIdentity(runtime);connections.revoke(runtime.getInstanceKey(),requester); }
         try {
             client.deleteActor(SubstrateActorRef.parse(runtime.getEndpoint()));
         } catch (SubstrateClient.SubstrateException exception) {
@@ -328,7 +354,13 @@ public class SubstrateDeploymentService {
         }
         // The actor no longer exists, so its registration goes too: an OFFLINE row would keep raising
         // "runtime offline" work items and inflate instance counts. The audit log keeps the history.
-        runtimes.delete(runtime);
+        if(runtime.hasBoundIdentity()) {
+            // Preserve the identity tombstone, tool grants, effects and original creation intent.
+            transaction.executeWithoutResult(s->{
+                var current=runtimes.lockForScopedTools(runtime.getInstanceKey()).orElseThrow();
+                current.markOffline();runtimes.saveAndFlush(current);
+            });
+        } else runtimes.delete(runtime);
         audit(requester, "DELETE_SUBSTRATE_INSTANCE", agentId, runtime.getInstanceKey(), true);
     }
 
@@ -336,6 +368,10 @@ public class SubstrateDeploymentService {
     public SubstrateDeploymentDtos.ChatResponse chat(Long agentId, String name, String message) {
         AgentRuntimeInstance runtime = substrateRuntime(agentId, name);
         SubstrateActorRef ref = SubstrateActorRef.parse(runtime.getEndpoint());
+        if(runtime.hasBoundIdentity()) {
+            if(!connections.executable(runtime))throw new BusinessException("实例接入已撤销或授权期已过，未派发对话");
+            connections.checkIdentity(runtime);
+        }
         try {
             client.resume(ref);
         } catch (SubstrateClient.SubstrateException exception) {
@@ -343,16 +379,17 @@ public class SubstrateDeploymentService {
                     ? "没有空闲 worker，请先挂起其他实例或扩容" : "唤醒实例失败（" + exception.code() + "）");
         }
         try {
+            String dispatchToken=runtime.hasBoundIdentity()?connections.dispatchToken(runtime):workflow.getToken();
             HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getRouterUrl().replaceAll("/+$", "") + "/chat"))
                     .timeout(Duration.ofSeconds(150))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + workflow.getToken())
+                    .header("Authorization", "Bearer " + dispatchToken)
                     .header(SubstrateActorRef.ROUTING_HEADER, ref.routingValue())
                     .POST(HttpRequest.BodyPublishers.ofString(json(Map.of("message", message)))).build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 404) throw new BusinessException("该实例不支持对话试运行（仅平台通用 Agent 提供 /chat）");
             if (response.statusCode() != 200) {
-                throw new BusinessException("Agent 返回 HTTP " + response.statusCode() + "：" + truncate(response.body(), 200));
+                throw new BusinessException("Agent 返回 HTTP " + response.statusCode() + "，请核对接入状态");
             }
             JsonNode body = mapper.readTree(response.body());
             return new SubstrateDeploymentDtos.ChatResponse(body.path("reply").asText(), body.path("turns").asInt(), runtime.getInstanceKey());
@@ -385,6 +422,7 @@ public class SubstrateDeploymentService {
 
     private AgentRuntimeInstance substrateRuntime(Long agentId, String name) {
         return runtimes.findByInstanceKey(properties.getDeployAtespace() + "/" + name)
+                .filter(runtime -> runtime.getImportedActorUid() == null)
                 .filter(runtime -> agentId.equals(runtime.getAgentId()) && SubstrateActorRef.isSubstrate(runtime.getProtocol())
                         && runtime.getStatus() != RuntimeStatus.OFFLINE)
                 .orElseThrow(() -> new BusinessException("实例不存在"));
@@ -503,10 +541,15 @@ public class SubstrateDeploymentService {
         env.putAll(userEnv);
         // Platform variables are injected last so user input can never override them.
         env.put("EAP_AGENT_ID", String.valueOf(deployment.agentId));
-        env.put("EAP_TASK_TOKEN", workflow.getToken());
+        if(automatic(deployment)) {
+            env.put("EAP_IDENTITY_PUBLIC_KEY",(String)config.get("identityPublicKey"));
+            env.put("EAP_IDENTITY_DIRECTORY","/run/eap-identity");
+            env.put("EAP_TOOLS_ENABLED","true");
+        } else env.put("EAP_TASK_TOKEN", workflow.getToken());
+        if (!automatic(deployment) && !observation.getIngestionToken().isBlank()) env.put("EAP_OBSERVABILITY_TOKEN", observation.getIngestionToken());
         if (!properties.getGatewayUrl().isBlank()) {
             env.put("EAP_GATEWAY_URL", properties.getGatewayUrl());
-            env.put("EAP_GATEWAY_TOKEN", properties.getGatewayToken());
+            if(!automatic(deployment))env.put("EAP_GATEWAY_TOKEN", properties.getGatewayToken());
         }
         if ("RUNNER".equals(deployment.sourceType)) {
             env.put("AGENT_MODEL", (String) config.get("model"));
@@ -517,7 +560,13 @@ public class SubstrateDeploymentService {
         return new SubstrateClient.TemplateSpec(deployment.atespace, deployment.templateName, deployment.imageRef, command, env,
                 (String) config.get("readinessPath"), ((Number) config.get("port")).intValue(), size[0], size[1],
                 "MICROVM".equals(config.get("sandboxClass")), properties.workerLabels(),
-                properties.getSnapshotLocation().replaceAll("/*$", "/") + deployment.agentId + "/");
+                properties.getSnapshotLocation().replaceAll("/*$", "/") + deployment.agentId + "/", automatic(deployment));
+    }
+
+    private boolean automatic(SubstrateDeployment d) { return "PER_INSTANCE_V1".equals(config(d).get("identityMode")); }
+    private String creationRequest(SubstrateDeployment d) { return UUID.fromString(d.deploymentKey.substring(4)).toString(); }
+    private Map<String,Object> callerConfig(SubstrateDeployment d) {
+        var c=new LinkedHashMap<>(config(d));c.remove("identityMode");c.remove("identityPublicKey");return c;
     }
 
     private List<String> egressHosts(Map<String, Object> config) {

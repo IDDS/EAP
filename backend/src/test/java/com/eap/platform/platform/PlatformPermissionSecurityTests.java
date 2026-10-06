@@ -48,14 +48,32 @@ class PlatformPermissionSecurityTests {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @MockitoBean SubstrateDeploymentService deployments;
+    @MockitoBean com.eap.platform.monitoring.SubstrateMonitoringService substrateMonitoring;
+    @MockitoBean com.eap.platform.ax.AxService ax;
     @MockitoBean AgentControlService controls;
+    @MockitoBean com.eap.platform.registry.RuntimeInventoryService inventory;
+    @MockitoBean com.eap.platform.registry.RuntimeConnectionService runtimeConnections;
+    @MockitoBean com.eap.platform.registry.RuntimeToolGuardService runtimeTools;
+    @MockitoBean com.eap.platform.registry.RuntimeToolPolicyService toolPolicies;
+    @MockitoBean com.eap.platform.registry.ScopedToolService scopedTools;
     @MockitoBean WorkflowExecutionService workflows;
+    @MockitoBean com.eap.platform.orchestration.PlanExecutionService planExecutions;
     @MockitoBean GovernancePolicyService policies;
     @MockitoBean ContentObservationService content;
     @MockitoBean DiscoveryAgentV1Service discovery;
     @MockitoBean EvaluationService evaluations;
     @MockitoBean EvaluationDatasetItemService annotations;
 
+    @ParameterizedTest @CsvSource({"VIEWER,false","OPERATOR,false","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true"})
+    void scopedAuthorizationUsesSameGovernanceCapability(String role,boolean allowed)throws Exception {
+        var identity=identity(role);
+        mockMvc.perform(get("/api/registry/runtime-tools/scopes").param("instanceKey","synthetic").with(identity)).andExpect(status().isOk());
+        String id="00000000-0000-4000-8000-000000000001";
+        String body=objectMapper.writeValueAsString(Map.of("grantId",id,"holderKey","synthetic","resourceSet",List.of("poc_test"),"recipientSet",List.of("synthetic"),"maxDelta",1,"claimLimit",1,"expiresAt",java.time.Instant.now().plusSeconds(60)));
+        mockMvc.perform(post("/api/registry/runtime-tools/scopes").with(identity).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(allowed?status().isOk():status().isForbidden());
+        mockMvc.perform(post("/api/registry/runtime-tools/scopes/revoke").with(identity).contentType(MediaType.APPLICATION_JSON).content("{\"grantId\":\""+id+"\"}")).andExpect(allowed?status().isOk():status().isForbidden());
+        mockMvc.perform(post("/api/runtime-access/v1/tools/scoped/execute").with(identity).contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isUnauthorized());
+    }
     @Test
     void statusPublishesOnlyPublicOidcConfigurationAndMeRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/platform/status"))
@@ -87,30 +105,53 @@ class PlatformPermissionSecurityTests {
         JsonNode user = objectMapper.readTree(response.getContentAsString()).path("data");
         assertEquals(role.equals("NONE") ? objectMapper.valueToTree(List.of()) : objectMapper.valueToTree(List.of(role)), user.path("roles"));
         JsonNode capabilities = user.path("capabilities");
-        Map<String, Boolean> expected = Map.of(
+        Map<String, Boolean> expected = new java.util.HashMap<>(Map.of(
                 "viewConsole", view, "deployAgents", operate, "operateInstances", operate,
                 "runWorkflows", operate, "governance", govern, "viewContent", govern,
-                "approveContent", approve, "manageEvaluations", operate, "annotateEvaluations", annotate);
+                "approveContent", approve, "manageEvaluations", operate, "annotateEvaluations", annotate));
+        expected.put("manageFeedback",annotate);
+        expected.put("runAgentExperiments",role.equals("PLATFORM_ADMIN"));
+        expected.put("manageBudgets",govern);
         assertEquals(expected.size(), capabilities.size());
         expected.forEach((key, allowed) -> assertEquals(allowed.booleanValue(), capabilities.path(key).asBoolean(), key));
 
         assertEndpoint(capabilities, "viewConsole", get("/api/agents/7/substrate/deployments"), identity);
         assertEndpoint(capabilities, "viewConsole", get("/api/agents/7/substrate/instances"), identity);
         assertEndpoint(capabilities, "viewConsole", get("/api/policies"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/ax/tasks"), identity);
+        assertEndpoint(capabilities, "viewContent", get("/api/ax/tasks/test/content"), identity);
+        assertEndpoint(capabilities, "runWorkflows", json(post("/api/ax/tasks"), "{\"agentId\":7,\"requestKey\":\"key\",\"objective\":\"test\",\"mode\":\"ECHO\"}"), identity);
+        assertEndpoint(capabilities, "operateInstances", post("/api/ax/tasks/test/suspend"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/substrate/monitoring"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/registry/runtime-tools/policy?instanceKey=eap-agents/outside"), identity);
+        assertEndpoint(capabilities, "governance", json(put("/api/registry/runtime-tools/policy"),
+                "{\"instanceKey\":\"eap-agents/outside\",\"expectedRevision\":0,\"enabled\":false,\"allowedTools\":[],\"claimLimit\":0}"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/registry/runtime-tools?instanceKey=eap-agents/outside"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/registry/runtime-inventory"), identity);
+        assertEndpoint(capabilities, "viewConsole", get("/api/registry/runtime-connection?instanceKey=eap-agents/outside"), identity);
+        assertEndpoint(capabilities, "deployAgents", json(post("/api/registry/runtime-connection/credential"),
+                "{\"instanceKey\":\"eap-agents/outside\",\"requestKey\":\"00000000-0000-0000-0000-000000000001\"}"), identity);
+        for (String action : List.of("verify", "revoke")) assertEndpoint(capabilities, "deployAgents",
+                json(post("/api/registry/runtime-connection/"+action), "{\"instanceKey\":\"eap-agents/outside\"}"), identity);
+        assertEndpoint(capabilities, "deployAgents", json(post("/api/registry/runtime-inventory/adopt"),
+                "{\"scope\":\"eap-agents\",\"name\":\"outside\",\"uid\":\"uid-one\",\"template\":\"eap-agents/template\",\"agentId\":71}"), identity);
         assertEndpoint(capabilities, "deployAgents", json(post("/api/agents/7/substrate/deployments"),
                 "{\"sourceType\":\"RUNNER\",\"systemPrompt\":\"x\",\"model\":\"deepseek-flash\"}"), identity);
         assertEndpoint(capabilities, "deployAgents", post("/api/agents/7/substrate/deployments/1/retry"), identity);
-        assertEndpoint(capabilities, "operateInstances", post("/api/agents/7/substrate/instances"), identity);
+        assertEndpoint(capabilities, "operateInstances", json(post("/api/agents/7/substrate/instances"),
+                "{\"requestKey\":\"00000000-0000-4000-8000-000000000002\"}"), identity);
         assertEndpoint(capabilities, "operateInstances", delete("/api/agents/7/substrate/instances/actor"), identity);
         assertEndpoint(capabilities, "operateInstances", json(post("/api/agents/7/substrate/instances/actor/chat"), "{\"message\":\"hi\"}"), identity);
         assertEndpoint(capabilities, "operateInstances", json(post("/api/control/commands"),
                 "{\"agentId\":7,\"commandType\":\"PAUSE\",\"runtimeInstanceKey\":\"actor\"}"), identity);
         assertEndpoint(capabilities, "operateInstances", post("/api/control/commands/command/retry"), identity);
         assertEndpoint(capabilities, "runWorkflows", json(post("/api/workflows/7/executions"), "{\"objective\":\"hello\"}"), identity);
+        assertEndpoint(capabilities, "runWorkflows", json(post("/api/orchestration/plans/7/executions"), "{\"requestKey\":\"permission-proof\"}"), identity);
         assertEndpoint(capabilities, "governance", json(post("/api/policies"),
                 "{\"name\":\"test\",\"policyType\":\"PERMISSION\",\"scopeType\":\"GLOBAL\",\"ruleJson\":\"{}\",\"enforcementMode\":\"WARN\",\"enabled\":true}"), identity);
         assertEndpoint(capabilities, "viewContent", get("/api/observability/content"), identity);
         assertEndpoint(capabilities, "viewContent", get("/api/observability/content/page"), identity);
+        assertEndpoint(capabilities, "viewContent", get("/api/workflows/7/executions/test/outputs"), identity);
         assertEndpoint(capabilities, "approveContent", json(post("/api/discovery/v1/admin/agents/7/content-approval"),
                 "{\"approvalRole\":\"DATA_OWNER\",\"approvedBy\":\"permission-test\"}"), identity);
         assertEndpoint(capabilities, "manageEvaluations", json(post("/api/evaluations/datasets"), "{\"datasetKey\":\"test\",\"name\":\"test\"}"), identity);

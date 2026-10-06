@@ -39,6 +39,13 @@ public class LearningFeedback {
     @Column(nullable = false, length = 32)
     LearningFeedbackStatus status = LearningFeedbackStatus.OPEN;
 
+    @Column(name = "task_id") Long taskId;
+    @Column(name = "trace_id", length = 128) String traceId;
+    @Column(name = "requested_by", length = 128) String requestedBy;
+    @Column(name = "reviewed_by", length = 128) String reviewedBy;
+    @Column(name = "submission_key", length = 64) String submissionKey;
+    @Column(name = "request_fingerprint", length = 64) String requestFingerprint;
+
     @Column(name = "created_at", nullable = false)
     Instant createdAt;
 

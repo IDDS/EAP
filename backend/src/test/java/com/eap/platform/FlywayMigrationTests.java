@@ -18,9 +18,16 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(48);
+        assertThat(result.migrationsExecuted).isEqualTo(63);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
+            try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {
+                tables.next();assertThat(tables.getLong(1)).isEqualTo(4);
+            }
+            try(var columns=statement.executeQuery("select count(*) from information_schema.columns where table_name='runtime_tool_calls' and column_name in ('evidence_source','effect_id','root_grant_id')")) {
+                columns.next();assertThat(columns.getLong(1)).isEqualTo(3);
+            }
+
             try (var tables = statement.executeQuery("select count(*) from information_schema.tables where table_name in "
                     + "('workflow_executions', 'eap_evaluation_calibration_runs', 'agentops_signal_sync_state')")) {
                 tables.next();
