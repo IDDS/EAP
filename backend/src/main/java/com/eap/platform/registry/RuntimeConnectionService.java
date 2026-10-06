@@ -21,6 +21,8 @@ import java.util.concurrent.*;
 @Service
 public class RuntimeConnectionService {
     @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.ax.AxTaskRepository taskIdentities;
+    @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate creationDb;
     private final RuntimeConnectionRepository connections;
     private final AgentRuntimeInstanceRepository runtimes;
@@ -162,9 +164,8 @@ public class RuntimeConnectionService {
             var r=bound(key);var c=connections.findByInstanceKey(key).orElse(null);
             if(r.status==RuntimeStatus.OFFLINE||!valid(c)||c.verifiedAt==null||!equal(token(r,c),supplied)||agents.get(r.agentId).lifecycleStatus()!=AgentLifecycleStatus.ACTIVE)throw new IllegalArgumentException();
             if("SUBSTRATE_TASK".equals(r.protocol)){
-                var rows=creationDb.queryForList("select identity_revoked,identity_until,actor_uid,actor_template from ax_tasks where instance_key=? and identity_mode='PER_INSTANCE_V1'",key);
-                if(rows.size()!=1)throw new IllegalArgumentException();var task=rows.getFirst();
-                if(Boolean.TRUE.equals(task.get("identity_revoked"))||!(task.get("identity_until") instanceof java.sql.Timestamp until)||!until.toInstant().isAfter(Instant.now())||!Objects.equals(r.getBoundActorUid(),task.get("actor_uid"))||!Objects.equals(r.getBoundActorTemplate(),task.get("actor_template")))throw new IllegalArgumentException();
+                var task=taskIdentities.identityByInstanceKey(key).orElseThrow(IllegalArgumentException::new);
+                if(task.identityRevoked()||task.identityUntil()==null||!task.identityUntil().isAfter(Instant.now())||!Objects.equals(r.getBoundActorUid(),task.actorUid())||!Objects.equals(r.getBoundActorTemplate(),task.actorTemplate()))throw new IllegalArgumentException();
             }
             current(r);return new Access(key,r.agentId,c.generation,"runtime-"+r.id);
         }catch(RuntimeException e){throw new UnauthorizedException("实例凭证无效、过期或当前身份不可用");}

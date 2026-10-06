@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-@SpringBootTest(properties={"spring.flyway.enabled=true","eap.budget.enabled=true","eap.ax.enabled=true","eap.ax.worker-enabled=false","eap.ax.instance-identity-enabled=true",
+@SpringBootTest(properties={"spring.datasource.url=jdbc:h2:mem:task-identity-utc;DB_CLOSE_DELAY=-1;MODE=MySQL;DATABASE_TO_LOWER=TRUE;INIT=SET TIME ZONE '+08:00'","spring.flyway.enabled=true","eap.budget.enabled=true","eap.ax.enabled=true","eap.ax.worker-enabled=false","eap.ax.instance-identity-enabled=true",
  "eap.ax.runner-image=localhost:5001/task@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
  "eap.ax.legacy-runner-image=localhost:5001/task@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
  "eap.workflow.execution.worker-enabled=false","eap.substrate.deploy-worker-enabled=false"})
@@ -90,7 +90,7 @@ class AxTaskIdentityIntegrationTests {
  AxTask dispatch(String key){var t=submit(key);service.processNext();service.processNext();assertThat(service.get(t.taskKey).status()).isEqualTo("RUNNING");return task(t.taskKey);}
  String proof(String key,String input)throws Exception{var mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8),"HmacSHA256"));return Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(input.getBytes(StandardCharsets.UTF_8)));}
  @Test void signedDeliveryAndCreateReceiptPrecedeExactlyOneDispatchAndTraceMatches(){
-  var t=dispatch("ready");assertThat(posts).hasValue(1);assertThat(t.identityMode).isEqualTo("PER_INSTANCE_V1");assertThat(t.actorUid).isEqualTo(uid(t));assertThat(service.get(t.taskKey).identityStatus()).isEqualTo("READY");
+  var t=dispatch("ready");assertThat(posts).hasValue(1);assertThat(t.identityMode).isEqualTo("PER_INSTANCE_V1");assertThat(t.actorUid).isEqualTo(uid(t));assertThat(service.get(t.taskKey).identityStatus()).isEqualTo("READY");assertThat(authentication.status(t.instanceKey).identityExpiresAt()).isEqualTo(t.identityUntil);
   var access=authentication.authenticate(t.instanceKey,installed.get(t.instanceKey));authentication.validateTaskAttribution(access,t.taskKey,null);assertThatThrownBy(()->authentication.validateLegacyTaskAttribution(t.taskKey)).isInstanceOf(GatewayException.class);
   service.processNext();var result=service.content(t.taskKey).path("result");assertThat(result.path("traceId").asText()).isEqualTo(RuntimeScopedTelemetry.trace(t.instanceKey,result.path("runtimeTraceId").asText()));service.processNext();assertThat(service.get(t.taskKey).suspended()).isTrue();assertThat(posts).hasValue(1);
   verify(client).ensure(eq(t.taskKey),eq(t.runnerImage),argThat(env->env.keySet().equals(Set.of("EAP_AGENT_ID","EAP_AX_TASK_KEY","EAP_GATEWAY_URL","EAP_IDENTITY_MODE","EAP_IDENTITY_DIR","EAP_IDENTITY_PUBLIC_KEY"))));
@@ -158,6 +158,13 @@ class AxTaskIdentityIntegrationTests {
   gatewayConfig.setIngestionToken(UUID.randomUUID().toString());mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/gateway/v1/chat/completions").contentType("application/json").content(body).header("X-EAP-Gateway-Token",gatewayConfig.getIngestionToken()).header("X-EAP-Agent-Id",agent).header("X-EAP-Task-Key",t.taskKey)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict());
   mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/runtime-access/v1/tools/scoped/execute").contentType("application/json").content("{}").header("X-EAP-Runtime-Key",t.instanceKey).header("X-EAP-Runtime-Token",installed.get(t.instanceKey))).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
   verifyNoInteractions(gateway);assertThat(posts).hasValue(1);
+ }
+ @Test void shortOriginalApprovalRemainsUsableWithNonUtcJdbcSession(){
+  var t=submit("utc-short");t.identityUntil=Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).plusSeconds(3600);tasks.saveAndFlush(t);service.processNext();service.processNext();
+  assertThat(posts).hasValue(1);assertThat(service.get(t.taskKey).identityStatus()).isEqualTo("READY");
+  var actual=task(t.taskKey);assertThat(authentication.status(actual.instanceKey).identityExpiresAt()).isEqualTo(actual.identityUntil);
+  assertThat(authentication.authenticate(actual.instanceKey,installed.get(actual.instanceKey)).agentId()).isEqualTo(agent);
+  assertThat(actual.identityUntil).isEqualTo(t.identityUntil);
  }
  @Test void ordinaryRegistrationCannotForgeTaskProtocolOrUid(){
   assertThatThrownBy(()->registry.registerRuntime(agent,new AgentRegistryDtos.RuntimeInstanceRequest("eap-ax/forged","substrate://eap-ax/forged","SUBSTRATE_TASK",true))).isInstanceOf(BusinessException.class);verifyNoInteractions(client,nativeClient);assertThat(tasks.count()).isZero();

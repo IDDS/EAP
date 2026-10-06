@@ -1,3 +1,20 @@
+# Current task: T5-D1 timezone fix deployed; native task heartbeat recovery pending (2026-10-07)
+
+### Codex 进展：T5-D1已提交并部署，时区修复上线、原实例恢复仍待验收（2026-10-07）
+
+主线尚未全部完成。下一步继续当前任务身份阶段；T5其他入口和旧共享凭证迁移、T6通用恢复/发布取消、T7分级观测、T8策略及调度公平/老化/画像保持待办，没有Agent调优稳定收益证据。
+
+- 用户“别忘记提交gitee”授权正常提交推送，原工程提交38300900ad93806bb8acf58a76ba6d0861bc419c已核对Gitee远端。提交690精确验证源码与工程文档，BP/其他研究/AGENTS未带入；PROJECT_MEMORY提交仅HEAD加工程条目，本地其他记录保留。
+- 已部署后端/前端/任务执行器/原生任务服务及控制器五个固定digest，V63成功；新任务身份模式开启，补齐eap-ax可观察空间后真实capabilities enabled=true/instanceIdentity=true。持久认证原UID、不可变配送Secret及默认900秒、旧任务Runner和通用Runner保持。
+- 独立Agent50、模型总预算1/输出1024；仅提交原回显ax-82cb1041-e7f2-4fb3-aafd-ce2f6fa1df51，UID d7dd465c-873b-405f-a9bc-87cee1d79659，SUCCEEDED/SUSPENDED、模型0。短凭证真实空闲跨900秒自然到期，原metadata/UID/版本不变、旧凭证401。
+- 实际MySQL JDBC Timestamp读取较现有Hibernate Instant映射少8小时，导致任务UI提前EXPIRED，原连接授权首次缩短为16小时。首版UTC Calendar在H2三项回归失败、未部署；旧源码加H2非UTC会话14项PASS，不能称红测复现。实际MySQL只读驱动探测PASS、确认8小时偏移，原数据没有写。
+- 最终时区修复使用AxTaskIdentity类型化JPA投影及现有连接实体映射，不改全库时区/历史时间。远程定向59/6及完整522/91零失败、错误、跳过，打包通过；691源码摘要与实际Secret内存扫描PASS，精确6文件安装。只更新后端至10.186.133.66:5001/eap-backend@sha256:c8fa8cb5cb46c355797a8791966e4aee32a94b33e46b59baabf93375940e3865，实际Pod UID3b1590cb-8c6c-476b-84b2-b931e8947b43，健康与能力通过；原任务和连接EXPIRED一致，原UID、Task24小时及连接原16小时期限保持。
+- 原实例恢复两次400，没有生成新的待配送操作，未执行模型。只读诊断确认登记被旧心跳清理在16:01:20.988395误标OFFLINE；批量JPQL未排除SUBSTRATE_TASK。修复该排除项的V8新增回归有1失败，原因是夹具初次保存自动补心跳，HTTP“缺心跳”断言没有测到NULL；V9保存后明确清空，再做缺失/陈旧心跳、旧原生协议、普通HTTP和显式OFFLINE边界回归。V9测试进行中、尚未安装/部署；不把首版失败说成全通过。
+- 为避免占用运行槽，仅对本轮已确认终态原实例由所有者CLI恢复原快照到休眠，UID和原externalSnapshot保持，原消费0。修复发布后需审计/CAS核对本轮唯一误清理登记，不恢复任意OFFLINE，不延长旧批准或换任务冒充续期；原实例恢复、真实模型一次、串行工作流、跨任务拒绝、四角色/手机浏览器及最终撤销仍未完成。
+- 原690版本前端190/类型/构建、任务执行器race12顶层和原生完整68顶层/135含子项结果沿未变源码保持有效，不称本次重新全部测试。旧T4 Workflow15原EXECUTION_UNKNOWN、旧预算、模板及所有完成标记不重放。全部测试/构建/部署/浏览器远程；节点状态eap-t5d-evidence.json completed未置true，绿色/root/eap-src仍T5-C。
+
+---
+
 # Current task: T5-D1 remote regression passed; deployment and live acceptance pending (2026-10-06)
 
 

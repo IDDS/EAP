@@ -25,6 +25,8 @@ import java.util.concurrent.*;
 /** Control-plane push only. Runners never receive the platform signing key or API service account. */
 @Service
 public class RuntimeCredentialDeliveryService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.ax.AxTaskRepository taskIdentities;
     private final RuntimeConnectionRepository connections;
     private final AgentRuntimeInstanceRepository runtimes;
     private final RuntimeConnectionProperties config;
@@ -64,11 +66,10 @@ public class RuntimeCredentialDeliveryService {
     public void connectCreated(String key,String request,String subject){connect(key,request,subject,1);}
     public void connectTaskCreated(String key,String request,String subject){connect(key,request,subject,2);}
     private Instant taskApproval(String key,String request){
-        var rows=db.queryForList("select delivery_request,identity_until,identity_revoked,identity_public_key from ax_tasks where instance_key=? and identity_mode='PER_INSTANCE_V1'",key);
-        if(rows.size()!=1)throw new ConflictException("原任务接入授权无法确认");
-        var row=rows.getFirst();var until=row.get("identity_until");
-        if(Boolean.TRUE.equals(row.get("identity_revoked"))||request!=null&&!request.equals(row.get("delivery_request"))||!config.getDeliveryPublicKey().equals(row.get("identity_public_key"))||!(until instanceof java.sql.Timestamp at)||!at.toInstant().isAfter(Instant.now()))throw new ConflictException("原任务接入授权已撤销、到期或冻结配置变化");
-        return ((java.sql.Timestamp)until).toInstant();
+        var row=taskIdentities.identityByInstanceKey(key).orElseThrow(()->new ConflictException("任务原接入授权无法确认"));
+        var until=row.identityUntil();
+        if(row.identityRevoked()||request!=null&&!request.equals(row.deliveryRequest())||!config.getDeliveryPublicKey().equals(row.identityPublicKey())||until==null||!until.isAfter(Instant.now()))throw new ConflictException("任务原接入授权已撤销、到期或变化");
+        return until;
     }
     private void connect(String key,String request,String subject,int approval){
         boolean creation=approval!=0;

@@ -3,7 +3,7 @@ package com.eap.platform.registry;
 import com.eap.platform.agent.*;
 import com.eap.platform.common.*;
 import com.eap.platform.substrate.*;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.eap.platform.ax.AxTaskRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -13,15 +13,18 @@ import java.util.*;
 /** Trusted task factory only. A console heartbeat/registration cannot claim an AX create receipt. */
 @Service
 public class TaskRuntimeIdentityService {
- private final JdbcTemplate db;private final AgentRuntimeInstanceRepository runtimes;private final AgentRepository agents;
+ private final AxTaskRepository tasks;private final RuntimeConnectionRepository connectionsRepository;private final AgentRuntimeInstanceRepository runtimes;private final AgentRepository agents;
  private final SubstrateClient nativeClient;private final SubstrateProperties substrate;private final RuntimeConnectionProperties config;
  private final RuntimeCredentialDeliveryService delivery;private final RuntimeConnectionService connections;private final TransactionTemplate tx;
  private record Binding(Long agent,String scope,String name,String uid,String template,String request,String publicKey,Instant until,boolean revoked) {String key(){return scope+"/"+name;}}
- public TaskRuntimeIdentityService(JdbcTemplate db,AgentRuntimeInstanceRepository runtimes,AgentRepository agents,SubstrateClient nativeClient,
+ public TaskRuntimeIdentityService(AxTaskRepository tasks,RuntimeConnectionRepository connectionsRepository,AgentRuntimeInstanceRepository runtimes,AgentRepository agents,SubstrateClient nativeClient,
   SubstrateProperties substrate,RuntimeConnectionProperties config,RuntimeCredentialDeliveryService delivery,RuntimeConnectionService connections,PlatformTransactionManager manager){
-  this.db=db;this.runtimes=runtimes;this.agents=agents;this.nativeClient=nativeClient;this.substrate=substrate;this.config=config;this.delivery=delivery;this.connections=connections;tx=new TransactionTemplate(manager);
+  this.tasks=tasks;this.connectionsRepository=connectionsRepository;this.runtimes=runtimes;this.agents=agents;this.nativeClient=nativeClient;this.substrate=substrate;this.config=config;this.delivery=delivery;this.connections=connections;tx=new TransactionTemplate(manager);
  }
- private Binding binding(String task){return db.query("select * from ax_tasks where task_key=? and identity_mode='PER_INSTANCE_V1'",(r,n)->new Binding(r.getLong("agent_id"),r.getString("identity_scope"),r.getString("task_key"),r.getString("actor_uid"),r.getString("actor_template"),r.getString("delivery_request"),r.getString("identity_public_key"),r.getTimestamp("identity_until")==null?null:r.getTimestamp("identity_until").toInstant(),r.getBoolean("identity_revoked")),task).stream().findFirst().orElseThrow(()->new BusinessException("任务实例身份尚未创建"));}
+ private Binding binding(String task){
+  var identity=tasks.identityByTaskKey(task).orElseThrow(()->new BusinessException("任务创建身份尚未绑定"));
+  return new Binding(identity.agentId(),identity.identityScope(),identity.taskKey(),identity.actorUid(),identity.actorTemplate(),identity.deliveryRequest(),identity.identityPublicKey(),identity.identityUntil(),identity.identityRevoked());
+ }
  public void approve(String task,boolean requireReceipt){var b=binding(task);approved(b,requireReceipt);if(requireReceipt)current(b);}
  private void approved(Binding b){approved(b,true);}
  private void approved(Binding b,boolean requireReceipt){
@@ -50,9 +53,9 @@ public class TaskRuntimeIdentityService {
  public void check(String task){var b=binding(task);current(b);}
  public String summary(String task){
   var b=binding(task);if(b.revoked())return "REVOKED";if(b.uid()==null)return "PENDING";
-  var rows=db.queryForList("select generation,automatic_delivery,verified_at,expires_at,delivery_operation from runtime_connections where instance_key=?",b.key());
-  if(rows.isEmpty())return "BOUND";var row=rows.getFirst();if(row.get("generation")==null)return "REVOKED";if(row.get("delivery_operation")!=null)return "DELIVERY_PENDING";
-  if(b.until()==null||!b.until().isAfter(Instant.now())||!(row.get("expires_at") instanceof java.sql.Timestamp at)||!at.toInstant().isAfter(Instant.now()))return "EXPIRED";
-  return row.get("verified_at")==null?"PENDING":"READY";
+  var row=connectionsRepository.findByInstanceKey(b.key()).orElse(null);
+  if(row==null)return "BOUND";if(row.generation==null)return "REVOKED";if(row.deliveryOperation!=null)return "DELIVERY_PENDING";
+  if(b.until()==null||!b.until().isAfter(Instant.now())||row.expiresAt==null||!row.expiresAt.isAfter(Instant.now()))return "EXPIRED";
+  return row.verifiedAt==null?"PENDING":"READY";
  }
 }
