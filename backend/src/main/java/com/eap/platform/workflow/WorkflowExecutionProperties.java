@@ -18,6 +18,9 @@ public class WorkflowExecutionProperties {
     private int readTimeoutMs = 10000;
     private int maxResponseBytes = 65536;
     private int timeoutSeconds = 900;
+    private int agingSeconds = 60;
+    public int getAgingSeconds() { return Math.max(1, Math.min(3600, agingSeconds)); }
+    public void setAgingSeconds(int value) { agingSeconds = value; }
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean value) { enabled = value; }
     public String getAllowedHosts() { return allowedHosts; }

@@ -58,7 +58,10 @@ class AxIntegrationTests {
  }
  @Test void mixedWorkflowHandsOffAxOutputOnlyAfterConfirmedSuspend()throws Exception{
   Long id=mixed();var queued=executions.submit(id,new com.eap.platform.workflow.WorkflowDtos.RunRequest("mixed",Map.of(),"mixed"),"owner");
-  when(runtime.invoke(any(),anyMap(),any())).thenReturn(new com.eap.platform.workflow.WorkflowTaskClient.Receipt("SUCCEEDED","ok",200,new com.fasterxml.jackson.databind.node.TextNode("native-result")));
+  when(runtime.invoke(any(),anyMap(),any(),any())).thenAnswer(invocation->{
+   invocation.getArgument(3,com.eap.platform.workflow.WorkflowTaskClient.Prepared.class).beforeDispatch();
+   return new com.eap.platform.workflow.WorkflowTaskClient.Receipt("SUCCEEDED","ok",200,new com.fasterxml.jackson.databind.node.TextNode("native-result"));
+  });
   try(var pool=java.util.concurrent.Executors.newSingleThreadExecutor()){
    var future=pool.submit(()->executions.processNext());var t=awaitTask(queued.runKey());
    t.status="RUNNING";tasks.save(t);receipt(t,"SUCCEEDED");
@@ -70,7 +73,7 @@ class AxIntegrationTests {
   assertThat(done.executionMode()).isEqualTo("EAP_MIXED_TASK_V1");
   assertThat(done.steps().get(1).runtimeInstanceKey()).startsWith("ax://");
   assertThat(done.steps().get(1).output()).isNull();assertThat(executions.outputs(id,queued.runKey()).get("ax").asText()).isEqualTo("result");
-  verify(runtime).invoke(any(),argThat(payload->payload.get("context").toString().contains("result")),any());
+  verify(runtime).invoke(any(),argThat(payload->payload.get("context").toString().contains("result")),any(),any());
   assertThat(executions.submit(id,new com.eap.platform.workflow.WorkflowDtos.RunRequest("mixed",Map.of(),"mixed"),"owner").runKey()).isEqualTo(queued.runKey());assertThat(tasks.count()).isEqualTo(1);
  }
  @Test void axFailureStopsDownstreamWorkflow()throws Exception{

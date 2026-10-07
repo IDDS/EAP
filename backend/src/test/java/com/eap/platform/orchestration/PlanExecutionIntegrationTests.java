@@ -40,6 +40,7 @@ class PlanExecutionIntegrationTests {
     @Autowired WorkflowDefinitionRepository definitions;
     @Autowired WorkflowExecutionRepository executionRepository;
     @Autowired WorkflowService workflows;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate db;
     @MockitoBean GenseeSafetyService safety;
     @Autowired com.eap.platform.ax.AxProperties axProperties;
     Long team, plan, producer, reviewer, first, second;
@@ -92,9 +93,11 @@ class PlanExecutionIntegrationTests {
             assertThat(nodes.stream().filter(n->n.nodeKey().equals("step-"+first)).findFirst().orElseThrow().configJson()).contains("AX");
             assertThat(nodes.stream().filter(n->n.nodeKey().equals("step-"+second)).findFirst().orElseThrow().configJson()).contains("RUNTIME");
             assertThatThrownBy(()->orchestration.addStep(plan,new OrchestrationDtos.StepRequest(3,"later","review","AX"))).isInstanceOf(ConflictException.class);
-            // Do not leave a runnable fixture for other serial execution tests.
+            // Only this never-dispatched H2 fixture is discarded; preserve its scheduling audit row.
+            // This is test cleanup, not a production cancellation API.
             var record=executionRepository.findByWorkflowIdAndRunKey(submitted.workflowId(),submitted.execution().runKey()).orElseThrow();
-            executionRepository.delete(record);
+            assertThat(db.update("update workflow_executions set status='FAILED',reason='Synthetic test fixture not dispatched',completed_at=CURRENT_TIMESTAMP where run_key=? and status='QUEUED'",submitted.execution().runKey())).isEqualTo(1);
+            assertThat(db.queryForObject("select count(*) from workflow_schedule_entries s join workflow_executions e on e.id=s.execution_id where e.run_key=?",Long.class,submitted.execution().runKey())).isEqualTo(1);
         } finally {axProperties.setEnabled(enabled);axProperties.setRunnerImage(image);}
     }
 

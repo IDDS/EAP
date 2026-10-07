@@ -1,3 +1,26 @@
+# 当前主线：调度、Agent性能调优、权限治理；申请人调度阶段已验收（2026-10-07）
+
+
+### Codex 进展：申请人公平调度、自然老化与责任画像已部署验收（2026-10-07，T2/R4）
+
+始终聚焦调度、Agent性能调优、权限治理；主线未全部完成。合同[WORKFLOW_SCHEDULING.md](WORKFLOW_SCHEDULING.md)。V66仅新表，新提交按完整认证主体等权轮转、默认60秒最旧等待老化；持久序号、同事务原owner/epoch，context tenant/priority不授权。历史31运行/4原查询/3效果根不回填。单进程非抢占，不称租户/CPU配额或全入口调度。
+
+PREPARATION/TASK_WAIT/RECLAIM/ASYNC_WAIT记录实际边界，原运行与阶段自身owner/epoch/期限双校验。开放阶段失去责任显示UNCONFIRMED且无伪造duration；缺失/时钟倒退不补零，异步整体等待不叫模型时延。只读API复用中央VIEW_CONSOLE；导航“调度与画像”，样本覆盖/P50/P95、申请人分布、近期原运行和阶段。
+
+最终远程定向139项/9类、完整582项/93类及打包零失败/错误/跳过；前端207项/类型/生产构建。19精确源码、706摘要与实际9Secret RAM扫描PASS。v1/v2定向绿但完整被后续加固替代，partial保留/UID退役；v4完整582中2失败1错误保留。根因是旧三参数mock以及删除H2运行与新审计FK冲突留下QUEUED；仅修正两个测试，四参数mock执行Prepared屏障，原新H2夹具按runKey/QUEUED CAS终止并保留审计，不放松生产FK/权限或虚称取消API。v5完整闭环才发布。v2启动辅助错误manifest路径在创建源前失败，fixed独立入口保留；v3未启动Job。 部署只读核验v1误用MAX(varchar version)，保留失败记录；v2按installed_rank读实际66，无重复部署。Runner/原生代码镜像未变，本轮不声称Go重测。
+
+新agent模型额度0：一个原ECHO异步工作流及随后14A/2B控制节点，共17个原意图全部成功。B在A突发队列耗尽前实际获轮转，旧等待自然达到阈值并记WAIT_AGING，未改worker/队列时钟/生产策略。原ECHO同UID任务回执、物理休眠和ASYNC_WAIT画像确认；准备/HTTP等待/回收边界为远程HTTP/DB/client回归，不称三种原生阶段均完成本轮实测或FIFO goodput对照。四角色API和1500/390px只读浏览器12截图，写入0/页面异常0/失败API0，最终仅新ECHO同UID休眠及专属身份撤销。
+
+原79账户/43预占/264关联/43结算、31工作流/4查询/3效果根、12授权/21操作/11计数、24连接/32部署/13异步任务/60模型观测全行SHA保持；模型与工具消费新增0，不退款/清零/重放。认证原Pod、不可变配送Secret/默认短lease、后端环境、原生与Runner镜像保持。仅前后端镜像resourceVersion CAS，实际MySQL66/健康/imageID确认。
+
+固定镜像backend=10.186.133.66:5001/eap-backend@sha256:aa4e90d2e6cd14717ae1ab400aefcd3ef872e81753da971ffe0b2ff823599315；frontend=10.186.133.66:5001/eap-frontend@sha256:e9a713bcc3d1be72e9c7776d4fd7594d1e1222055aa0d766cc56d13c125ba6cc；buildId=2026-10-07T10:12:16.754Z。
+
+证据K8Substrate artifacts/eap-workflow-scheduling-20261007/index.html，归档2989896bytes/SHA25679b3672f19c2445a031d5d2eba75accb28e4c0d38a0ea5050cf0f9d39cf8f963；671文件摘要/706源/12截图/HTML引用核对。实际Secret与新实例派生token只节点RAM扫描，通过后才精确19源码推进/root/eap-src。5现存临时Jobs/6Pods按冻结UID清理、剩余0，另两被替代测试Job已UID退役；原失败/partial归档不改。
+
+用户此前“别忘记提交gitee”授权本工程正常commit/push；仅19源码和4工程文档，PROJECT_MEMORY index=HEAD加本条，保留其他线程记忆、AGENTS/BP/私有报告和研究。下一项T3更大独立公开样本/持久留出批次/完整成本与真实收益门禁，旧GEPA保持KEEP_BASELINE；继续可信租户/资源配额、跨入口调度、业务工具/旧凭证迁移、恢复/取消/补偿及T7/T8。主线未全完成，旧视频未重录。
+
+---
+
 # 当前主线：调度、Agent性能调优、权限治理；新根效果屏障已验收（2026-10-07）
 
 

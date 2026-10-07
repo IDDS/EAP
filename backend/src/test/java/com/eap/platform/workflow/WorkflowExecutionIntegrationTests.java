@@ -39,6 +39,7 @@ class WorkflowExecutionIntegrationTests {
     @Autowired WorkflowService workflows;
     @Autowired WorkflowExecutionService executions;
     @Autowired WorkflowExecutionRepository repository;
+    @Autowired WorkflowSchedulingService scheduling;
     @Autowired WorkflowExecutionProperties properties;
     @Autowired org.springframework.jdbc.core.JdbcTemplate db;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
@@ -148,6 +149,10 @@ class WorkflowExecutionIntegrationTests {
         assertThat(received.get().path("configJson").asText()).isEqualTo("{\"mode\":\"audit\"}");
         verify(safety).evaluate(argThat(event -> event.target().equals("http://127.0.0.1:" + server.getAddress().getPort() + "/tasks")));
         assertThat(result.completedAt()).isNotNull();
+        var profile=scheduling.report().runs().stream().filter(r->r.runKey().equals(queued.runKey())).findFirst().orElseThrow();
+        assertThat(profile.phases()).extracting(WorkflowSchedulingService.Phase::kind).containsExactly("PREPARATION","TASK_WAIT");
+        assertThat(profile.phases()).extracting(WorkflowSchedulingService.Phase::state).containsExactly("CONFIRMED","SUCCEEDED");
+        assertThat(profile.phases()).allMatch(phase->phase.durationMs()!=null && phase.durationMs()>=0);
     }
 
     @Test
@@ -219,7 +224,7 @@ class WorkflowExecutionIntegrationTests {
     @Test
     void concurrentRetriesReuseExecutionAndConflictingPayloadCannotReuseKey() throws Exception {
         String requestKey = "request-" + UUID.randomUUID();
-        var request = new WorkflowDtos.RunRequest("once", Map.of("severity", "high", "approved", false), requestKey);
+        var request = new WorkflowDtos.RunRequest("once", Map.of("severity", "high", "approved", false, "tenant", "spoofed-priority", "priority", 99999), requestKey);
         java.util.List<String> keys = new java.util.ArrayList<>();
         try (var pool = java.util.concurrent.Executors.newFixedThreadPool(4)) {
             var start = new java.util.concurrent.CountDownLatch(1);
@@ -232,6 +237,8 @@ class WorkflowExecutionIntegrationTests {
         }
         assertThat(keys.stream().distinct().count()).isEqualTo(1);
         assertThat(executions.list(workflowId)).hasSize(1);
+        assertThat(db.queryForObject("select count(*) from workflow_schedule_entries s join workflow_executions e on e.id=s.execution_id where e.run_key=?",Long.class,keys.getFirst())).isEqualTo(1);
+        assertThat(db.queryForObject("select s.group_key from workflow_schedule_entries s join workflow_executions e on e.id=s.execution_id where e.run_key=?",String.class,keys.getFirst())).isEqualTo(WorkflowSchedulingService.groupKey("operator"));
         assertThatThrownBy(() -> executions.submit(workflowId,
                 new WorkflowDtos.RunRequest("changed", Map.of(), requestKey), "operator"))
                 .isInstanceOf(com.eap.platform.common.ConflictException.class);

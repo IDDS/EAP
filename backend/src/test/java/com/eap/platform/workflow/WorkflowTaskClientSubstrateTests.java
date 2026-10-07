@@ -83,6 +83,22 @@ class WorkflowTaskClientSubstrateTests {
     }
 
     @Test
+    void dispatchBarrierRunsAfterWakeupAndCanBlockTaskAfterOwnershipLoss() {
+        assertThatThrownBy(()->client.invoke(runtime("substrate://eap-demo/session-1"), Map.of("taskKey","wf-1:1"), Instant.now().plusSeconds(30), ()->{
+            verify(substrateClient).resume(new SubstrateActorRef("eap-demo","session-1"));
+            assertThat(taskCalls.get()).isZero();
+            throw new IllegalStateException("responsibility lost");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(taskCalls.get()).isZero();
+    }
+    @Test
+    void failedWakeupDoesNotReportPreparationComplete() {
+        when(substrateClient.resume(any())).thenThrow(new SubstrateClient.SubstrateException("RESOURCE_EXHAUSTED", "no free workers"));
+        var prepared=new java.util.concurrent.atomic.AtomicInteger();
+        assertThat(client.invoke(runtime("substrate://eap-demo/session-1"),Map.of("taskKey","wf-1:1"),Instant.now().plusSeconds(30),prepared::incrementAndGet).status()).isEqualTo("FAILED");
+        assertThat(prepared.get()).isZero();assertThat(taskCalls.get()).isZero();
+    }
+    @Test
     void failedWakeupIsFailedAndNothingIsSent() {
         when(substrateClient.resume(any())).thenThrow(new SubstrateClient.SubstrateException("RESOURCE_EXHAUSTED", "no free workers"));
 

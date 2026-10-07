@@ -40,6 +40,19 @@ class FlywayMigrationTests {
         }
     }
     @Test
+    void fairSchedulingMigrationDoesNotBackfillHistoricalExecutions()throws Exception {
+        String url="jdbc:h2:mem:old_schedule_"+java.util.UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("65").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement()) {
+            st.executeUpdate("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at,recovery_version,owner_epoch) values(1,'old-queue','QUEUED','old','original-owner','original-snapshot','original-steps',CURRENT_TIMESTAMP,1,2)");
+        }
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement()) {
+            for(String table:java.util.List.of("workflow_schedule_entries","workflow_schedule_groups","workflow_phase_observations"))try(var r=st.executeQuery("select count(*) from "+table)){r.next();assertThat(r.getLong(1)).isZero();}
+            try(var r=st.executeQuery("select status,snapshot_json,steps_json,owner_epoch from workflow_executions where run_key='old-queue'")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("QUEUED");assertThat(r.getString(2)).isEqualTo("original-snapshot");assertThat(r.getString(3)).isEqualTo("original-steps");assertThat(r.getLong(4)).isEqualTo(2);}
+        }
+    }
+    @Test
     void appliesAllMigrationsAndSeedDataOnH2() throws Exception {
         String url = "jdbc:h2:mem:eap_migration_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway flyway = Flyway.configure()
@@ -49,7 +62,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(65);
+        assertThat(result.migrationsExecuted).isEqualTo(66);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

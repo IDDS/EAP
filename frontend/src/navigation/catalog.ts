@@ -12,6 +12,7 @@ export const navigationGroups: NavigationGroup[] = [
   ]},
   {id:'workspace-execution',label:'编排与执行',icon:'Connection',description:'组织协作，执行并跟踪任务',items:[
     {path:'/workflow-builder',label:'工作流编排',icon:'Share',description:'设计智能体执行步骤，查看协作与执行过程。',keywords:'工作流自动化'},
+    {path:'/scheduling',label:'调度与画像',icon:'Histogram',description:'查看申请人排队公平、等待老化与真实执行阶段。'},
     {path:'/orchestration',label:'团队与计划',icon:'UserFilled',description:'分配团队成员与计划步骤，跟踪协作结果。',keywords:'Agent 团队 多智能体'},
     {path:'/ax-tasks',label:'异步任务',icon:'VideoPlay',description:'提交异步任务，查看执行结果与沙箱状态。',keywords:'AX 任务执行'},
     {path:'/operations',label:'业务任务记录',icon:'List',description:'查看业务任务记录，确认问题是否解决。',keywords:'任务运行 运行任务'},

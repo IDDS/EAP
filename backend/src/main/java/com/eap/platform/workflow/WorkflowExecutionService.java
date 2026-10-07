@@ -28,6 +28,7 @@ public class WorkflowExecutionService {
     private final WorkflowExecutionProperties properties;
     private final WorkflowTaskClient client;
     private final WorkflowToolRecoveryService toolRecovery;
+    private final WorkflowSchedulingService scheduling;
     private final com.eap.platform.ax.AxService ax;
     private final GenseeSafetyService safety;
     private final ObjectMapper mapper;
@@ -36,7 +37,8 @@ public class WorkflowExecutionService {
     public WorkflowExecutionService(WorkflowExecutionRepository repository, WorkflowService workflows, WorkflowDefinitionRepository definitions,
             AgentRepository agents, AgentRuntimeInstanceRepository runtimes, com.eap.platform.registry.RuntimeConnectionService connections, RuntimeLeaseProperties lease,
             WorkflowExecutionProperties properties, WorkflowTaskClient client, GenseeSafetyService safety,
-            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax, WorkflowToolRecoveryService toolRecovery) {
+            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax, WorkflowToolRecoveryService toolRecovery, WorkflowSchedulingService scheduling) {
+        this.scheduling = scheduling;
         this.toolRecovery = toolRecovery;
         this.ax = ax;
         this.repository = repository; this.workflows = workflows; this.definitions = definitions; this.agents = agents; this.runtimes = runtimes; this.connections = connections;
@@ -128,7 +130,10 @@ public class WorkflowExecutionService {
         run.snapshotJson = json(new Snapshot(path, List.of(), context));
         if (run.snapshotJson.getBytes(StandardCharsets.UTF_8).length > 60000) throw new BusinessException("工作流快照超过 60KB，请精简配置");
         run.createdAt = Instant.now(); run.recoveryVersion = 1;
-        return response(repository.save(run));
+        scheduling.lockEnrollment();
+        repository.saveAndFlush(run);
+        scheduling.enroll(run, requester == null || requester.isBlank() ? "console" : requester);
+        return response(run);
     }
 
     @Transactional(readOnly = true)
@@ -144,16 +149,7 @@ public class WorkflowExecutionService {
     }
 
     public void processNext() {
-        WorkflowExecution run = transaction.execute(status -> {
-            Instant now = Instant.now();
-            repository.expire(now.minusSeconds(properties.getTimeoutSeconds()), now);
-            if (!properties.ready()) return null;
-            WorkflowExecution queued = repository.findFirstByStatusOrderByCreatedAtAscIdAsc("QUEUED").orElse(null);
-            if (queued == null) return null;
-            queued.status = "RUNNING"; queued.startedAt = now;
-            queued.ownerEpoch++; queued.ownerId = UUID.randomUUID().toString();
-            return repository.save(queued);
-        });
+        WorkflowExecution run = scheduling.claim();
         if (run == null) return;
         List<Step> steps = new ArrayList<>();
         try {
@@ -211,10 +207,11 @@ public class WorkflowExecutionService {
                 }
                 if (axNode) {
                     // Durable task includes workflow/node linkage before the AX worker can create any sandbox.
+                    scheduling.begin(run, sequence, "ASYNC_WAIT");
                     com.eap.platform.ax.AxService.View task;
                     try { task = ax.submitWorkflow(run.workflowId, run.runKey, node.nodeKey(), node.agentId(),
                             objective, context, axMode(node), run.requester, run.startedAt.plusSeconds(properties.getTimeoutSeconds())); }
-                    catch (BusinessException ex) { progress(run, steps, "FAILED", ex.getMessage(), true); return; }
+                    catch (BusinessException ex) { scheduling.finish(run, sequence, "ASYNC_WAIT", "FAILED"); progress(run, steps, "FAILED", ex.getMessage(), true); return; }
                     String instance = "ax://" + task.actor();
                     steps.add(new Step(sequence,node.nodeKey(),node.label(),node.agentId(),task.taskKey(),instance,
                             "DISPATCHING","ALLOW","AX 任务已关联，等待业务回执与物理休眠",null));
@@ -226,9 +223,9 @@ public class WorkflowExecutionService {
                             steps.set(sequence,new Step(sequence,node.nodeKey(),node.label(),node.agentId(),task.taskKey(),instance,
                                     task.status(),task.status().equals("BLOCKED")?"DENY":task.status().equals("WAITING_APPROVAL")?"REQUIRE_APPROVAL":"ALLOW",
                                     task.reason(),null,output,output==null?null:digest(json(output))));
-                            if (!"SUCCEEDED".equals(task.status())) { progress(run,steps,task.status(),task.reason(),true); return; }
+                            if (!"SUCCEEDED".equals(task.status())) { scheduling.finish(run, sequence, "ASYNC_WAIT", task.status()); progress(run,steps,task.status(),task.reason(),true); return; }
                             // AX sandboxes are dedicated; always confirm resource release before advancing.
-                            if (task.suspended()) { if(!progress(run,steps,"RUNNING",null,false))return; break; }
+                            if (task.suspended()) { scheduling.finish(run, sequence, "ASYNC_WAIT", "CONFIRMED"); if(!progress(run,steps,"RUNNING",null,false))return; break; }
                         }
                         if (!progress(run,steps,"RUNNING","等待 AX 回执或沙箱休眠；未重复派发",false))return;
                         Thread.sleep(500);
@@ -245,15 +242,24 @@ public class WorkflowExecutionService {
                     // Ownership may expire while binding the intent; never dispatch after losing it.
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                 }
-                var receipt = client.invoke(runtime, payload, run.startedAt.plusSeconds(properties.getTimeoutSeconds()));
+                scheduling.begin(run, sequence, "PREPARATION");
+                boolean[] dispatched = {false};
+                var receipt = client.invoke(runtime, payload, run.startedAt.plusSeconds(properties.getTimeoutSeconds()), () -> {
+                    scheduling.finish(run, sequence, "PREPARATION", "CONFIRMED");
+                    scheduling.begin(run, sequence, "TASK_WAIT");
+                    dispatched[0] = true;
+                });
+                scheduling.finish(run, sequence, dispatched[0] ? "TASK_WAIT" : "PREPARATION", receipt.status());
                 steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(),
                         receipt.status(), "ALLOW", receipt.reason(), receipt.httpStatus(), receipt.output(),
                         receipt.output() == null ? null : digest(json(receipt.output()))));
                 boolean terminal = !"SUCCEEDED".equals(receipt.status());
                 if (!progress(run, steps, terminal ? receipt.status() : "RUNNING", receipt.reason(), terminal) || terminal) return;
                 if (suspendAfterTask(node) && !usesAx(node)) {
-                    try { client.suspend(runtime); }
+                    scheduling.begin(run, sequence, "RECLAIM");
+                    try { client.suspend(runtime); scheduling.finish(run, sequence, "RECLAIM", "CONFIRMED"); }
                     catch (RuntimeException exception) {
+                        scheduling.finish(run, sequence, "RECLAIM", "UNCONFIRMED");
                         progress(run, steps, "FAILED", "任务已完成并保存结果，但 Actor 休眠未确认；未派发下一节点，请核对实例", true); return;
                     }
                     Step completed = steps.get(sequence);

@@ -33,6 +33,7 @@ const router = createRouter({
     { path: '/operations', component: OperationsView, meta: { title: '任务运行' } },
     { path: '/ax-tasks', component: () => import('@/views/AxTasksView.vue'), meta: { title: 'AX 任务执行' } },
     { path: '/orchestration', component: OrchestrationView, meta: { title: 'Agent 团队' } },
+    { path: '/scheduling', component: () => import('@/views/SchedulingView.vue'), meta: { title: '调度与画像' } },
     { path: '/workflow-builder', component: WorkflowBuilderView, meta: { title: '工作流自动化' } },
     { path: '/learning', component: LearningView, meta: { title: '自适应学习' } },
     { path: '/evaluation', component: EvaluationView, meta: { title: '评估与可靠性' } },

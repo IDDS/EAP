@@ -33,12 +33,17 @@ public class WorkflowTaskClient {
         public Receipt(String status, String reason, Integer httpStatus) { this(status, reason, httpStatus, null); }
     }
 
+    @FunctionalInterface
+    public interface Prepared { void beforeDispatch(); }
     public Receipt invoke(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline) {
+        return invoke(runtime, payload, executionDeadline, () -> {});
+    }
+    public Receipt invoke(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline, Prepared prepared) {
         if (!properties.ready()) return new Receipt("FAILED", "工作流执行未启用或未配置认证与目标白名单", null);
         if (runtime.hasBoundIdentity() && !connections.executable(runtime)) throw new IllegalArgumentException("外部实例尚未验证任务协议或凭证已失效");
         if (isTool(payload) && (!runtime.hasBoundIdentity() || !SubstrateActorRef.isSubstrate(runtime.getProtocol())))
             return new Receipt("FAILED", "工具任务需要已验证的实例专属接入，未派发任务", null);
-        if (SubstrateActorRef.isSubstrate(runtime.getProtocol())) return invokeSubstrate(runtime, payload, executionDeadline);
+        if (SubstrateActorRef.isSubstrate(runtime.getProtocol())) return invokeSubstrate(runtime, payload, executionDeadline, prepared);
         URI uri;
         try {
             uri = URI.create(runtime.getEndpoint());
@@ -56,6 +61,7 @@ public class WorkflowTaskClient {
                 }
             }
         } catch (Exception exception) { return new Receipt("FAILED", "Runtime 地址无效或无法解析", null); }
+        prepared.beforeDispatch();
         return post(runtime, uri, null, properties.getToken(), payload, executionDeadline);
     }
 
@@ -64,7 +70,7 @@ public class WorkflowTaskClient {
      * names the actor and never becomes a URL, so the target allowlist does not apply to it. The actor is
      * woken first so a failed wakeup is reported as FAILED before any task side effect can occur.
      */
-    private Receipt invokeSubstrate(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline) {
+    private Receipt invokeSubstrate(AgentRuntimeInstance runtime, Map<String, Object> payload, Instant executionDeadline, Prepared prepared) {
         if (!substrate.isEnabled()) return new Receipt("FAILED", "Substrate Runtime 集成未启用", null);
         SubstrateActorRef actor;
         URI uri;
@@ -90,6 +96,7 @@ public class WorkflowTaskClient {
             if (restore) try { suspend(runtime); } catch (RuntimeException e) { reason += "；原休眠状态未能恢复，请核对实例"; }
             return new Receipt("FAILED", reason, null);
         }
+        prepared.beforeDispatch();
         return post(runtime, uri, actor.routingValue(), dispatchToken, payload, executionDeadline);
     }
 
