@@ -29,6 +29,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test") @AutoConfigureMockMvc
 class ScopedToolIntegrationTests {
     @Autowired ScopedToolService service;
+    @Autowired com.eap.platform.workflow.WorkflowToolRecoveryService recovery;
+    @Autowired com.eap.platform.workflow.WorkflowService workflows;
     @Autowired RuntimeToolPolicyService policies;
     @Autowired RuntimeConnectionRepository connections;
     @Autowired AgentRuntimeInstanceRepository runtimes;
@@ -58,6 +60,80 @@ class ScopedToolIntegrationTests {
     long value(){return db.queryForObject("select counter_value from scoped_tool_counters where resource_id=?",Long.class,resource);}
     long effects(){return db.queryForObject("select effect_count from scoped_tool_counters where resource_id=?",Long.class,resource);}
     String ledgerSnapshot(){return json.valueToTree(db.queryForList("select * from budget_accounts order by id")).toString()+json.valueToTree(db.queryForList("select * from budget_reservations order by id")).toString()+json.valueToTree(db.queryForList("select * from budget_settlements order by id")).toString();}
+    record FrozenRun(long id,long workflowId,String runKey,String owner) {}
+    FrozenRun frozenRun(ScopedToolDtos.Execute request,int version) {
+        var workflow=workflows.create(new com.eap.platform.workflow.WorkflowDtos.WorkflowRequest("QUERY-"+UUID.randomUUID(),"Query recovery test","synthetic"));
+        var node=workflows.upsertNode(workflow.id(),new com.eap.platform.workflow.WorkflowDtos.NodeRequest("counter","counter","AGENT",a.agentId(),null,0,0,
+            json.valueToTree(Map.of("eapTool",Map.of("name",ScopedToolService.TOOL,"arguments",request))).toString()));
+        String key="wf-exec-"+UUID.randomUUID(),owner=UUID.randomUUID().toString();
+        var step=new com.eap.platform.workflow.WorkflowExecutionService.Step(0,"counter","counter",a.agentId(),key+":0",a.instanceKey(),"DISPATCHING","ALLOW","original intent",null);
+        db.update("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at,started_at,recovery_version,owner_epoch,owner_id) values(?,?,'RUNNING','synthetic','test',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?,1,?)",
+            workflow.id(),key,json.valueToTree(new com.eap.platform.workflow.WorkflowExecutionService.Snapshot(List.of(node),List.of(),Map.of())).toString(),json.valueToTree(List.of(step)).toString(),version,owner);
+        return new FrozenRun(db.queryForObject("select id from workflow_executions where run_key=?",Long.class,key),workflow.id(),key,owner);
+    }
+    void prepare(FrozenRun run,ScopedToolDtos.Execute request) { recovery.prepare(run.id(),1,run.owner(),0,"counter",run.runKey()+":0",a.instanceKey(),request); }
+    void due(FrozenRun run) { db.update("update workflow_tool_recovery set next_check_ms=0 where execution_id=?",run.id()); }
+    @Test void durableQueryAfterLostReturnAndRevocationKeepsOriginalEffectBudgetAndWorkflowUnknown() {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        var original=service.execute(a,request); // Original response is not used to complete the workflow.
+        db.update("update workflow_executions set status='EXECUTION_UNKNOWN',owner_epoch=owner_epoch+1,owner_id=null where id=?",run.id());
+        service.revoke(root.grantId(),"test");policy(a,false,32);String ledger=ledgerSnapshot();
+        recovery.processPending();
+        var entry=recovery.report(run.workflowId(),run.runKey()).entries().getFirst();
+        assertThat(entry.state()).isEqualTo("CONFIRMED");assertThat(entry.operation().effectId()).isEqualTo(original.effectId());
+        assertThat(entry.operationId()).isEqualTo(request.operationId());assertThat(entry.queryEpoch()).isEqualTo(1);
+        for(int i=0;i<3;i++)recovery.processPending();
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isEqualTo(1);
+        assertThat(db.queryForObject("select status from workflow_executions where id=?",String.class,run.id())).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst()).isEqualTo(entry);
+    }
+    @Test void missingIntentRetainsQueryResponsibilityAndLaterFindsOnlyOriginalOperation() {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        String ledger=ledgerSnapshot();recovery.processPending();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("UNKNOWN");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isZero();
+        service.execute(a,request);due(run);ledger=ledgerSnapshot();recovery.processPending();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("CONFIRMED");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isEqualTo(1);
+    }
+    @Test void preparedUnknownNeverBecomesNoCommitAndQueryFailureRetainsLiability() {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        RuntimeToolGuardService target=org.springframework.test.util.AopTestUtils.getUltimateTargetObject(guard);
+        doThrow(new IllegalStateException("synthetic storage failure")).when(target).recordVerified(any(),anyString(),anyString(),anyString(),anyString());
+        try{assertThatThrownBy(()->service.execute(a,request)).isInstanceOf(IllegalStateException.class);}finally{doCallRealMethod().when(target).recordVerified(any(),anyString(),anyString(),anyString(),anyString());}
+        String ledger=ledgerSnapshot();recovery.processPending();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("UNKNOWN");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isZero();
+    }
+    @Test void explicitStoreRejectionCanConfirmNoCommitWithoutRefundOrRetry() {
+        var root=root(1);var request=request(root.grantId(),11);var run=frozenRun(request,1);prepare(run,request);
+        assertThat(service.execute(a,request).state()).isEqualTo("REJECTED");String ledger=ledgerSnapshot();recovery.processPending();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("NO_COMMIT");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isZero();
+    }
+    @Test void legacyRunsAndChangedNodeIntentCannotEnrollAndSameOperationCannotBelongToAnotherRun() {
+        var root=root(1);var request=request(root.grantId(),1);var legacy=frozenRun(request,0);
+        assertThatThrownBy(()->prepare(legacy,request)).isInstanceOf(ConflictException.class);
+        assertThat(recovery.report(legacy.workflowId(),legacy.runKey()).enrolled()).isFalse();
+        var first=frozenRun(request,1);prepare(first,request);prepare(first,request);
+        var second=frozenRun(request,1);assertThatThrownBy(()->prepare(second,request)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->prepare(first,new ScopedToolDtos.Execute(request.grantId(),request.operationId(),request.resourceId(),2))).isInstanceOf(ConflictException.class);
+        assertThat(db.queryForObject("select count(*) from workflow_tool_recovery where root_id=?",Long.class,root.rootId())).isEqualTo(1);
+    }
+    @Test void existingOriginalToolIntentCannotBeRelabeledAsNewWorkflowResponsibility() {
+        var root=root(1);var request=request(root.grantId(),1);service.execute(a,request);
+        String ledger=ledgerSnapshot();var run=frozenRun(request,1);
+        assertThatThrownBy(()->prepare(run,request)).isInstanceOf(ConflictException.class).hasMessageContaining("原工具意图已存在");
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries()).isEmpty();
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isEqualTo(1);
+    }
+    @Test void mismatchedOriginalParameterFingerprintCannotBeAdoptedAsSuccess() {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        service.execute(a,new ScopedToolDtos.Execute(request.grantId(),request.operationId(),request.resourceId(),2));
+        String ledger=ledgerSnapshot();recovery.processPending();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("UNKNOWN");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isEqualTo(1);
+    }
     @Test void lostResponseInspectionPreservesOriginalEffectAndAllBudgetRowsAfterRevocation(){
         var r=root(2);var c=child(r,2);var req=request(c.grantId(),3);
         var original=service.execute(b,req); // The caller discards this response; only the persisted intent is queried.

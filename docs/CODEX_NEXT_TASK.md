@@ -1,3 +1,24 @@
+# 当前主线：调度、Agent性能调优、权限治理；工具步骤持久核验已验收（2026-10-07）
+
+### Codex 进展：原工具步骤持久查询责任与平台进度隔离已部署验收（2026-10-07，T6-B）
+
+**始终聚焦调度、Agent性能调优、权限治理；主线尚未全部完成。** 本阶段有界完成受控计数工具的查询责任，不等于通用恢复、实际执行侧epoch屏障或自动推进。下一步先执行侧责任交接/逐项业务工具适配与旧凭证消费者核对，再继续确定性公平/老化/阶段画像、独立真实任务上的Agent调优、分级观测及联合策略。旧GEPA保持KEEP_BASELINE，没有确认稳定收益。
+
+- 合同[WORKFLOW_TOOL_RECOVERY.md](WORKFLOW_TOOL_RECOVERY.md)。V64新运行version1保存owner/epoch，派发前核对原快照/类型化参数，冻结原根、O、对象、delta、taskKey及原UID/generation/合同/指纹，保存查询outbox；已有工具意图不能重新认领为新运行。独立worker每轮最多8个原查询，30秒责任租约及CAS允许接管并拒绝过期查询者；旧progress入口不能修改新版本，运行进度同时核对owner/epoch。查询不执行、续授权、领取/退还预算或派发后续节点。缺失/PREPARED/读失败/指纹不匹配为UNKNOWN保留责任，可信存储确认才CONFIRMED/NO_COMMIT。核验与工作流终态分开。
+- VIEW_CONSOLE和/me沿现有集中权限；四控制台角色可读，匿名401、DATA_OWNER/NONE403，接口无原工作流业务输出。执行过程展示原操作/根预算/UID/查询轮次/观察时间/效果，权限与身份切换、读失败和迟到响应清理旧证据；刷新只GET。新页面无AX/Substrate产品名。
+- 精确19变更/697源码摘要及实际9个Secret节点RAM扫描PASS。最终远程定向99项/6类、完整561项/92类零失败/错误/跳过并打包，前端203项零失败/跳过及类型/生产构建PASS，前端v1源码与最终v5逐文件相同。隔离故障Runner普通Go回归23顶层/36含子项及编译PASS，不是race；生产Runner和原生未修改，不称本轮重测所有底层组件。
+- 固定backend 10.186.133.66:5001/eap-backend@sha256:fb1eeeedf61f0fae11c1aa513ffa70cb5cffc1d6d60d8908b44d6027cb9091e3，首次PodUID 7c36e38f-43f0-4591-8e0b-2e70503f111f，重启后实际PodUID e1391188-cd79-4097-ba47-5cecb3e4eee4；frontend 10.186.133.66:5001/eap-frontend@sha256:af7eb74c853a1ed2c9ad93f5ffc6af321c67a019843f622d13d97d658cb643ff，PodUID fb8e28fc-3975-46dc-b9c5-56d05fdcc6db，buildId 2026-10-07T04:20:30.939Z。实际imageID/健康/版本、V64 PASS；认证Pod、配送Secret/默认900秒、环境和原生/生产Runner镜像保持。只定向更改两镜像及一次有界backend重启注解，清单只同步两digest，无整份apply。
+- 独立IMAGE Agent54，原发布 dep-302583b4-1eee-4035-a70a-75db722865e0，UID 9c6e4802-7a94-453e-9e7d-33f72025bab5，模型/输出额度0。实际Actor通过专属身份执行原受控工具，存储与actor日志提交后HTTP Hijack关闭任务TCP响应；原工作流21/运行 wf-exec-98e23653-98ac-4001-bf5c-e301b07926a4 保存EXECUTION_UNKNOWN，END没有执行。查询原O 04e45d31-5a5b-4024-989b-4ef4c4a2e855，确认同一effectId 1cc154b5-f78d-49de-935c-39130a04a8b4、计数1。实际backend更换Pod后查询/原UNKNOWN/完整预算行保持。重启发生在工作流已UNKNOWN/核验CONFIRMED之后，不称活跃查询租约内崩溃或生产网络分区；该租约并发/接管由独立数据库回归覆盖。
+- 原64账户/40预占/255关联项/40结算逐行保留（平台TOOL_CLAIMS仅预期+1及更新时间）；原27工作流快照/步骤/理由摘要、13任务/28部署、8授权/17工具操作/7计数、20连接公开元数据/59UID绑定保持。旧UNKNOWN物理12/20未重放，V64后旧27运行仍version0/epoch0/owner空。原模型观测60行和账本MODEL_CALLS33/OUTPUT_TOKENS1904分别保持；新增模型0，不把观测行数当供应商调用次数。最后原UID休眠、实例身份/根撤销、策略停用，根cap1/used1/reserved0，历史核验仍保持。
+- 本轮盘点59模板/62管理项/28发布/原22旧发布/39旧凭证引用模板/9当前无管理引用模板；全局和分作用域枚举一致，不证明外部消费者、挂载内容、快照、分页完整性。共享凭证未退役、旧模板未迁移。
+- 四角色1500/390px浏览器PASS，runId 188be9f6-cc91-41b6-9fcd-1bac34b9bb08，8截图、业务写入0、页面异常0、失败API0；实际查看admin桌面/手机，长编号及预算换行可读。证据K8Substrate artifacts/eap-workflow-tool-recovery-20261007/index.html，tar.gz 2172154 bytes/SHA256 92b296d6d6fb3a2dc8e08b0d7eb04e0d2fe5666064058fa6adb932d019065841，494摘要/8截图/23 HTML引用本地核对；697本地源与远程源一致。导出后精确19文件推进/root/eap-src，节点completed=true。10本轮测试/构建Jobs和11Pods按冻结UID清理、剩余0，保护PASS；清理及最终运行状态单列补充，原归档未修改。
+- 候选v1 AOP目标Object编译失败；v2六项JSON数值节点比较错误及一项迁移计数失败；v3中间绿色；v4源overlay中途CAS拒绝后按原/最终摘要恢复、三项泛型断言编译失败；最终v5明确Integer修正后通过。无旧实现red对照。在线发布检查误用AVAILABLE，实际READY，仅修正辅助检查；未published的workflow guard在业务写入前拒绝，原发布和运行随后各提交一次。首次本地下载SSH255失败、经批准桥接重试后摘要通过。失败记录随归档保留，不称首次全绿。
+- 实际执行侧epoch隔离、资源责任交接、自动节点恢复、取消/补偿、真实业务工具、多版本混合生产升级及灾备仍待。全部依赖/测试/构建/部署/浏览器在远程，本机仅文本/摘要/脱敏文件与看图。旧全功能视频未重录。本地5173最新版本与8180认证元数据200，既有隧道保留；跳板偶发中断不称已彻底消除。
+
+用户此前“别忘记提交gitee”授权本工程正常commit/push。只选择本轮19源码和5工程文档，保护BP/AGENTS/其他研究/私人原文。PROJECT_MEMORY工作区只追加，提交内容为原HEAD加本条目，其他线程未提交记录完整保留。禁止重跑prepare/publish/workflow/effect或旧UNKNOWN，不换意图造新证据。
+
+---
+
 # 当前主线：调度、Agent性能调优、权限治理；原操作核验阶段已验收（2026-10-07）
 
 ### Codex 进展：工具能力合同、原操作只读核验与完整旧身份清单（2026-10-07）

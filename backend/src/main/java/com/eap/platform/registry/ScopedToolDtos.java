@@ -40,5 +40,9 @@ public final class ScopedToolDtos {
         String compensation,String recovery) {}
     public record Catalog(long policyRevision,boolean policyEnabled,Instant observedAt,List<Contract> tools) {}
     public record Inspection(String contractVersion,String budgetKey,Instant observedAt,Operation operation) {}
+    /** Frozen original identity, policy and parameter hash; carries no authority to execute. */
+    public record RecoveryBinding(String rootId,String grantId,String holderKey,long agentId,String actorUid,
+        String generation,long policyRevision,String contractVersion,String operationFingerprint) {}
+    public record RecoveryEvidence(String state,String reason,Operation operation) {}
     public record Dashboard(List<Grant> grants,List<Operation> operations,List<Counter> counters) {}
 }

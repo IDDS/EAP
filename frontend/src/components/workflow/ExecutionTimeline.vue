@@ -11,11 +11,13 @@
       </li>
     </ol>
     <el-empty v-else :image-size="48" :description="execution.status === 'QUEUED' ? '已入队，等待开始处理' : '暂无步骤记录'" />
+    <ToolRecoveryFacts :workflow-id="execution.workflowId" :run-key="execution.runKey" />
     <p class="timeline-footnote">点击步骤查看证据。结果未知时先核对外部任务；此视图不会重放操作。</p>
   </section>
 </template>
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import ToolRecoveryFacts from './ToolRecoveryFacts.vue'
 import type { WorkflowExecution } from '@/types/domain'
 const props = defineProps<{ execution: WorkflowExecution }>()
 const selected = ref<number>()

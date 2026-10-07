@@ -181,6 +181,38 @@ public class ScopedToolService {
             &&o.counterValue()!=null&&o.counterValue()==output.path("counterValue").longValue();
     }
     @Transactional(readOnly=true)
+    public ScopedToolDtos.RecoveryBinding bindRecovery(String holder,ScopedToolDtos.Execute request) {
+        uuid(request.operationId());var g=find(request.grantId());
+        if(!holder.equals(g.v.holderKey())||!CONTRACT.equals(g.v.contractVersion()))
+            throw new BusinessException("工具恢复绑定与原授权不一致");
+        return new ScopedToolDtos.RecoveryBinding(g.v.rootId(),g.v.grantId(),holder,g.v.agentId(),g.uid,
+            g.generation,g.v.policyRevision(),g.v.contractVersion(),
+            hash(write(List.of(holder,g.generation,request.grantId(),request.resourceId(),request.delta()))));
+    }
+    @Transactional(readOnly=true)
+    public void requireUnsubmittedRecoveryIntent(ScopedToolDtos.RecoveryBinding binding,ScopedToolDtos.Execute request) {
+        if(!operations(binding.rootId(),request.operationId(),true).isEmpty())
+            throw new ConflictException("原工具意图已存在，不能登记为新工作流派发责任");
+    }
+    /** Historical read only. Revocation does not erase facts; absence never proves no commit. */
+    @Transactional(readOnly=true)
+    public ScopedToolDtos.RecoveryEvidence recoverOriginal(ScopedToolDtos.RecoveryBinding binding,ScopedToolDtos.Execute request) {
+        if(!Objects.equals(binding,bindRecovery(binding.holderKey(),request)))
+            return new ScopedToolDtos.RecoveryEvidence("UNKNOWN","原身份、参数或合同绑定不匹配",null);
+        var rows=operations(binding.rootId(),request.operationId(),true);
+        if(rows.isEmpty())return new ScopedToolDtos.RecoveryEvidence("UNKNOWN","原操作记录缺失，不能推定未提交",null);
+        var o=rows.getFirst();
+        String fp=db.queryForObject("select fingerprint from scoped_tool_operations where root_id=? and operation_id=?",String.class,binding.rootId(),request.operationId());
+        if(!binding.operationFingerprint().equals(fp)||!binding.holderKey().equals(o.holderKey())
+                ||!binding.grantId().equals(o.grantId())||!request.resourceId().equals(o.resourceId())||request.delta()!=o.delta())
+            return new ScopedToolDtos.RecoveryEvidence("UNKNOWN","原操作与冻结意图不匹配",null);
+        if("COMMITTED".equals(o.state())&&"TOOL_STORE_VERIFIED".equals(o.effectSource())&&o.effectId()!=null&&o.counterValue()!=null)
+            return new ScopedToolDtos.RecoveryEvidence("CONFIRMED","原工具存储已确认效果；未再次执行",o);
+        if("REJECTED".equals(o.state())&&"TOOL_STORE_NO_COMMIT".equals(o.effectSource()))
+            return new ScopedToolDtos.RecoveryEvidence("NO_COMMIT","原工具事务已明确拒绝提交；未退款或重试",o);
+        return new ScopedToolDtos.RecoveryEvidence("UNKNOWN","原提交尚未确认，保留核对责任和原预算",o);
+    }
+    @Transactional(readOnly=true)
     public ScopedToolDtos.Catalog contracts(String instance) {
         var policy=policies.get(instance);
         var tools=new TreeMap<String,RuntimeToolPolicyService.Tool>();

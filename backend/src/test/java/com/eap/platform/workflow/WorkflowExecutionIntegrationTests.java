@@ -40,6 +40,8 @@ class WorkflowExecutionIntegrationTests {
     @Autowired WorkflowExecutionService executions;
     @Autowired WorkflowExecutionRepository repository;
     @Autowired WorkflowExecutionProperties properties;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate db;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     @Autowired AgentRegistryService registry;
     @Autowired AgentRepository agents;
     @MockitoBean GenseeSafetyService safety;
@@ -94,6 +96,39 @@ class WorkflowExecutionIntegrationTests {
         node("start", "START", null); node("task", "AGENT", agentId); node("end", "END", null);
         workflows.addEdge(workflowId, new WorkflowDtos.EdgeRequest("start", "task", "always"));
         workflows.addEdge(workflowId, new WorkflowDtos.EdgeRequest("task", "end", "always"));
+    }
+
+    @Test
+    void legacyProgressEntryCannotBypassNewOwnerFence() {
+        var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("owner fence"),"operator");
+        String owner=UUID.randomUUID().toString();
+        db.update("update workflow_executions set status='RUNNING',owner_epoch=1,owner_id=?,started_at=CURRENT_TIMESTAMP where run_key=?",owner,queued.runKey());
+        var run=repository.findByWorkflowIdAndRunKey(workflowId,queued.runKey()).orElseThrow();
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactions);
+        assertThat(tx.<Integer>execute(ignored->repository.progress(run.id,"[]","FAILED","legacy bypass",Instant.now()))).isEqualTo(0);
+        assertThat(tx.<Integer>execute(ignored->repository.progressOwned(run.id,1,"wrong","[]","FAILED","stale",Instant.now()))).isEqualTo(0);
+        assertThat(executions.get(workflowId,queued.runKey()).status()).isEqualTo("RUNNING");
+        assertThat(tx.<Integer>execute(ignored->repository.progressOwned(run.id,1,owner,"[]","EXECUTION_UNKNOWN","fenced owner",Instant.now()))).isEqualTo(1);
+    }
+    @Test
+    void expiredOwnerCannotWriteProgressOrDispatchNextNodeEvenWithSameRunningStatus() throws Exception {
+        delayMs.set(600);
+        var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("fenced original"),"operator");
+        var worker=java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var future=worker.submit(executions::processNext);
+            long until=System.currentTimeMillis()+5000;
+            while(requests.get()==0 && System.currentTimeMillis()<until)Thread.sleep(10);
+            assertThat(requests.get()).isEqualTo(1);
+            String frozen=db.queryForObject("select steps_json from workflow_executions where run_key=?",String.class,queued.runKey());
+            db.update("update workflow_executions set owner_epoch=owner_epoch+1,owner_id=? where run_key=?",UUID.randomUUID().toString(),queued.runKey());
+            future.get(5,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(db.queryForObject("select steps_json from workflow_executions where run_key=?",String.class,queued.runKey())).isEqualTo(frozen);
+            assertThat(executions.get(workflowId,queued.runKey()).status()).isEqualTo("RUNNING");
+            assertThat(executions.get(workflowId,queued.runKey()).steps()).noneMatch(step->"end".equals(step.nodeKey()));
+            assertThat(requests.get()).isEqualTo(1);
+            db.update("update workflow_executions set status='EXECUTION_UNKNOWN' where run_key=?",queued.runKey());
+        }finally{worker.shutdownNow();delayMs.set(0);}
     }
 
     @Test

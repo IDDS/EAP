@@ -1251,6 +1251,14 @@ export interface WorkflowRun {
   agentsInvoked: boolean
 }
 
+export interface WorkflowToolRecovery {
+  contract: string; enrolled: boolean; mode: 'QUERY_ONLY'; responsibility: string
+  entries: { sequence: number; nodeKey: string; taskKey: string; rootId: string; operationId: string;
+    holderKey: string; actorUid: string; contractVersion: string; budgetKey: string; state: string; reason: string;
+    queryEpoch: number; leaseUntil?: string; observedAt?: string;
+    operation?: { effectId?: string; counterValue?: number; state: string; effectSource: string } }[]
+}
+
 export interface WorkflowExecution {
   runKey: string
   workflowId: number

@@ -27,6 +27,7 @@ public class WorkflowExecutionService {
     private final RuntimeLeaseProperties lease;
     private final WorkflowExecutionProperties properties;
     private final WorkflowTaskClient client;
+    private final WorkflowToolRecoveryService toolRecovery;
     private final com.eap.platform.ax.AxService ax;
     private final GenseeSafetyService safety;
     private final ObjectMapper mapper;
@@ -35,7 +36,8 @@ public class WorkflowExecutionService {
     public WorkflowExecutionService(WorkflowExecutionRepository repository, WorkflowService workflows, WorkflowDefinitionRepository definitions,
             AgentRepository agents, AgentRuntimeInstanceRepository runtimes, com.eap.platform.registry.RuntimeConnectionService connections, RuntimeLeaseProperties lease,
             WorkflowExecutionProperties properties, WorkflowTaskClient client, GenseeSafetyService safety,
-            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax) {
+            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax, WorkflowToolRecoveryService toolRecovery) {
+        this.toolRecovery = toolRecovery;
         this.ax = ax;
         this.repository = repository; this.workflows = workflows; this.definitions = definitions; this.agents = agents; this.runtimes = runtimes; this.connections = connections;
         this.lease = lease; this.properties = properties; this.client = client; this.safety = safety; this.mapper = mapper;
@@ -125,7 +127,7 @@ public class WorkflowExecutionService {
         run.requester = requester == null || requester.isBlank() ? "console" : requester.substring(0, Math.min(requester.length(), 128));
         run.snapshotJson = json(new Snapshot(path, List.of(), context));
         if (run.snapshotJson.getBytes(StandardCharsets.UTF_8).length > 60000) throw new BusinessException("工作流快照超过 60KB，请精简配置");
-        run.createdAt = Instant.now();
+        run.createdAt = Instant.now(); run.recoveryVersion = 1;
         return response(repository.save(run));
     }
 
@@ -149,6 +151,7 @@ public class WorkflowExecutionService {
             WorkflowExecution queued = repository.findFirstByStatusOrderByCreatedAtAscIdAsc("QUEUED").orElse(null);
             if (queued == null) return null;
             queued.status = "RUNNING"; queued.startedAt = now;
+            queued.ownerEpoch++; queued.ownerId = UUID.randomUUID().toString();
             return repository.save(queued);
         });
         if (run == null) return;
@@ -234,6 +237,14 @@ public class WorkflowExecutionService {
                 }
                 steps.add(new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(), "DISPATCHING", "ALLOW", "已记录派发意图", null));
                 if (!progress(run, steps, "RUNNING", null, false)) return;
+                if (run.recoveryVersion == 1 && tool != null && ScopedToolService.TOOL.equals(tool.path("name").asText())) {
+                    var args = tool.path("arguments");
+                    toolRecovery.prepare(run.id, run.ownerEpoch, run.ownerId, sequence, node.nodeKey(), taskKey,
+                            runtime.getInstanceKey(), new ScopedToolDtos.Execute(args.path("grantId").asText(),
+                            args.path("operationId").asText(), args.path("resourceId").asText(), args.path("delta").longValue()));
+                    // Ownership may expire while binding the intent; never dispatch after losing it.
+                    if (!progress(run, steps, "RUNNING", null, false)) return;
+                }
                 var receipt = client.invoke(runtime, payload, run.startedAt.plusSeconds(properties.getTimeoutSeconds()));
                 steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(),
                         receipt.status(), "ALLOW", receipt.reason(), receipt.httpStatus(), receipt.output(),
@@ -262,12 +273,18 @@ public class WorkflowExecutionService {
         return Boolean.TRUE.equals(transaction.execute(ignored -> {
             Instant now = Instant.now();
             if (!now.isBefore(run.startedAt.plusSeconds(properties.getTimeoutSeconds()))) {
-                repository.progress(run.id, json(steps), "EXECUTION_UNKNOWN",
+                updateProgress(run, steps, "EXECUTION_UNKNOWN",
                         "执行超过期限，外部效果可能已发生；请按任务标识核对，未自动重试", now);
                 return false;
             }
-            return repository.progress(run.id, json(steps), status, reason, terminal ? now : null) == 1;
+            return updateProgress(run, steps, status, reason, terminal ? now : null) == 1;
         }));
+    }
+
+    private int updateProgress(WorkflowExecution run,List<Step> steps,String status,String reason,Instant completedAt) {
+        return run.recoveryVersion == 1
+                ? repository.progressOwned(run.id,run.ownerEpoch,run.ownerId,json(steps),status,reason,completedAt)
+                : repository.progress(run.id,json(steps),status,reason,completedAt);
     }
 
     private AgentRuntimeInstance selectRuntime(WorkflowDtos.NodeResponse node) {

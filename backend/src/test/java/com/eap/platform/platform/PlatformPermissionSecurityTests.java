@@ -57,6 +57,7 @@ class PlatformPermissionSecurityTests {
     @MockitoBean com.eap.platform.registry.RuntimeToolPolicyService toolPolicies;
     @MockitoBean com.eap.platform.registry.ScopedToolService scopedTools;
     @MockitoBean WorkflowExecutionService workflows;
+    @MockitoBean com.eap.platform.workflow.WorkflowToolRecoveryService toolRecovery;
     @MockitoBean com.eap.platform.orchestration.PlanExecutionService planExecutions;
     @MockitoBean GovernancePolicyService policies;
     @MockitoBean ContentObservationService content;
@@ -79,6 +80,13 @@ class PlatformPermissionSecurityTests {
         var identity=identity(role);
         mockMvc.perform(get("/api/registry/runtime-tools/contracts").param("instanceKey","synthetic").with(identity)).andExpect(allowed?status().isOk():status().isForbidden());
         mockMvc.perform(get("/api/registry/runtime-tools/scopes/operations").param("instanceKey","synthetic").param("rootId","00000000-0000-4000-8000-000000000001").param("operationId","00000000-0000-4000-8000-000000000002").with(identity)).andExpect(allowed?status().isOk():status().isForbidden());
+    }
+    @ParameterizedTest @CsvSource({"VIEWER,true","OPERATOR,true","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true","DATA_OWNER,false","NONE,false"})
+    void workflowToolQueryUsesViewConsoleAndDoesNotExposeRawWorkflowOutputs(String role,boolean allowed)throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/tool-recovery").with(identity(role))).andExpect(allowed?status().isOk():status().isForbidden());
+    }
+    @Test void anonymousCannotReadWorkflowToolQuery()throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/tool-recovery")).andExpect(status().isUnauthorized());
     }
     @Test void anonymousCannotReadToolContractsOrOriginalIntent()throws Exception {
         mockMvc.perform(get("/api/registry/runtime-tools/contracts").param("instanceKey","synthetic")).andExpect(status().isUnauthorized());

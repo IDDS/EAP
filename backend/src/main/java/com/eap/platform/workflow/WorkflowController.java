@@ -17,8 +17,10 @@ import java.util.List;
 public class WorkflowController {
     private final WorkflowService workflowService;
     private final WorkflowExecutionService executions;
+    private final WorkflowToolRecoveryService toolRecovery;
 
-    public WorkflowController(WorkflowService workflowService, WorkflowExecutionService executions) {
+    public WorkflowController(WorkflowService workflowService, WorkflowExecutionService executions, WorkflowToolRecoveryService toolRecovery) {
+        this.toolRecovery = toolRecovery;
         this.workflowService = workflowService;
         this.executions = executions;
     }
@@ -65,6 +67,11 @@ public class WorkflowController {
     @GetMapping("/{workflowId}/executions")
     public ApiResponse<List<WorkflowExecutionService.Response>> executions(@PathVariable Long workflowId) {
         return ApiResponse.ok(executions.list(workflowId));
+    }
+
+    @GetMapping("/{workflowId}/executions/{runKey}/tool-recovery")
+    public ApiResponse<WorkflowToolRecoveryService.Report> toolRecovery(@PathVariable Long workflowId,@PathVariable String runKey) {
+        return ApiResponse.ok(toolRecovery.report(workflowId,runKey));
     }
 
     @GetMapping("/{workflowId}/executions/{runKey}/outputs")

@@ -9,6 +9,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class FlywayMigrationTests {
     @Test
+    void newRecoveryMigrationPreservesLegacyUnknownIntentWithoutEnrollment() throws Exception {
+        String url="jdbc:h2:mem:eap_legacy_"+java.util.UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("63").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement()) {
+            st.executeUpdate("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at) values(1,'old-unknown','EXECUTION_UNKNOWN','old','owner','original-snapshot','original-steps',CURRENT_TIMESTAMP)");
+        }
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement();var row=st.executeQuery("select status,snapshot_json,steps_json,recovery_version,owner_epoch,owner_id from workflow_executions where run_key='old-unknown'")) {
+            assertThat(row.next()).isTrue();assertThat(row.getString(1)).isEqualTo("EXECUTION_UNKNOWN");
+            assertThat(row.getString(2)).isEqualTo("original-snapshot");assertThat(row.getString(3)).isEqualTo("original-steps");
+            assertThat(row.getInt(4)).isZero();assertThat(row.getLong(5)).isZero();assertThat(row.getString(6)).isNull();
+        }
+    }
+    @Test
     void appliesAllMigrationsAndSeedDataOnH2() throws Exception {
         String url = "jdbc:h2:mem:eap_migration_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway flyway = Flyway.configure()
@@ -18,7 +32,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(63);
+        assertThat(result.migrationsExecuted).isEqualTo(64);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {
