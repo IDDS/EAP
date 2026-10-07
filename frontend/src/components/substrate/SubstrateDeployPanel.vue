@@ -2,6 +2,8 @@
   <div class="substrate-deploy">
     <el-alert v-if="capabilities && !capabilities.enabled" type="warning" :closable="false" show-icon
       title="托管运行环境未启用，请联系平台管理员启用。" />
+    <el-alert v-if="capabilities?.enabled && !capabilities.instanceIdentityAvailable" type="warning" :closable="false" show-icon
+      title="专属身份配送暂不可用，新版本发布已暂停，请联系平台管理员。" />
 
     <el-card shadow="never" class="panel">
       <template #header>
@@ -30,6 +32,9 @@
           </el-form-item>
         </template>
         <template v-else>
+          <el-alert class="identity-hint" type="info" :closable="false" show-icon
+            title="镜像和源码也使用专属实例身份"
+            description="程序需监听端口 80 并实现身份挑战、加密接收及确认接口；接入确认后才能运行。模板不包含共享凭证。可基于平台运行程序制作镜像。" />
           <el-form-item v-if="form.sourceType === 'IMAGE'" label="镜像地址">
             <el-input v-model="form.image" placeholder="localhost:5001/my-agent:latest 或 registry/repo@sha256:…" />
           </el-form-item>
@@ -47,7 +52,7 @@
             </el-form-item>
           </template>
           <el-form-item label="服务端口">
-            <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" />
+            <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" :disabled="true" />
             <el-input v-model="form.readinessPath" class="inline-input" placeholder="就绪检查路径，如 /readyz" />
             <span v-if="form.port !== 80" class="field-hint no-margin">
               路由器的普通 HTTP 请求（任务派发、试运行）只转发到端口 80；其他端口只能经 CONNECT 隧道访问。建议让服务监听 80。
@@ -88,7 +93,7 @@
           <span class="field-hint">默认只允许访问 EAP 网关{{ capabilities?.gatewayHost ? `（${capabilities.gatewayHost}）` : '' }}</span>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="submitting" :disabled="!actions.deploy || !capabilities?.enabled" @click="submit">发布部署</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!actions.deploy || !capabilities?.enabled || !capabilities?.instanceIdentityAvailable" @click="submit">发布部署</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -101,9 +106,15 @@
         <div class="deployment-head">
           <strong>v{{ deployment.version }}</strong>
           <el-tag size="small" effect="plain">{{ sourceLabel(deployment.sourceType) }}</el-tag>
+          <el-tag size="small" :type="deployment.config.identityMode === 'PER_INSTANCE_V1' ? 'success' : 'warning'" effect="plain">
+            {{ deployment.config.identityMode === 'PER_INSTANCE_V1' ? '专属实例身份' : '旧身份版本 · 待迁移' }}
+          </el-tag>
           <el-tag size="small" :type="progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).tone">{{ progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).label }}</el-tag>
           <span class="muted">{{ deployment.requestedBy }} · {{ formatTime(deployment.createdAt) }}</span>
         </div>
+        <p v-if="deployment.config.identityMode !== 'PER_INSTANCE_V1'" class="muted">
+          此版本仍使用旧身份配置。迁移需发布支持专属身份的新版本并核验；原实例、任务与预算记录保留。
+        </p>
         <el-steps :active="deployment.status === 'FAILED' ? failedStageIndex(deployment.steps, deployment.sourceType, String(deployment.config.identityMode ?? '')) : progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).active"
           :process-status="progress(deployment.status, deployment.sourceType, String(deployment.config.identityMode ?? '')).state" finish-status="success" simple>
           <el-step v-for="stage in deployStages(deployment.sourceType, String(deployment.config.identityMode ?? ''))" :key="stage" :title="stage" />
@@ -363,6 +374,7 @@ onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
+.identity-hint { margin-bottom: 18px; }
 .substrate-deploy { display: grid; gap: 16px; }
 .deploy-form { max-width: 860px; }
 .field-hint { margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }

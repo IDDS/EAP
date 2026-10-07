@@ -10,6 +10,7 @@ export type SubstrateCapabilities = {
   gatewayHost: string
   sizes: string[]
   sourceBuildAvailable: boolean
+  instanceIdentityAvailable: boolean
 }
 export type DeploymentStep = { step: string; status: string; detail: string; at: string }
 export type SubstrateDeployment = {

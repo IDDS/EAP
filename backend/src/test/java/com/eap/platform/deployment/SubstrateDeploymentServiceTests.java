@@ -293,8 +293,108 @@ class SubstrateDeploymentServiceTests {
         assertThat(service.resolveImage("ghcr.io/org/agent@sha256:" + "b".repeat(64))).endsWith("b".repeat(64));
     }
 
+    @Test
+    void newImageUsesBoundCreationAndAcknowledgementWithoutSharedCredentials() {
+        workflow.setToken("");
+        properties.setGatewayToken("");
+        observation.setIngestionToken("");
+        var published = service.submit(7L, image(80, "image-publication"), "operator");
+        assertThat(published.config()).containsEntry("identityMode", "PER_INSTANCE_V1");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c -> Optional.of(stored));
+        when(client.goldenStatus(any(), any())).thenReturn(new SubstrateClient.GoldenStatus(true, null));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);
+        verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+        assertThat(spec.getValue().env()).containsEntry("EAP_IDENTITY_PUBLIC_KEY", "synthetic-test-public")
+                .doesNotContainKeys("EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN", "EAP_OBSERVABILITY_TOKEN");
+        service.processNext();service.processNext();
+        assertThat(stored.status).isEqualTo("CONNECTING_IDENTITY");
+        identity.setDeliveryPublicKey("rotated-public-key");
+        service.processNext();
+        assertThat(stored.status).isEqualTo("READY");
+        assertThat(stored.configJson).contains("synthetic-test-public").doesNotContain("rotated-public-key");
+        verify(owned).create(eq(stored), eq(stored.deploymentKey.substring(4)), any());
+        verify(owned).connect(eq(stored), eq(stored.deploymentKey.substring(4)), anyString());
+        verify(client, never()).createActor(any(), any());
+        verifyNoInteractions(registry);
+    }
+
+    @Test
+    void newSourceCannotSkipIdentityAfterItsImageIsBuilt() {
+        when(builder.enabled()).thenReturn(true);
+        var published = service.submit(7L, source("https://git.example/agent.git", "main", ""), "operator");
+        assertThat(published.config()).containsEntry("identityMode", "PER_INSTANCE_V1");
+        // The builder's pinned result has already been persisted; continue the original intent.
+        stored.imageRef = RUNNER;stored.status = "QUEUED";
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c -> Optional.of(stored));
+        when(client.goldenStatus(any(), any())).thenReturn(new SubstrateClient.GoldenStatus(true, null));
+        doThrow(new BusinessException("synthetic lost acknowledgement")).doNothing()
+                .when(owned).connect(any(), anyString(), anyString());
+        service.processNext();service.processNext();service.processNext();service.processNext();
+        assertThat(stored.status).isEqualTo("FAILED");String originalKey=stored.instanceKey;
+        when(repository.findByAgentIdAndVersion(7L, 1)).thenReturn(Optional.of(stored));
+        assertThat(service.retry(7L, 1, "operator").status()).isEqualTo("CONNECTING_IDENTITY");
+        service.processNext();
+        assertThat(stored.status).isEqualTo("READY");assertThat(stored.instanceKey).isEqualTo(originalKey);
+        verify(owned, times(1)).create(any(), anyString(), any());
+        verify(client, never()).createActor(any(), any());
+        verifyNoInteractions(registry);
+        var spec=ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().env()).doesNotContainKeys("EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN", "EAP_OBSERVABILITY_TOKEN");
+    }
+
+    @Test
+    void bothCustomSourcesFailBeforeAnyNativeOrBuildSideEffectWithoutDeliveryConfiguration() {
+        when(builder.enabled()).thenReturn(true);identity.setDeliveryPrivateKey("");
+        for (var request : List.of(image(80, "image-no-delivery"), source("https://git.example/agent.git", "main", ""))) {
+            assertThatThrownBy(() -> service.submit(7L, request, "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("安全配送");
+        }
+        verify(repository, never()).save(any());verifyNoInteractions(client, owned, safety);
+        verify(builder, never()).start(any());
+    }
+
+    @Test
+    void customPortIsRejectedBeforeAnyNewPublicationSideEffect() {
+        assertThatThrownBy(() -> service.submit(7L, image(8080, "wrong-port"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("端口 80");
+        verify(repository, never()).save(any());verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test
+    void originalLegacyRequestCanBeReadWithoutMigrationOrCurrentDeliveryReadiness() throws Exception {
+        service.submit(7L, image(80, "legacy-replay"), "operator");
+        var mapper = new ObjectMapper();var config = mapper.readValue(stored.configJson, Map.class);
+        config.remove("identityMode");config.remove("identityPublicKey");config.put("port", 8080);
+        stored.configJson = mapper.writeValueAsString(config);stored.status = "READY";
+        String originalConfig=stored.configJson, originalKey=stored.deploymentKey;
+        when(repository.findByAgentIdAndSubmissionKey(7L, "legacy-replay")).thenReturn(Optional.of(stored));
+        identity.setDeliveryPrivateKey("");workflow.setToken("");
+        clearInvocations(repository, client, owned, safety);
+        var replay = service.submit(7L, image(8080, "legacy-replay"), "operator");
+        assertThat(replay.deploymentKey()).isEqualTo(originalKey);assertThat(replay.status()).isEqualTo("READY");
+        assertThat(stored.configJson).isEqualTo(originalConfig);
+        verify(repository, never()).save(any());verifyNoInteractions(client, owned, safety);
+        assertThatThrownBy(() -> service.submit(7L, image(80, "legacy-replay"), "operator"))
+                .isInstanceOf(com.eap.platform.common.ConflictException.class);
+    }
+
+    @Test
+    void disabledDispatchStillBlocksNewSecurePublicationWithoutSharedTokens() {
+        workflow.setToken("");workflow.setEnabled(false);
+        assertThatThrownBy(() -> service.submit(7L, image(80, "disabled-dispatch"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("任务派发");
+        verify(repository, never()).save(any());verifyNoInteractions(client, owned, safety);
+    }
+
+    private static SubstrateDeploymentDtos.DeployRequest image(int port, String key) {
+        return new SubstrateDeploymentDtos.DeployRequest("IMAGE", RUNNER, List.of(), port, "/readyz", Map.of(),
+                null, null, "GVISOR", "SMALL", List.of(), key);
+    }
+
     private static SubstrateDeploymentDtos.DeployRequest source(String gitUrl, String gitRef, String contextPath) {
-        return new SubstrateDeploymentDtos.DeployRequest("SOURCE", null, null, 8080, "/healthz", Map.of(), null, null,
+        return new SubstrateDeploymentDtos.DeployRequest("SOURCE", null, null, 80, "/healthz", Map.of(), null, null,
                 "GVISOR", "SMALL", List.of(), null, gitUrl, gitRef, contextPath, null);
     }
 

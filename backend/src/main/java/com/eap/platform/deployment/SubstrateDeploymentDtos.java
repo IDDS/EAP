@@ -63,6 +63,6 @@ public final class SubstrateDeploymentDtos {
     }
 
     public record CapabilityResponse(boolean enabled, boolean runnerAvailable, boolean gatewayConfigured,
-                                     String atespace, String gatewayHost, List<String> sizes, boolean sourceBuildAvailable) {
+                                     String atespace, String gatewayHost, List<String> sizes, boolean sourceBuildAvailable, boolean instanceIdentityAvailable) {
     }
 }

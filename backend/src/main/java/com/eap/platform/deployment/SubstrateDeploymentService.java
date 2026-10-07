@@ -113,7 +113,7 @@ public class SubstrateDeploymentService {
     public SubstrateDeploymentDtos.CapabilityResponse capabilities() {
         return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank() && identityConfig.deliveryReady(),
                 !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
-                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled());
+                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled(), identityConfig.deliveryReady());
     }
 
     @Transactional(readOnly = true)
@@ -126,7 +126,6 @@ public class SubstrateDeploymentService {
         var agent = agents.findById(agentId).orElseThrow(() -> new BusinessException("智能体不存在"));
         if (agent.getLifecycleStatus() == AgentLifecycleStatus.RETIRED) throw new BusinessException("已退役智能体不能部署");
         if (!properties.isEnabled()) throw new BusinessException("Substrate Runtime 集成未启用");
-        if (!workflow.ready()) throw new BusinessException("部署需要先启用工作流任务派发（EAP_WORKFLOW_EXECUTION_*），Agent 以其令牌接收任务");
         Map<String, Object> config = normalize(request);
         String configJson = json(config);
         String submissionKey = null;
@@ -139,6 +138,17 @@ public class SubstrateDeploymentService {
                 return response(existing.get());
             }
         }
+        // Replay an existing intent before applying new-publication requirements. Legacy records
+        // retain their original credential contract and port; a replay must never migrate them.
+        if (!workflow.isEnabled() || workflow.hosts().isEmpty()) {
+            throw new BusinessException("部署需要先启用任务派发并配置允许访问的运行入口");
+        }
+        if (!identityConfig.deliveryReady()) {
+            throw new BusinessException("专属实例身份安全配送尚未配置，无法发布新版本");
+        }
+        if (!Integer.valueOf(80).equals(config.get("port"))) {
+            throw new BusinessException("专属实例身份接入需要程序监听端口 80；请调整镜像或源码后发布");
+        }
         boolean source = "SOURCE".equals(config.get("sourceType"));
         // A source build is pinned to the digest it pushes; there is nothing to resolve before it runs.
         String image = source ? null
@@ -149,11 +159,10 @@ public class SubstrateDeploymentService {
         deployment.agentId = agentId;
         deployment.version = version;
         deployment.sourceType = (String) config.get("sourceType");
-        if ("RUNNER".equals(deployment.sourceType)) {
-            if(!identityConfig.deliveryReady())throw new BusinessException("专属实例身份安全配送尚未配置，无法创建平台运行程序");
-            config.put("identityMode", "PER_INSTANCE_V1");
-            config.put("identityPublicKey", identityConfig.getDeliveryPublicKey());
-        }
+        // All new sources use the same UID-bound creation and acknowledged identity delivery.
+        // Custom programs must implement the identity protocol; no shared-token fallback exists.
+        config.put("identityMode", "PER_INSTANCE_V1");
+        config.put("identityPublicKey", identityConfig.getDeliveryPublicKey());
         deployment.configJson = json(config);
         deployment.imageRef = image;
         deployment.atespace = properties.getDeployAtespace();

@@ -95,7 +95,7 @@ export function validateDeployForm(form: DeployForm): string | null {
       if (!/^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?\/[A-Za-z0-9._~/-]+$/.test(url)) return 'Git 地址必须是不含账号、参数的 https 地址'
       if (form.contextPath.includes('..') || form.dockerfile.includes('..')) return '构建目录和 Dockerfile 路径不能包含 ..'
     }
-    if (!(form.port >= 1 && form.port <= 65535)) return '端口必须在 1–65535 之间'
+    if (form.port !== 80) return '专属实例身份接入需要程序监听端口 80'
     if (form.readinessPath.trim() && !form.readinessPath.trim().startsWith('/')) return '就绪检查路径必须以 / 开头'
   }
   for (const row of form.env) {
@@ -112,8 +112,9 @@ export const DEPLOY_STAGES = ['校验与治理预检', '创建模板', '生成�
 const SOURCE_STAGES = ['校验与治理预检', '构建镜像', '创建模板', '生成快照', '创建实例', '可运行']
 
 export function deployStages(sourceType: string, identityMode = ''): string[] {
-  if(identityMode === 'PER_INSTANCE_V1') return ['校验与治理预检', '创建模板', '生成快照', '创建实例', '专属身份接入', '可运行']
-  return sourceType === 'SOURCE' ? SOURCE_STAGES : DEPLOY_STAGES
+  const stages = [...(sourceType === 'SOURCE' ? SOURCE_STAGES : DEPLOY_STAGES)]
+  if (identityMode === 'PER_INSTANCE_V1') stages.splice(stages.length - 1, 0, '专属身份接入')
+  return stages
 }
 
 /** Maps a deployment status onto deployStages(sourceType) for a progress indicator. */
@@ -124,7 +125,7 @@ export function deploymentProgress(status: string, sourceType = 'RUNNER', identi
     case 'QUEUED': return { active: 1 + offset, state: 'process', label: '排队中', tone: 'info' }
     case 'BUILDING_GOLDEN': return { active: 2 + offset, state: 'process', label: '生成快照', tone: 'warning' }
     case 'CREATING_INSTANCE': return { active: 3 + offset, state: 'process', label: '创建实例', tone: 'warning' }
-    case 'CONNECTING_IDENTITY': return { active: 4, state: 'process', label: '专属身份接入', tone: 'warning' }
+    case 'CONNECTING_IDENTITY': return { active: 4 + offset, state: 'process', label: '专属身份接入', tone: 'warning' }
     case 'READY': return { active: deployStages(sourceType, identityMode).length, state: 'finish', label: '可运行', tone: 'success' }
     case 'WAITING_APPROVAL': return { active: 0, state: 'wait', label: '待治理审批', tone: 'warning' }
     case 'BLOCKED': return { active: 0, state: 'error', label: '策略拒绝', tone: 'danger' }

@@ -583,3 +583,21 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 #### T5-D1收尾确认
 
 归档接收与本地1085摘要/25链接核对通过、admin桌面/手机/公钥配置已查看。按冻结UID和DeleteOptions UID前置条件仅清理本轮20个测试Job及26个测试Pod，剩余0；保护状态、4原生实例休眠/撤销及旧Workflow15 UNKNOWN再次确认通过。清理脚本与最终状态另留K8Substrate tools/eap/task-identity和节点，原归档SHA不再更换。
+
+
+### Codex 进展：T5-D2新镜像/源码入口专属身份已部署、有界验收与导出通过（2026-10-07）
+
+**主线尚未全部完成。** 新发布 RUNNER/IMAGE/SOURCE 统一专属实例身份；旧共享凭证与模板尚未迁移，不能称T5全部完成。继续T5旧身份逐批迁移、T6通用恢复/发布取消、T7分级观测、T8策略，以及公平/老化/阶段画像和真实Agent调优收益验证。用户最新要求继续核读字节、华为、联通申请书，改进建议按原文与当前代码/证据核对；研究不能自动触发业务实施。
+
+- 合同docs/CUSTOM_RUNTIME_IDENTITY.md。新IMAGE/SOURCE冻结PER_INSTANCE_V1与公钥，源码先构建并固定摘要，原生Create回执UID确认后配送/确认才可运行；不注入共享机器凭证、不因失败回退。配送/派发配置缺失或自定义端口非80在产生新副作用前拒绝。同一旧发布请求优先读取原记录，旧端口/模板/身份不迁移，异参409。前端固定80、说明协议要求、区分旧身份待迁移，镜像6/源码7阶段；权限仍从PlatformPermission及/me读取。
+- 只读盘点47个可见Agent、24部署、56登记、59原生实例，范围已连接/未截断；22旧发布为RUNNER13/SOURCE6/IMAGE3，包含失败历史，不等同在线实例。24可读取引用模板含至少一个旧任务/网关/观测共享凭证名；未涵盖其他配对凭证及无实例引用的遗留模板。盘点仅环境名/公开元数据/摘要，不保存凭证值。
+- 精确7源码变更、691源摘要与实际Secret内存扫描PASS。远程旧实现20项产生3失败/2错误，定位5个新合同缺口；新增第6项禁用派发原已拒绝。修正版定向44项/5类、完整529项/91类零失败/错误/跳过并打包通过，前端192项零失败/跳过、类型检查/生产构建通过。未变Runner与原生服务沿前阶段验证，不称本次重新全部测试。
+- 只更新后端/前端镜像并验证实际imageID。backend固定10.186.133.66:5001/eap-backend@sha256:1a8e7e2c95eff77eeac0cb416c98a6fa667f0e7ef9e59f6b6ab9b962d24dfd8f，PodUIDdf5b1200-c30f-4bc9-9ebe-938039d9ed67；frontend固定10.186.133.66:5001/eap-frontend@sha256:468689eab2b1a481e8bf1d209adad78602abf7f28111ba5543c206f338cdd8d9，PodUID2bf54081-8631-4713-952a-0b3d07fa13c0。buildId=2026-10-07T01:50:52.323Z，健康与身份/构建能力PASS。认证PodUID、不可变配送Secret及默认900秒、后端环境、任务Runner/通用Runner/原生镜像保持。公开PoC清单只同步两镜像，不整份apply。
+- 独立IMAGE Agent51、SOURCE Agent52，模型/输出总预算均0。两个原工作流成功，各产生一个工具存储确认的受控计数效果，root TOOL_CLAIMS cap1/used1/reserved0；模型新增0。跨实例凭证401，同一发布/创建请求幂等，异参409，四角色能力对应200/403。最终两个原UID休眠、身份及根授权REVOKED、旧凭证401；原创建请求409/原生版本不变。旧24部署配置/状态/实例键、两个EXECUTION_UNKNOWN及原模型记录摘要保持。
+- SOURCE首次错误CGI路径导致v1构建404/失败/无实例，显式更正仓库URL形成新v2；随后固定40位提交构建失败，因为独立夹具Git未允许精确Tip SHA获取。仅该新裸仓库开启uploadpack.allowTipSHA1InWant，保留两次原失败日志，再经既有API重试同v2/同提交，成功构建并接入原唯一实例。没有改全局Git配置、降低固定提交要求或另建v3。公开夹具commit35112d3570e91dd5c73d244d96e83fa5f62d907c；旧/新回执及诊断全部保留。
+- 4角色1500/390px浏览器PASS，runId0d217814-2460-46f0-bf59-ae718b868d57，22截图、业务写入0、页面异常0、失败API0；已查看admin源码桌面/手机/表单，阶段和长编号换行可读。没有重录旧视频。
+- 预算原始整体看板只保存摘要，不能声称全看板字节未变。两次新工具结算使平台TOOL_CLAIMS合法增加2及更新时间改变；MODEL_CALLS仍33/OUTPUT_TOKENS仍1904，无新增模型。old-budget-proof.json原false结果与budget-delta-proof.json语义PASS一并保留；未清零原消费。
+- 脱敏证据K8Substrate artifacts/eap-custom-runtime-identity-20261007/index.html，同名tar.gz2461767bytes、SHA256b4f9092ecda6b40626bd568c4bf155a06fa16bd0b803c4c218fa1be86062dac6，260文件摘要/22截图本地核对PASS。导出后精确7变更镜像/root/eap-src，691源核对一致；节点eap-t5d2-evidence.json completed=true。禁止重跑prepare/publish/workflow或旧UNKNOWN原意图。仅清理本轮7测试Job/8测试Pod、按冻结UID前置条件，原实例与身份撤销保留；辅助清理首次误拒构建Pod后缀，冻结计划与诊断保留，修正后7/8全部不存在、保护检查PASS。
+- 本地访问隧道复用批准桥接脚本，绑定127.0.0.1:5173/8180，前端/认证HTTP200；现隧道会话保持。偶发延迟仍需重试，不称跳板故障已彻底解决。全部编译/测试/构建/部署/浏览器远程，本地仅文本、摘要和脱敏证据。内部HTTP PoC不等于生产mTLS、原生分配栅栏或完整灾备。
+
+用户“别忘记提交gitee”授权工程正常commit/push。提交只选本轮精确源码与工程文档；不含BP、其他研究、AGENTS或私有申请书。PROJECT_MEMORY工作区只追加，提交使用原HEAD加本工程条目，保护其他线程未提交记录。

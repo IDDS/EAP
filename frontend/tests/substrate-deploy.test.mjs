@@ -91,3 +91,21 @@ test('dedicated identity is a separate durable stage while legacy progress stays
   assert.equal(deploymentProgress('READY', 'RUNNER').active, 5)
   assert.equal(failedStageIndex([{ step: 'CONNECTING_IDENTITY', status: 'FAILED' }], 'RUNNER', 'PER_INSTANCE_V1'), 4)
 })
+
+test('custom programs must listen on the identity router port before new publication', () => {
+  for (const sourceType of ['IMAGE', 'SOURCE']) {
+    const form = { ...defaultDeployForm(), sourceType, image: 'registry/a@sha256:a', gitUrl: 'https://git.example/a.git' }
+    assert.equal(validateDeployForm(form), null)
+    for (const port of [8080, 0, 65536, 80.5]) assert.match(validateDeployForm({ ...form, port }), /端口 80/)
+  }
+})
+
+test('secure source progress preserves image building and places identity after instance creation', () => {
+  const stages = deployStages('SOURCE', 'PER_INSTANCE_V1')
+  assert.deepEqual([...stages], ['校验与治理预检', '构建镜像', '创建模板', '生成快照', '创建实例', '专属身份接入', '可运行'])
+  assert.equal(deploymentProgress('CONNECTING_IDENTITY', 'SOURCE', 'PER_INSTANCE_V1').active, 5)
+  assert.equal(deploymentProgress('READY', 'SOURCE', 'PER_INSTANCE_V1').active, 7)
+  assert.equal(failedStageIndex([{ step: 'CONNECTING_IDENTITY', status: 'FAILED' }], 'SOURCE', 'PER_INSTANCE_V1'), 5)
+  assert.equal(failedStageIndex([{ step: 'BUILD_IMAGE', status: 'FAILED' }], 'SOURCE', 'PER_INSTANCE_V1'), 1)
+  assert.equal(deployStages('SOURCE').length, 6)
+})
