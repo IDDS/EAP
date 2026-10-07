@@ -42,6 +42,8 @@ class ScopedToolIntegrationTests {
     @Autowired MockMvc mvc;
     @MockitoBean RuntimeConnectionService authentication;
     @MockitoSpyBean RuntimeToolGuardService guard;
+    @MockitoSpyBean com.eap.platform.workflow.WorkflowToolEffectFence effectFence;
+    @Autowired com.eap.platform.workflow.WorkflowExecutionProperties workflowProperties;
     RuntimeConnectionService.Access a,b;
     String resource,other;
     Instant expires;
@@ -129,10 +131,90 @@ class ScopedToolIntegrationTests {
     }
     @Test void mismatchedOriginalParameterFingerprintCannotBeAdoptedAsSuccess() {
         var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
-        service.execute(a,new ScopedToolDtos.Execute(request.grantId(),request.operationId(),request.resourceId(),2));
+        assertThatThrownBy(()->service.execute(a,new ScopedToolDtos.Execute(request.grantId(),request.operationId(),request.resourceId(),2))).isInstanceOf(ConflictException.class);
         String ledger=ledgerSnapshot();recovery.processPending();
         assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("UNKNOWN");
-        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isEqualTo(1);
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isZero();
+    }
+    @Test void changedRunningOwnerCannotCreateAnEffectAndDefiniteRejectionSpendsNoBudget() {
+        var root=root(2);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);String ledger=ledgerSnapshot();
+        db.update("update workflow_executions set owner_epoch=2,owner_id=? where id=?",UUID.randomUUID().toString(),run.id());
+        var result=service.execute(a,request);
+        assertThat(result.state()).isEqualTo("REJECTED");assertThat(result.reasonCode()).isEqualTo("WORKFLOW_OWNER_CHANGED");
+        assertThat(result.effectSource()).isEqualTo("TOOL_STORE_NO_COMMIT");assertThat(effects()).isZero();assertThat(ledgerSnapshot()).isEqualTo(ledger);
+        recovery.processPending();assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("NO_COMMIT");
+        assertThat(db.queryForObject("select status from workflow_executions where id=?",String.class,run.id())).isEqualTo("RUNNING");
+    }
+    @Test void lateActorAfterWorkflowUnknownCannotSpendOriginalBudgetOrCreateEffect() {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        db.update("update workflow_executions set status='EXECUTION_UNKNOWN',owner_epoch=2,owner_id=null where id=?",run.id());String ledger=ledgerSnapshot();
+        var result=service.execute(a,request);assertThat(result.state()).isEqualTo("REJECTED");assertThat(result.effectId()).isNull();
+        assertThat(effects()).isZero();assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(service.execute(a,request).state()).isEqualTo("REJECTED");
+        recovery.processPending();assertThat(recovery.report(run.workflowId(),run.runKey()).entries().getFirst().state()).isEqualTo("NO_COMMIT");
+        assertThat(db.queryForObject("select status from workflow_executions where id=?",String.class,run.id())).isEqualTo("EXECUTION_UNKNOWN");
+    }
+    @Test void boundRootCannotBypassEpochByRekeyingOperationOrChangingFrozenResource() {
+        var root=root(2);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);String ledger=ledgerSnapshot();
+        assertThatThrownBy(()->service.execute(a,request(root.grantId(),1))).isInstanceOf(ConflictException.class).hasMessageContaining("不能换操作标识");
+        assertThatThrownBy(()->service.execute(a,new ScopedToolDtos.Execute(root.grantId(),request.operationId(),other,1))).isInstanceOf(ConflictException.class);
+        assertThat(db.queryForObject("select count(*) from scoped_tool_operations where root_id=?",Long.class,root.rootId())).isZero();
+        assertThat(effects()).isZero();assertThat(ledgerSnapshot()).isEqualTo(ledger);
+    }
+    @Test void anotherWorkflowCannotRebindOriginalRootEvenWithNewOperation() {
+        var root=root(2);var original=request(root.grantId(),1);var first=frozenRun(original,1);prepare(first,original);String ledger=ledgerSnapshot();
+        var changed=request(root.grantId(),1);var second=frozenRun(changed,1);
+        assertThatThrownBy(()->prepare(second,changed)).isInstanceOf(ConflictException.class).hasMessageContaining("另一执行责任");
+        assertThat(recovery.report(second.workflowId(),second.runKey()).entries()).isEmpty();assertThat(ledgerSnapshot()).isEqualTo(ledger);
+        assertThat(service.execute(a,original).state()).isEqualTo("COMMITTED");assertThat(effects()).isEqualTo(1);
+    }
+    @Test void rootWithExistingOtherOperationCannotBeSilentlyUpgradedToWorkflowFence() {
+        var root=root(2);var prior=request(root.grantId(),1);var effect=service.execute(a,prior);String ledger=ledgerSnapshot();
+        var fresh=request(root.grantId(),1);var run=frozenRun(fresh,1);
+        assertThatThrownBy(()->prepare(run,fresh)).isInstanceOf(ConflictException.class).hasMessageContaining("不能升级原授权根");
+        assertThat(db.queryForObject("select count(*) from workflow_tool_effect_roots where root_id=?",Long.class,root.rootId())).isZero();
+        assertThat(recovery.report(run.workflowId(),run.runKey()).entries()).isEmpty();assertThat(ledgerSnapshot()).isEqualTo(ledger);
+        assertThat(service.inspectOperation(a.instanceKey(),root.rootId(),prior.operationId()).operation().effectId()).isEqualTo(effect.effectId());
+    }
+    @Test void commitRechecksEpochAfterDurablePrepareBeforeEffectTransaction()throws Exception {
+        var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);String ledger=ledgerSnapshot();
+        var entered=new CountDownLatch(1);var release=new CountDownLatch(1);var calls=new java.util.concurrent.atomic.AtomicInteger();
+        com.eap.platform.workflow.WorkflowToolEffectFence target=org.springframework.test.util.AopTestUtils.getUltimateTargetObject(effectFence);
+        doAnswer(i->{if(calls.incrementAndGet()==2){entered.countDown();if(!release.await(5,TimeUnit.SECONDS))throw new IllegalStateException("test release missing");}return i.callRealMethod();}).when(target).assess(eq(root.rootId()),any(),any());
+        var pool=Executors.newSingleThreadExecutor();
+        try {
+            var result=pool.submit(()->service.execute(a,request));assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
+            db.update("update workflow_executions set owner_epoch=2,owner_id=? where id=?",UUID.randomUUID().toString(),run.id());release.countDown();
+            assertThat(result.get(5,TimeUnit.SECONDS).reasonCode()).isEqualTo("WORKFLOW_OWNER_CHANGED");
+            assertThat(effects()).isZero();assertThat(ledgerSnapshot()).isEqualTo(ledger);
+        } finally {release.countDown();pool.shutdownNow();doCallRealMethod().when(target).assess(anyString(),any(),any());}
+    }
+    @Test void deadlineReachedAfterPolicyAndBudgetWorkRollsBackAllAdmissionBeforeAnyEffect()throws Exception {
+        int oldTimeout=workflowProperties.getTimeoutSeconds();workflowProperties.setTimeoutSeconds(2);
+        RuntimeToolGuardService target=org.springframework.test.util.AopTestUtils.getUltimateTargetObject(guard);var entered=new java.util.concurrent.atomic.AtomicBoolean();
+        try {
+            var root=root(1);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);String ledger=ledgerSnapshot();
+            long priorCalls=db.queryForObject("select count(*) from runtime_tool_calls",Long.class);
+            var originalPolicy=policies.get(a.instanceKey());
+            doAnswer(i->{entered.set(true);var result=i.callRealMethod();Thread.sleep(2200);return result;}).when(target).checkValidatedCounter(any(),any(),anyString());
+            var result=service.execute(a,request);assertThat(entered.get()).isTrue();assertThat(result.reasonCode()).isEqualTo("WORKFLOW_DEADLINE_EXPIRED");
+            assertThat(result.state()).isEqualTo("REJECTED");assertThat(result.effectSource()).isEqualTo("TOOL_STORE_NO_COMMIT");
+            assertThat(effects()).isZero();assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(policies.get(a.instanceKey()).claimedCount()).isEqualTo(originalPolicy.claimedCount());
+            assertThat(db.queryForObject("select count(*) from runtime_tool_calls",Long.class)).isEqualTo(priorCalls);
+        }finally{workflowProperties.setTimeoutSeconds(oldTimeout);doCallRealMethod().when(target).checkValidatedCounter(any(),any(),anyString());}
+    }
+    @Test void committedEffectPrecedesAcknowledgedOwnershipChangeAndReplayRemainsReadOnly()throws Exception {
+        var root=root(2);var request=request(root.grantId(),1);var run=frozenRun(request,1);prepare(run,request);
+        var entered=new CountDownLatch(1);var release=new CountDownLatch(1);var writerEntered=new CountDownLatch(1);
+        RuntimeToolGuardService target=org.springframework.test.util.AopTestUtils.getUltimateTargetObject(guard);
+        doAnswer(i->{entered.countDown();if(!release.await(5,TimeUnit.SECONDS))throw new IllegalStateException("test release missing");return i.callRealMethod();}).when(target).checkValidatedCounter(any(),any(),anyString());
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var result=pool.submit(()->service.execute(a,request));assertThat(entered.await(5,TimeUnit.SECONDS)).isTrue();
+            var writer=pool.submit(()->{writerEntered.countDown();return db.update("update workflow_executions set owner_epoch=2,owner_id=? where id=?",UUID.randomUUID().toString(),run.id());});
+            assertThat(writerEntered.await(5,TimeUnit.SECONDS)).isTrue();assertThatThrownBy(()->writer.get(150,TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            release.countDown();var effect=result.get(5,TimeUnit.SECONDS);assertThat(effect.state()).isEqualTo("COMMITTED");assertThat(writer.get(5,TimeUnit.SECONDS)).isEqualTo(1);
+            String ledger=ledgerSnapshot();assertThat(service.execute(a,request).effectId()).isEqualTo(effect.effectId());assertThat(effects()).isEqualTo(1);assertThat(ledgerSnapshot()).isEqualTo(ledger);
+        }finally{release.countDown();pool.shutdownNow();doCallRealMethod().when(target).checkValidatedCounter(any(),any(),anyString());}
     }
     @Test void lostResponseInspectionPreservesOriginalEffectAndAllBudgetRowsAfterRevocation(){
         var r=root(2);var c=child(r,2);var req=request(c.grantId(),3);

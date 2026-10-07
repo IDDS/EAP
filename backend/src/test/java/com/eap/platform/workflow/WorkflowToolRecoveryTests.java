@@ -24,7 +24,7 @@ class WorkflowToolRecoveryTests {
         db.update("insert into workflow_tool_recovery(id,binding_json,request_json,state,reason,next_check_ms) values(1,?,?,'PENDING','original',0)",json.writeValueAsString(binding),json.writeValueAsString(request));
         service=fresh();
     }
-    WorkflowToolRecoveryService fresh() { return new WorkflowToolRecoveryService(db,mock(WorkflowExecutionRepository.class),new WorkflowExecutionProperties(),tools,json,manager); }
+    WorkflowToolRecoveryService fresh() { return new WorkflowToolRecoveryService(db,mock(WorkflowExecutionRepository.class),new WorkflowExecutionProperties(),tools,json,manager,mock(WorkflowToolEffectFence.class)); }
     @Test void processRestartReclaimsExpiredQueryButNeverReexecutesOriginalIntent() {
         var old=service.claim(1);assertThat(old).isNotNull();assertThat(fresh().claim(1)).isNull();
         db.update("update workflow_tool_recovery set lease_until_ms=0 where id=1");

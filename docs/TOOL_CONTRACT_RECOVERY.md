@@ -57,3 +57,7 @@
 ## 后续持久查询责任阶段（2026-10-07）
 
 T6-B新增派发前冻结原参数/身份/意图的持久查询outbox、过期查询者CAS和平台进度owner/epoch校验，实际Actor提交后关闭TCP响应，原效果核验及后端重启保持均已验收。工作流UNKNOWN不自动推进。详见[受控工具步骤持久查询责任](WORKFLOW_TOOL_RECOVERY.md)及CODEX_NEXT_TASK最新条目；上文本轮T6-A历史和证据保留。只有受控计数具备该合同，实际执行侧epoch屏障、通用恢复/取消/补偿仍待。
+
+## T6-C新登记根效果屏障
+
+新工作流受控计数根已按可信存储绑定原run/owner/epoch，并在实际效果事务检查原责任/期限/步骤/身份。责任失效原Actor迟到调用被明确拒绝，NO_COMMIT、零效果/零预算。详见[WORKFLOW_TOOL_EFFECT_FENCE.md](WORKFLOW_TOOL_EFFECT_FENCE.md)。该绑定只覆盖新登记根，不能把同名MCP、白名单、历史根或普通工具推断为支持；资源交接、自动恢复、取消/补偿仍待。

@@ -34,11 +34,12 @@ public class ScopedToolService {
     private final BudgetLedger budget;
     private final AuditLogRepository audit;
     private final TransactionTemplate tx;
+    private final com.eap.platform.workflow.WorkflowToolEffectFence effectFence;
     public ScopedToolService(JdbcTemplate db,ObjectMapper json,RuntimeConnectionRepository connections,
         AgentRuntimeInstanceRepository runtimes,AgentRepository agents,RuntimeToolPolicyRepository policyRows,
         RuntimeToolPolicyService policies,RuntimeToolGuardService guard,BudgetLedger budget,
-        AuditLogRepository audit,PlatformTransactionManager transactions) {
-        this.db=db;this.json=json;this.connections=connections;this.runtimes=runtimes;this.agents=agents;
+        AuditLogRepository audit,PlatformTransactionManager transactions,com.eap.platform.workflow.WorkflowToolEffectFence effectFence) {
+        this.effectFence=effectFence;this.db=db;this.json=json;this.connections=connections;this.runtimes=runtimes;this.agents=agents;
         this.policyRows=policyRows;this.policies=policies;this.guard=guard;this.budget=budget;this.audit=audit;
         tx=new TransactionTemplate(transactions);
         tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -58,7 +59,7 @@ public class ScopedToolService {
         var r=runtimes.lockForScopedTools(key).orElseThrow(()->new BusinessException("运行实例未纳管"));
         if(!r.supportsMachineIdentity())throw new BusinessException("仅支持具有专属身份的实例");return r;
     }
-    // Order: scope lock -> sorted connection locks -> sorted agent/policy locks -> shared ledger lock.
+    // Order: scope lock -> enrolled workflow lock -> sorted connection/agent/policy locks -> shared ledger lock.
     private Map<String,RuntimeConnection> lockConnections(Collection<String> keys){
         var out=new TreeMap<String,RuntimeConnection>();for(String key:new TreeSet<>(keys)){out.put(key,connections.lockForToolAccess(key).orElseThrow(()->new UnauthorizedException("实例接入不可用")));runtime(key);}return out;
     }
@@ -128,7 +129,7 @@ public class ScopedToolService {
     private record Prepared(String root,String fp,boolean fresh) {}
     public ScopedToolDtos.Operation execute(RuntimeConnectionService.Access access,ScopedToolDtos.Execute request){
         uuid(request.operationId());uuid(request.grantId());resourceIds(List.of(request.resourceId()));if(request.delta()<1||request.delta()>100)throw new BusinessException("参数超出工具合同");
-        Prepared p=tx.execute(status->{lock();var g=find(request.grantId());var cs=lockConnections(List.of(access.instanceKey()));owner(access,g,cs);
+        Prepared p=tx.execute(status->{lock();var g=find(request.grantId());effectFence.assess(g.v.rootId(),access,request);var cs=lockConnections(List.of(access.instanceKey()));owner(access,g,cs);
             String fp=hash(write(List.of(access.instanceKey(),access.generation(),request.grantId(),request.resourceId(),request.delta())));
             var old=operations(g.v.rootId(),request.operationId(),false);if(!old.isEmpty()){
                 String recorded=db.queryForObject("select fingerprint from scoped_tool_operations where root_id=? and operation_id=?",String.class,g.v.rootId(),request.operationId());if(!fp.equals(recorded))throw new ConflictException("根任务操作标识已对应不同委托或参数");return new Prepared(g.v.rootId(),fp,false);
@@ -138,6 +139,9 @@ public class ScopedToolService {
         });
         if(!p.fresh)return tx.execute(status->{lock();return operations(p.root,request.operationId(),true).getFirst();});
         try{return tx.execute(status->commit(access,request,p.root));}
+        catch(com.eap.platform.workflow.WorkflowToolEffectFence.ExpiredResponsibility failure) {
+            return tx.execute(status->{lock();reject(p.root,request.operationId(),failure.getMessage());return operations(p.root,request.operationId(),false).getFirst();});
+        }
         catch(GatewayException failure){
             if(!"REJECTED".equals(failure.admissionOutcome()))throw failure;
             return tx.execute(status->{lock();var current=operations(p.root,request.operationId(),false).getFirst();if("UNKNOWN".equals(current.state()))reject(p.root,request.operationId(),"SHARED_BUDGET_EXHAUSTED");return operations(p.root,request.operationId(),false).getFirst();});
@@ -145,6 +149,8 @@ public class ScopedToolService {
     }
     private ScopedToolDtos.Operation commit(RuntimeConnectionService.Access access,ScopedToolDtos.Execute request,String root){
         lock();var current=operations(root,request.operationId(),false).getFirst();if(!"UNKNOWN".equals(current.state()))return current;
+        String fenced=effectFence.assess(root,access,request);
+        if(fenced!=null){reject(root,request.operationId(),fenced);return operations(root,request.operationId(),false).getFirst();}
         var g=find(request.grantId());var ancestors=chain(g);var cs=lockConnections(ancestors.stream().map(r->r.v.holderKey()).toList());owner(access,g,cs);
         var ps=lockPolicies(ancestors.stream().map(r->r.v.agentId()).toList());String denied=invalid(ancestors,cs,ps,true);
         if(denied==null&&(!g.v.resourceSet().contains(request.resourceId())||request.delta()>g.v.maxDelta()))denied="PARAMETER_SCOPE_DENIED";
@@ -153,6 +159,7 @@ public class ScopedToolService {
         if(!"APPROVED".equals(check.state())){reject(root,request.operationId(),check.reasonCode());return operations(root,request.operationId(),false).getFirst();}
         for(Long agent:ps.keySet()){var call=new RuntimeToolCall();call.agentId=agent;call.toolName=TOOL;call.toolKind="TOOL";call.policyRevision=ps.get(agent).revision;if(policies.consume(call)!=null)throw new IllegalStateException("授权锁内发生变化");}
         budget.claimScopedTool(root,new ArrayList<>(ps.keySet()),access.agentId(),request.operationId(),hash(write(request)),current.traceId());
+        effectFence.beforeEffect(root,access,request);
         int changed=db.update("update scoped_tool_counters set counter_value=counter_value+?,effect_count=effect_count+1 where resource_id=? and root_id=?",request.delta(),request.resourceId(),root);if(changed!=1)throw new IllegalStateException("工具对象不属于根授权");
         long value=db.queryForObject("select counter_value from scoped_tool_counters where resource_id=?",Long.class,request.resourceId());String effect=UUID.randomUUID().toString();
         for(var r:ancestors)db.update("update scoped_tool_grants set used_count=used_count+1 where grant_id=?",r.v.grantId());

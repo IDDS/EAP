@@ -633,3 +633,26 @@ EAP 是企业智能体管理控制平面，核心目标是让企业内的 Agent�
 - 实际执行侧epoch隔离、资源责任交接、自动节点恢复、取消/补偿、真实业务工具、多版本混合生产升级及灾备仍待。全部依赖/测试/构建/部署/浏览器在远程，本机仅文本/摘要/脱敏文件与看图。旧全功能视频未重录。本地5173最新版本与8180认证元数据200，既有隧道保留；跳板偶发中断不称已彻底消除。
 
 用户此前“别忘记提交gitee”授权本工程正常commit/push。只选择本轮19源码和5工程文档，保护BP/AGENTS/其他研究/私人原文。PROJECT_MEMORY工作区只追加，提交内容为原HEAD加本条目，其他线程未提交记录完整保留。禁止重跑prepare/publish/workflow/effect或旧UNKNOWN，不换意图造新证据。
+
+
+### Codex 进展：新受控计数根的效果执行责任屏障已部署验收（2026-10-07，T6-C）
+
+**始终聚焦调度、Agent性能调优、权限治理；主线尚未全部完成。** 新根效果事务核对原责任是有界阶段，不等于通用工具恢复或全部集成生产验收。合同[WORKFLOW_TOOL_EFFECT_FENCE.md](WORKFLOW_TOOL_EFFECT_FENCE.md)。下一步推进T2确定性公平/老化/阶段画像和T3独立真实任务对照，继续真实业务工具适配、旧消费者迁移、资源交接/取消/补偿、T7分级观测及T8联合策略；旧GEPA KEEP_BASELINE，没有确认稳定优化收益。
+
+- V65只新增workflow_tool_effect_roots，不自动改旧根/操作/查询。新运行派发前登记原root/run/owner/epoch；已有意图/历史查询不能升级，同根另运行/轮次不能接管。工具存储按可信根找到冻结原O/参数/身份和DISPATCHING步骤，不接受客户端epoch；原RUNNING/owner/epoch/deadline失效拒绝。scope→workflow→identity/policy→budget锁顺序一致，提交锁序保证已确认责任变更后无旧效果。预算/策略写后、计数前再次期限检查，失效同事务rollback未提交准入，再独立记录原REJECTED，不是退款。原COMMITTED回放只读；新O/参数绕过拒绝。历史/未登记/非工作流根保持原合同，业务工具没有自动获得这些能力。
+- 精确7源码/699摘要与实际9Secret节点RAM扫描PASS。最终远程定向108项/6类、完整570项/92类零失败/错误/跳过及打包通过；新增8真实DB/并发/预算回归和1迁移回归。隔离故障Runner普通Go回归23顶层/36含子项与编译通过，不是race。前端源码逐项与T6-B相同，沿203项/类型/生产构建证据，未在T6-C重复构建。生产Runner/原生代码镜像未变，不称本轮重测全部底层组件。
+- backend固定10.186.133.66:5001/eap-backend@sha256:08518654fee23e764e4f08eeec1f1a29dd6448b692dd82bbfd71504f8429a552，实际PodUID2f5f6bcd-cc5d-4ee5-bfd8-f8663c4bc64e，MySQLFlyway65/健康/imageID/能力PASS。frontend保持af7eb74c853a1ed2c9ad93f5ffc6af321c67a019843f622d13d97d658cb643ff与04:20:30.939Z构建。认证原Pod、不可变配送Secret/默认900秒、环境、原生镜像和29原发布保持。仅backend镜像定向CAS及清单1digest同步，无整份apply或认证重启。
+- 三个新IMAGE零模型夹具。最初Agent55延迟25秒实际处于集群900000ms读超时内，原成功/1效果保留。Agent56原故障脚本被single-query分号校验在DB调用前拒绝，同原CAS恢复时因原已成功0行，原成功/1效果也保留，不重放/清零/伪称UNKNOWN。Agent57原调用期间同进程按精确原run/owner/epoch/noOperation CAS成UNKNOWN/epoch2/ownerNULL，原预算摘要不变。实际Actor随后持原O到达存储，被REJECTED/WORKFLOW_OWNER_CHANGED/TOOL_STORE_NO_COMMIT；queryNO_COMMIT、counter0/effects0、rootcap1/used0/res0，原UNKNOWN只有start/counter两步无END。这是隔离责任失效注入，不是自然超时、控制器崩溃或已实现取消API。
+- 原合法对照Agent55的首次negative probe401来自900秒短lease自然到期，不计屏障PASS；沿原24h批准续短lease，generation/身份截止/工具授权/额度保持且无业务执行。随后合法与迟到两个主夹具各newO409/clientEpoch400，原操作数/效果/预算不变。四角色API读取三个原查询一致；附加Agent56合法对照没有再做machine探针，明确notPerformed，不能造PASS。
+- 四角色1500/390px合法及拒绝场景共16通过截图，run141810b4-1691-425e-8822-ac58961139ea，浏览器写入0/页面异常0/失败API0。首轮viewer负向界面通过，阳性断言误期望“成功”，实际已有UI“已确认完成”；只修辅助期望并独立重跑，原3诊断截图/report保留。原O、预算、NO_COMMIT/CONFIRMED、UNKNOWN/已确认完成及2/3步骤可读。三个原UID最终SUSPENDED、根/身份REVOKED、策略停用，原查询保持，2次合法消费不退款。
+- 原68账户/41预占/258关联/41结算逐行保持，唯一旧平台TOOL_CLAIMS使用+2及更新时间；新11账户、2TOOL预占结算/6关联。原28工作流快照/步骤/理由/owner/epoch与1T6-B原查询完整元数据、13任务/29部署、9授权/18工具操作/8计数/21连接/60UID绑定保持；新workflow/deployment/query/root/O/counter/connection/UID各3。旧UNKNOWN12/20/28不重放，新31UNKNOWN。模型观测60与账本MODEL_CALLS33/OUTPUT_TOKENS1904分别保持，新增模型0。
+- 本轮旧消费者完整盘点冻结60模板/63管理项/29部署、22旧发布/39旧凭证引用模板/9当前无管理引用模板；不证明外部消费者、挂载、快照或上游分页完整性，共享凭证未退役。
+- 证据K8Substrate artifacts/eap-workflow-tool-effect-fence-20261007/index.html，tar.gz2814881bytes/SHA256e7f40a5726748ad6c06afd71e421612a0eca6a650c82163878ef26820495a268。286摘要/699本地源及全部HTML引用核对；16通过和3失败PNG分别计数。实际Secret及所有新实例初始/最终/续期派生token只节点RAM扫描。真实闭环及导出后才精确7文件推进/root/eap-src至699；原基线/归档保留。5测试/构建Jobs和6Pods按冻结UID清理、剩余0且保护PASS；最终运行与清理单列补充，不改原归档。
+- 验收辅助失败均保留：首classifier detailDTO无name，预检第三classifier无ownerEpoch在执行前修正；短凭证401、fault reason分号、未READY只读预检、浏览器已有状态label误用、history附加对照缺negativeProbes键在报告构造时失败。最后history重跑全原行PASS；不把辅助失败归为应用漏洞或首次全绿。隔离Runner首v1允许性预检发现EAP_保留前缀、未发布，v2使用ACCEPTANCE_EFFECT_DELAY_SECONDS，两轮普通Go/build记录保留；它只延迟，不是T6-B EOF机制。
+- 仍待真实业务工具适配/多步骤资源交接、新epoch自动恢复、取消/补偿、混合版本生产升级/HA；调度公平/老化/阶段画像、独立更大Agent调优收益、旧凭证迁移、T7/T8持续主线。全部编译/依赖/测试/构建/部署/浏览器远程，本机只文本/摘要/脱敏证据和看图；旧视频未重录。
+
+用户此前“别忘记提交gitee”持久授权本工程正常commit/push。仅7源码和6工程文档，PROJECT_MEMORY提交HEAD加本条目，保护其他线程记忆、BP、AGENTS、研究和私人原文，不强推。已闭环不得重跑原publish/workflow/fault/effect或换原意图造证据。
+
+人工审图发现初始合法手机badge压缩；独立只读稳定复检run8bfe9060-e3d2-414a-b970-93d16737ef9d，等待700ms后完整标签/宽度/opacity1/无transform/无动画/不裁切PASS。首帧未记录动画状态，动画时机为推断。4张稳定补拍和DOM报告单列在artifacts/eap-workflow-tool-effect-fence-20261007-visual/index.html，原归档不改、应用源不改；实际9Secrets节点RAM扫描通过。初下载SSH255后经批准桥接重试，原sha/bytes保持。
+
+负向Agent57原UID ea9d2910-d3b5-41d9-b1e1-ef8f1438b784，run wf-exec-7893638b-19e5-421b-b09e-c45bf0505b30，root 3a5ef7fd-f252-4c02-bffa-69269ab68ab4，O 17015236-c0d5-440f-8b8c-ae5adddea49e。合法Agent55原run wf-exec-b7e94916-38e2-408d-9519-b72333c2a92a，原effect 24886c97-e3c6-47fd-af33-e3ff4ebe9f14。

@@ -23,6 +23,23 @@ class FlywayMigrationTests {
         }
     }
     @Test
+    void version64OriginalQueryIsNotSilentlyEnrolledInEffectFence()throws Exception {
+        String url="jdbc:h2:mem:old_query_"+java.util.UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("64").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement()) {
+            st.executeUpdate("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at,recovery_version,owner_epoch) values(1,'old-v64','EXECUTION_UNKNOWN','old','owner','original-snapshot','original-steps',CURRENT_TIMESTAMP,1,2)");
+            st.executeUpdate("insert into workflow_tool_recovery(execution_id,sequence_number,node_key,task_key,root_id,operation_id,binding_json,request_json,state,reason,next_check_ms,created_ms) select id,0,'counter','original-task','original-root','original-O','original-binding','original-parameters','CONFIRMED','original-reason',0,0 from workflow_executions where run_key='old-v64'");
+        }
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").load().migrate();
+        try(var c=DriverManager.getConnection(url,"sa","");var st=c.createStatement()) {
+            try(var row=st.executeQuery("select count(*) from workflow_tool_effect_roots")){row.next();assertThat(row.getLong(1)).isZero();}
+            try(var row=st.executeQuery("select state,binding_json,request_json,reason from workflow_tool_recovery")) {
+                assertThat(row.next()).isTrue();assertThat(row.getString(1)).isEqualTo("CONFIRMED");assertThat(row.getString(2)).isEqualTo("original-binding");
+                assertThat(row.getString(3)).isEqualTo("original-parameters");assertThat(row.getString(4)).isEqualTo("original-reason");assertThat(row.next()).isFalse();
+            }
+        }
+    }
+    @Test
     void appliesAllMigrationsAndSeedDataOnH2() throws Exception {
         String url = "jdbc:h2:mem:eap_migration_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway flyway = Flyway.configure()
@@ -32,7 +49,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(64);
+        assertThat(result.migrationsExecuted).isEqualTo(65);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

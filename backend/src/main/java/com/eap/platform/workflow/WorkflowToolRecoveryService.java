@@ -22,13 +22,14 @@ public class WorkflowToolRecoveryService {
     private final WorkflowExecutionRepository executions;
     private final WorkflowExecutionProperties properties;
     private final ScopedToolService tools;
+    private final WorkflowToolEffectFence effectFence;
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
 
     public WorkflowToolRecoveryService(JdbcTemplate db, WorkflowExecutionRepository executions,
             WorkflowExecutionProperties properties, ScopedToolService tools, ObjectMapper mapper,
-            PlatformTransactionManager manager) {
-        this.db=db; this.executions=executions; this.properties=properties; this.tools=tools; this.mapper=mapper;
+            PlatformTransactionManager manager,WorkflowToolEffectFence effectFence) {
+        this.effectFence=effectFence; this.db=db; this.executions=executions; this.properties=properties; this.tools=tools; this.mapper=mapper;
         tx=new TransactionTemplate(manager);
         tx.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -42,6 +43,7 @@ public class WorkflowToolRecoveryService {
     @Transactional
     public void prepare(Long runId,long epoch,String owner,int sequence,String nodeKey,String taskKey,
             String holder,ScopedToolDtos.Execute request) {
+        effectFence.lockRegistration();
         var run=executions.lockById(runId).orElseThrow(()->new BusinessException("执行记录不存在"));
         if(owner==null || run.recoveryVersion!=1 || !"RUNNING".equals(run.status) || run.ownerEpoch!=epoch
                 || !Objects.equals(run.ownerId,owner) || run.startedAt==null
@@ -73,6 +75,7 @@ public class WorkflowToolRecoveryService {
             return;
         }
         tools.requireUnsubmittedRecoveryIntent(binding,request);
+        effectFence.bindRoot(run,binding);
         long now=System.currentTimeMillis();
         db.update("insert into workflow_tool_recovery(execution_id,sequence_number,node_key,task_key,root_id,operation_id,binding_json,request_json,state,reason,next_check_ms,created_ms) values(?,?,?,?,?,?,?,?,'PENDING','等待原操作核验；不会再次执行',?,?)",
                 runId,sequence,nodeKey,taskKey,binding.rootId(),request.operationId(),json(binding),json(request),now,now);
