@@ -181,6 +181,39 @@ public class ScopedToolService {
             &&o.counterValue()!=null&&o.counterValue()==output.path("counterValue").longValue();
     }
     @Transactional(readOnly=true)
+    public ScopedToolDtos.Catalog contracts(String instance) {
+        var policy=policies.get(instance);
+        var tools=new TreeMap<String,RuntimeToolPolicyService.Tool>();
+        var controlled=new RuntimeToolPolicyService.Tool(TOOL,ToolInvocationKind.TOOL);
+        tools.put("TOOL:"+TOOL,controlled);
+        for(var tool:policy.allowedTools())tools.put(tool.kind().name()+":"+tool.name(),tool);
+        var rows=tools.values().stream().map(tool->{
+            boolean known=TOOL.equals(tool.name())&&tool.kind()==ToolInvocationKind.TOOL;
+            boolean allowed=policy.enabled()&&policy.allowedTools().contains(tool);
+            return known?new ScopedToolDtos.Contract(tool.name(),tool.kind().name(),CONTRACT,"TOOL_STORE",allowed,
+                "CONSOLE_ROOT_AND_NARROWED_DELEGATION","ROOT_OBJECT_AND_RECIPIENT_SET","ROOT_AND_OPERATION",
+                "PERSISTED_NO_AUTOMATIC_EXPIRY","CONFLICT_409","ORIGINAL_DURABLE_INTENT","UNSUPPORTED",
+                "AUTH_BUDGET_EFFECT_ONE_TRANSACTION","UNSUPPORTED","QUERY_ONLY"):
+                new ScopedToolDtos.Contract(tool.name(),tool.kind().name(),null,"RUNTIME_REPORTED",allowed,
+                    "POLICY_CLAIM_ONLY","UNVERIFIED","UNVERIFIED","UNVERIFIED","UNVERIFIED","UNVERIFIED",
+                    "UNVERIFIED","UNVERIFIED","UNVERIFIED","UNVERIFIED");
+        }).toList();
+        return new ScopedToolDtos.Catalog(policy.revision(),policy.enabled(),Instant.now(),rows);
+    }
+    /** Historical inspection is a pure store read, also after revocation; it never executes or settles. */
+    @Transactional(readOnly=true)
+    public ScopedToolDtos.Inspection inspectOperation(String instance,String root,String operation) {
+        if(runtimes.findByInstanceKey(instance).isEmpty())throw new BusinessException("运行实例未纳管");
+        uuid(root);uuid(operation);
+        var rows=operations(root,operation,true);
+        if(rows.isEmpty())throw new BusinessException("操作意图不存在，不能推定未提交");
+        var o=rows.getFirst();var rootGrant=find(root);
+        if(!instance.equals(o.holderKey())&&!instance.equals(rootGrant.v.holderKey()))
+            throw new UnauthorizedException("操作不属于此实例的授权链");
+        var grant=find(o.grantId());
+        return new ScopedToolDtos.Inspection(grant.v.contractVersion(),"tool-root:"+root,Instant.now(),o);
+    }
+    @Transactional(readOnly=true)
     public ScopedToolDtos.Dashboard dashboard(String instance){
         if(runtimes.findByInstanceKey(instance).isEmpty())throw new BusinessException("运行实例未纳管");
         var grants=db.query("select * from scoped_tool_grants where holder_key=? or root_id in(select grant_id from scoped_tool_grants where holder_key=? and parent_id is null) order by created_at desc limit 30",(r,n)->row(r).v,instance,instance);

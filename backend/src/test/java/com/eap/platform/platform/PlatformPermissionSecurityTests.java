@@ -74,6 +74,16 @@ class PlatformPermissionSecurityTests {
         mockMvc.perform(post("/api/registry/runtime-tools/scopes/revoke").with(identity).contentType(MediaType.APPLICATION_JSON).content("{\"grantId\":\""+id+"\"}")).andExpect(allowed?status().isOk():status().isForbidden());
         mockMvc.perform(post("/api/runtime-access/v1/tools/scoped/execute").with(identity).contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isUnauthorized());
     }
+    @ParameterizedTest @CsvSource({"VIEWER,true","OPERATOR,true","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true","DATA_OWNER,false","NONE,false"})
+    void originalOperationInspectionUsesViewConsoleCapability(String role,boolean allowed)throws Exception {
+        var identity=identity(role);
+        mockMvc.perform(get("/api/registry/runtime-tools/contracts").param("instanceKey","synthetic").with(identity)).andExpect(allowed?status().isOk():status().isForbidden());
+        mockMvc.perform(get("/api/registry/runtime-tools/scopes/operations").param("instanceKey","synthetic").param("rootId","00000000-0000-4000-8000-000000000001").param("operationId","00000000-0000-4000-8000-000000000002").with(identity)).andExpect(allowed?status().isOk():status().isForbidden());
+    }
+    @Test void anonymousCannotReadToolContractsOrOriginalIntent()throws Exception {
+        mockMvc.perform(get("/api/registry/runtime-tools/contracts").param("instanceKey","synthetic")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/registry/runtime-tools/scopes/operations").param("instanceKey","synthetic").param("rootId","synthetic").param("operationId","synthetic")).andExpect(status().isUnauthorized());
+    }
     @Test
     void statusPublishesOnlyPublicOidcConfigurationAndMeRequiresAuthentication() throws Exception {
         mockMvc.perform(get("/api/platform/status"))

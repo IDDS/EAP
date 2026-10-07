@@ -57,6 +57,46 @@ class ScopedToolIntegrationTests {
     ScopedToolDtos.Execute request(String grant,long delta){return new ScopedToolDtos.Execute(grant,UUID.randomUUID().toString(),resource,delta);}
     long value(){return db.queryForObject("select counter_value from scoped_tool_counters where resource_id=?",Long.class,resource);}
     long effects(){return db.queryForObject("select effect_count from scoped_tool_counters where resource_id=?",Long.class,resource);}
+    String ledgerSnapshot(){return json.valueToTree(db.queryForList("select * from budget_accounts order by id")).toString()+json.valueToTree(db.queryForList("select * from budget_reservations order by id")).toString()+json.valueToTree(db.queryForList("select * from budget_settlements order by id")).toString();}
+    @Test void lostResponseInspectionPreservesOriginalEffectAndAllBudgetRowsAfterRevocation(){
+        var r=root(2);var c=child(r,2);var req=request(c.grantId(),3);
+        var original=service.execute(b,req); // The caller discards this response; only the persisted intent is queried.
+        service.revoke(r.grantId(),"test");policy(b,false,32);String ledger=ledgerSnapshot();
+        for(int i=0;i<4;i++){
+            var receipt=service.inspectOperation(a.instanceKey(),r.grantId(),req.operationId());
+            assertThat(receipt.operation().effectId()).isEqualTo(original.effectId());
+            assertThat(receipt.operation().counterValue()).isEqualTo(3);
+            assertThat(receipt.operation().state()).isEqualTo("COMMITTED");
+            assertThat(receipt.contractVersion()).isEqualTo(ScopedToolService.CONTRACT);
+            assertThat(receipt.budgetKey()).isEqualTo("tool-root:"+r.grantId());assertThat(receipt.observedAt()).isNotNull();
+        }
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(value()).isEqualTo(3);assertThat(effects()).isEqualTo(1);
+    }
+    @Test void preparedUnknownInspectionAndMissingIntentNeverRetryOrInventNoCommit(){
+        var r=root(2);var req=request(r.grantId(),1);
+        RuntimeToolGuardService target=org.springframework.test.util.AopTestUtils.getUltimateTargetObject(guard);
+        doThrow(new IllegalStateException("synthetic storage failure")).when(target).recordVerified(any(),anyString(),anyString(),anyString(),anyString());
+        try{assertThatThrownBy(()->service.execute(a,req)).isInstanceOf(IllegalStateException.class);}finally{doCallRealMethod().when(target).recordVerified(any(),anyString(),anyString(),anyString(),anyString());}
+        String ledger=ledgerSnapshot();assertThat(service.inspectOperation(a.instanceKey(),r.grantId(),req.operationId()).operation().state()).isEqualTo("UNKNOWN");
+        assertThatThrownBy(()->service.inspectOperation(a.instanceKey(),r.grantId(),UUID.randomUUID().toString())).isInstanceOf(BusinessException.class).hasMessageContaining("不能推定未提交");
+        assertThat(ledgerSnapshot()).isEqualTo(ledger);assertThat(effects()).isZero();
+    }
+    @Test void inspectionChecksScopeAndFindsOriginalIntentOutsideRecentThirty(){
+        var r=root(2);var first=request(r.grantId(),11);service.execute(a,first);
+        for(int i=0;i<31;i++)service.execute(a,request(r.grantId(),11));
+        assertThat(service.dashboard(a.instanceKey()).operations()).noneMatch(o->o.operationId().equals(first.operationId()));
+        assertThat(service.inspectOperation(a.instanceKey(),r.grantId(),first.operationId()).operation().state()).isEqualTo("REJECTED");
+        assertThatThrownBy(()->service.inspectOperation(b.instanceKey(),r.grantId(),first.operationId())).isInstanceOf(UnauthorizedException.class);
+        assertThatThrownBy(()->service.inspectOperation("missing",r.grantId(),first.operationId())).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(()->service.inspectOperation(a.instanceKey(),"invalid",first.operationId())).isInstanceOf(BusinessException.class);assertThat(effects()).isZero();
+    }
+    @Test void allowlistAndMcpHintsCannotClaimIndependentToolCapabilities(){
+        var p=policies.get(a.instanceKey());policies.update(new RuntimeToolPolicyService.Update(a.instanceKey(),p.revision(),true,List.of(new RuntimeToolPolicyService.Tool(ScopedToolService.TOOL,ToolInvocationKind.MCP),new RuntimeToolPolicyService.Tool("external_draft",ToolInvocationKind.TOOL)),32),"test");
+        var catalog=service.contracts(a.instanceKey());assertThat(catalog.tools()).hasSize(3);
+        var known=catalog.tools().stream().filter(t->t.authority().equals("TOOL_STORE")).findFirst().orElseThrow();
+        assertThat(known.allowedByPolicy()).isFalse();assertThat(known.contractVersion()).isEqualTo(ScopedToolService.CONTRACT);assertThat(known.cancellation()).isEqualTo("UNSUPPORTED");
+        assertThat(catalog.tools()).filteredOn(t->!t.authority().equals("TOOL_STORE")).allSatisfy(t->{assertThat(t.contractVersion()).isNull();assertThat(t.query()).isEqualTo("UNVERIFIED");assertThat(t.commitBarrier()).isEqualTo("UNVERIFIED");});
+    }
     @Test void validatedCounterIdentifiersAreNotMisclassifiedAsPhoneContent(){
         String opaque="11111111-aaaa-4aaa-aaaa-13800138000a";resource="poc_"+opaque;
         var root=root(1);var request=new ScopedToolDtos.Execute(root.grantId(),opaque,resource,1);

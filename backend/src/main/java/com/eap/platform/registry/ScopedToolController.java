@@ -17,6 +17,10 @@ public class ScopedToolController {
     public ScopedToolController(ScopedToolService service,RuntimeConnectionService connections,ObjectMapper json,Validator validator){this.service=service;this.connections=connections;this.json=json;this.validator=validator;}
     @GetMapping("/api/registry/runtime-tools/scopes")
     public ApiResponse<ScopedToolDtos.Dashboard> dashboard(@RequestParam String instanceKey){return ApiResponse.ok(service.dashboard(instanceKey));}
+    @GetMapping("/api/registry/runtime-tools/contracts")
+    public ApiResponse<ScopedToolDtos.Catalog> contracts(@RequestParam String instanceKey){return ApiResponse.ok(service.contracts(instanceKey));}
+    @GetMapping("/api/registry/runtime-tools/scopes/operations")
+    public ApiResponse<ScopedToolDtos.Inspection> inspect(@RequestParam String instanceKey,@RequestParam String rootId,@RequestParam String operationId){return ApiResponse.ok(service.inspectOperation(instanceKey,rootId,operationId));}
     @PostMapping("/api/registry/runtime-tools/scopes")
     public ApiResponse<ScopedToolDtos.Grant> create(@RequestBody JsonNode body,Authentication auth){return ApiResponse.ok(service.create(read(body,ScopedToolDtos.Root.class,Set.of("grantId","holderKey","resourceSet","recipientSet","maxDelta","claimLimit","expiresAt")),auth==null?"console":auth.getName()));}
     @PostMapping("/api/registry/runtime-tools/scopes/revoke")

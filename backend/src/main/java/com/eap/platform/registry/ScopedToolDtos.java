@@ -33,5 +33,12 @@ public final class ScopedToolDtos {
         long delta,String state,String reasonCode,String effectId,Long counterValue,String effectSource,
         String traceId,Instant createdAt,Instant completedAt,boolean replayed) {}
     public record Counter(String resourceId,String rootId,long value,long effectCount) {}
+    /** Capability facts belong to an implemented adapter, never to a runtime/MCP hint or allowlist. */
+    public record Contract(String toolName,String kind,String contractVersion,String authority,
+        boolean allowedByPolicy,String approvalSource,String resourceScope,String idempotencyDomain,
+        String retention,String changedParameters,String query,String cancellation,String commitBarrier,
+        String compensation,String recovery) {}
+    public record Catalog(long policyRevision,boolean policyEnabled,Instant observedAt,List<Contract> tools) {}
+    public record Inspection(String contractVersion,String budgetKey,Instant observedAt,Operation operation) {}
     public record Dashboard(List<Grant> grants,List<Operation> operations,List<Counter> counters) {}
 }
