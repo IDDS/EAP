@@ -1,5 +1,7 @@
 # 受限提示词优化合同
 
+当前新根合同见[PROMPT_OPTIMIZATION_BATCHES.md](PROMPT_OPTIMIZATION_BATCHES.md)（2026-10-08）：最多10条留出、持久批次及全流程成本。本轮真实任务UNKNOWN未完成留出，原消费保留；下文保留2026-10-05首次小样本历史合同，不将其范围误作当前登记上限。
+
 2026-10-05，T3 有界实现合同。依据 [原始方法调研](research/agent-system-methods-20261002/implementation-plan.md#t3gepa-受限适配器)及[华为交流报告核读](research/agent-system-methods-20261002/huawei-report-methods.md)。任务 API、Worker、页面与真实搜索已部署验收；范围与证据见文末，不能推断系统全部整合或 Agent 普遍收益。
 
 目标是现有 Agent 的任务质量、成功率、输入/输出 Token 与时延；不是模型权重训练、CPU 调度或供应商 KV 优化。

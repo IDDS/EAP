@@ -674,3 +674,26 @@ PREPARATION/TASK_WAIT/RECLAIM/ASYNC_WAIT记录实际边界，原运行与阶段�
 证据K8Substrate artifacts/eap-workflow-scheduling-20261007/index.html，归档2989896bytes/SHA25679b3672f19c2445a031d5d2eba75accb28e4c0d38a0ea5050cf0f9d39cf8f963；671文件摘要/706源/12截图/HTML引用核对。实际Secret与新实例派生token只节点RAM扫描，通过后才精确19源码推进/root/eap-src。5现存临时Jobs/6Pods按冻结UID清理、剩余0，另两被替代测试Job已UID退役；原失败/partial归档不改。
 
 用户此前“别忘记提交gitee”授权本工程正常commit/push；仅19源码和4工程文档，PROJECT_MEMORY index=HEAD加本条，保留其他线程记忆、AGENTS/BP/私有报告和研究。下一项T3更大独立公开样本/持久留出批次/完整成本与真实收益门禁，旧GEPA保持KEEP_BASELINE；继续可信租户/资源配额、跨入口调度、业务工具/旧凭证迁移、恢复/取消/补偿及T7/T8。主线未全完成，旧视频未重录。
+
+
+### Codex 进展：持久留出批次、完整调优成本与回执修复（2026-10-08，T3-B）
+
+主线继续聚焦调度、Agent性能调优、权限治理，尚未全部完成。本轮工程代码与部署通过；真实完整留出评测未完成，没有稳定生产Agent收益证据。合同[PROMPT_OPTIMIZATION_BATCHES.md](PROMPT_OPTIMIZATION_BATCHES.md)。
+
+V67仅新增协议登记及持久留出批次表，不回填旧根。新登记训练/验证各最多3条、留出最多10条；完整认证主体参与幂等摘要，展示截断不改变身份。候选封存和搜索claim失效同事务登记每批最多3条，10条对应人工/候选共8逻辑批次；原操作键和评价关联持久化，同提示词复用原评价，根成本按实际预占去重。UNKNOWN或缺usage停止，不更换意图重发。四配对卡片保留全部登记分母和未执行/失败/未知。搜索、反思、人工验证、留出成本全部计入；usage/时延缺失不补零，无价格版本显示UNPRICED。
+
+完整计划先检查原共享/Agent容量，每次实际调用继续实时预占。3/3/10、8次样本评价、128输出上限的最坏计划64次/8960输出Token（反思最多2次、各512），不是8192。GEPA固定0.1.4，reflection_minibatch_size=1，依赖未更新。至少10个登记留出组且全部回执/usage满足原质量门禁时也仅给REVIEW_*及INDEPENDENT_COHORT_REVIEW_REQUIRED，不自动采用；分组隔离不证明语义/统计独立，公开合成格式任务不能外推业务收益。
+
+实际只提交新Agent59的原公开任务A一次：root3、experiment16在首次人工验证trial35成为UNKNOWN/INVALID_RECEIPT，后5试验取消。provider消费已知且SETTLED：1次、58输入/128输出（reasoning128），预留0；业务回执未知不等于费用未知。10条留出均未运行，chosen未封存、批次计划0；预登记B未提交，不重放、不退款、不增旧额度。原响应全文未保存，空最终文本是usage支持的推断，不能称原根因已完全确认。原UNKNOWN在优化与实验准入的全局门禁中继续阻止新任务；需原回执核对/明确治理合同，不能新建Agent或新键绕过。
+
+独立红测确认执行器有效空文本因omitempty被省略，缺失/null供应商内容也未正确区分。修复始终返回文本output、只接受实际字符串，缺失/null/对象/数组保持未知；有效空文本可被原评分器判0或截断，不伪造质量通过。6个子场景原4失败/2通过保留；相同意图再次读取只访问一次假供应商。修复普通及-race均24顶层/43含子项通过、静态编译0，仅将未来发布默认Runner切换新固定digest；旧Actor/template/root3的原511镜像与身份周期不变，新模型执行未验收。
+
+远程后端定向106项/5类、完整591项/93类零失败/错误/跳过，打包通过；前端213项及类型/生产构建通过；真实GEPA0.1.4 Worker24项通过。后续2执行器文件之外的backend/frontend/optimizer全源摘要与v2相同，沿原证据不无谓重测。708源/14精确改动与实际9Secret节点RAM扫描通过。初Worker写日志权限失败发生在测试前，v2b相同源码修正独立输出目录后通过；初浏览器/Runner依赖安装卡住，不计应用测试通过，新的有界下载Pod完成浏览器/竞态；旧Runner Job按冻结UID退役。辅助包等待门禁、错误表/字段与上传时序的早期失败保留，均在对应发布写入前停止。
+
+四角色API及1500/390px只读浏览器14截图通过，写入0、页面异常0、失败API0；普通角色不能读正文或运行实验，管理员表单可见。截图聚焦本轮公开任务，不导出无关私有反馈。Agent59原UID8a0463e3-5477-40f3-9861-9a6539832022已物理SUSPENDED、专属身份REVOKED；原UNKNOWN/已付费用保持。
+
+实际MySQL67与健康UP，固定backend=10.186.133.66:5001/eap-backend@sha256:45fcad1e2b2e511dfb47bff2a87a8bd13bec1df85f0abe9bb0e5cf4992060712；frontend=10.186.133.66:5001/eap-frontend@sha256:855171df3893b51cdf8f5b3a0f06e56f0387814699861eebc34ac6c98263bd4d；optimizer=10.186.133.66:5001/eap-prompt-optimizer@sha256:35a8bb20a051d1321c22f3563747aa14ddd5fb7c9f42416806e2c3857609776d；未来Runner默认=10.186.133.66:5001/eap-runner@sha256:3e4570444af8bbed03aef1f9007905dc89a109f090402c229c6504aff36673a3；前端buildId2026-10-07T14:25:10.580Z。只CAS三个应用镜像和一个公开未来默认字段，其余环境/认证原Pod/不可变配送Secret/默认900秒/原生与异步Runner镜像不变。
+
+原58Agents/48工作流/4查询/3效果根、43预占/264关联/43结算、2旧优化根/15旧实验和其他旧行SHA保持；旧非平台账户/共享cap/revision不变。旧平台MODEL33→34、OUTPUT1904→2032严格只增加原1次消费，TOOL10不变。证据K8Substrate artifacts/eap-optimization-batches-20261007/index.html；归档2463113bytes/SHA25646ae84607fd9998451a828943cf258a64671c4980287d8cb71974f77c1426d0a，285文件摘要/708源/14截图。导出明确STOPPED_ON_UNKNOWN/fullLiveHoldoutCompleted=false；工程保护PASS不冒称真实完整评测PASS。通过RAM扫描后精确14源同步/root/eap-src。
+
+下一步优先原UNKNOWN回执核对与可审计治理，之后才能继续独立真实任务完整成本和复验。持续保留可信租户/资源配额、跨入口调度、业务工具及旧凭证迁移、恢复/取消/补偿、T7分级观测和T8联合策略。研究/申请书只作方法依据，私有正文不自动用于反思；旧演示视频未重录。沿用户“别忘记提交gitee”授权只提交14源及5工程文档，PROJECT_MEMORY索引只包含原HEAD和本条，保护其他线程的未提交记忆与材料。

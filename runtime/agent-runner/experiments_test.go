@@ -220,3 +220,53 @@ func TestControlledTaskToolsDoNotLeakIntoIndependentExperiments(t *testing.T) {
 		})
 	}
 }
+
+func TestExperimentKeepsEmptyTextReceiptAndRejectsNonTextProviderContent(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		present bool
+		content any
+		finish  string
+		known   bool
+	}{
+		{"empty_stop", true, "", "stop", true},
+		{"empty_length", true, "", "length", true},
+		{"missing", false, nil, "stop", false},
+		{"null", true, nil, "length", false},
+		{"object", true, map[string]string{"text": "invalid"}, "stop", false},
+		{"array", true, []string{"invalid"}, "stop", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				calls.Add(1)
+				msg := map[string]any{"role": "assistant"}
+				if test.present {
+					msg["content"] = test.content
+				}
+				writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": msg, "finish_reason": test.finish}}, "usage": map[string]int{"prompt_tokens": 7, "completion_tokens": 128}})
+			}))
+			defer gateway.Close()
+			r := &runner{experimentDir: t.TempDir(), gateway: gateway.URL, gwToken: "gateway-test", taskToken: "task-test", agentID: "7", model: "test-model", system: "baseline", maxTokens: 1024, client: gateway.Client()}
+			in := experimentRequest(r)
+			for range 2 {
+				response := experimentCall(r, in, "task-test")
+				var body map[string]any
+				if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &body) != nil {
+					t.Fatal("receipt missing")
+				}
+				if test.known {
+					output, present := body["output"].(string)
+					if body["status"] != "SUCCEEDED" || !present || output != "" || body["finishReason"] != test.finish || body["usage"] == nil {
+						t.Error("known empty text was omitted or became unknown")
+					}
+				} else if body["status"] != "UNKNOWN" {
+					t.Error("missing or non-text provider content became a known result")
+				}
+			}
+			if calls.Load() != 1 {
+				t.Error("original receipt replay issued an extra provider call")
+			}
+		})
+	}
+}

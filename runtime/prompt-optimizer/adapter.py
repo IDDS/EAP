@@ -328,7 +328,8 @@ def search(context: dict, backend: Backend) -> SearchResult:
             gepa.optimize(seed_candidate=seed, trainset=adapter.context["train"],
                 valset=adapter.context["validation"], adapter=adapter,
                 reflection_lm=None, max_metric_calls=adapter.context["maxMetricCalls"],
-                reflection_minibatch_size=len(adapter.context["train"]),
+                reflection_minibatch_size=1,
+                # Seed validation(3) + original/proposed training(1+1) + full proposed validation(3) fits the eight-sample search cap.
                 # List loaders use overlapping numeric IDs for train/validation.
                 # Only EAP's split-aware persistent cache may reuse an intent.
                 skip_perfect_score=False, use_merge=False, cache_evaluation=False,

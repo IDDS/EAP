@@ -36,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test") @AutoConfigureMockMvc
 class OptimizationIntegrationTests {
     @Autowired OptimizationService service;@Autowired AgentExperimentService experiments;
+    @Autowired OptimizationEvidenceService evidence;
     @Autowired AgentService agents;@Autowired JdbcTemplate db;@Autowired ObjectMapper json;@Autowired MockMvc mvc;
     @Autowired OpenAiCompatibleGatewayService gateway;@Autowired BudgetLedger ledger;
     @MockitoBean AgentExperimentClient runtime;@MockitoBean OpenAiUpstreamClient upstream;
@@ -46,7 +47,7 @@ class OptimizationIntegrationTests {
 
     @BeforeEach void setup() {
         RequestContextHolder.resetRequestAttributes();
-        for(String t:List.of("budget_limit_changes","budget_settlements","budget_reservation_items","budget_reservations","budget_accounts","agent_optimization_reflections","agent_optimization_evaluations"))db.update("delete from "+t);
+        for(String t:List.of("budget_limit_changes","budget_settlements","budget_reservation_items","budget_reservations","budget_accounts","agent_optimization_holdout_batches","agent_optimization_protocols","agent_optimization_reflections","agent_optimization_evaluations"))db.update("delete from "+t);
         db.update("update agent_experiments set optimization_run_id=null");db.update("delete from agent_optimizations");
         for(String t:List.of("agent_experiment_trials","agent_experiment_variants","agent_experiments"))db.update("delete from "+t);
         agent=agents.create(new AgentDtos.AgentRequest("OPT-"+UUID.randomUUID(),"Optimization test","","Test","Owner","Test",RiskLevel.LOW)).id();agents.updateStatus(agent,AgentLifecycleStatus.ACTIVE);
@@ -63,15 +64,16 @@ class OptimizationIntegrationTests {
         });
     }
     @AfterEach void done(){RequestContextHolder.resetRequestAttributes();}
-    String expected(String input){return switch(input){case "train input"->"TRAIN";case "validation input"->"VAL";case "sealed input"->"HOLD";default->"UNKNOWN_INPUT";};}
+    String expected(String input){return switch(input){case "train input"->"TRAIN";case "validation input"->"VAL";case "sealed input"->"HOLD";default->"EXPECTED:"+input;};}
     JsonNode provider(String output){var node=json.createObjectNode();node.set("usage",json.createObjectNode().put("prompt_tokens",7).put("completion_tokens",3));node.set("choices",json.createArrayNode().add(json.createObjectNode().put("finish_reason","stop").set("message",json.createObjectNode().put("content",output))));return node;}
     OptimizationDtos.Submit request(String key){return new OptimizationDtos.Submit(agent,instance,profileDigest,"MANUAL prompt","GEPA",128,8,32,8192,List.of(new OptimizationDtos.Sample("train-1","g1","TRAIN","train input","TRAIN"),new OptimizationDtos.Sample("validation-1","g2","VALIDATION","validation input","VAL"),new OptimizationDtos.Sample("holdout-1","g3","HOLDOUT","sealed input","HOLD")),true,true,key);}
     OptimizationDtos.Submit with(OptimizationDtos.Submit r,List<OptimizationDtos.Sample> samples,String engine,boolean publicUse,boolean reflectUse,int calls){return new OptimizationDtos.Submit(r.agentId(),r.instanceKey(),r.profileDigest(),r.manualPrompt(),engine,r.maxTokens(),r.maxMetricCalls(),calls,r.maxOutputTokens(),samples,publicUse,reflectUse,r.requestKey());}
     String hash(Object value)throws Exception{return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(value)));}
     JsonNode candidate(String prompt){return json.createObjectNode().put("system_prompt",prompt);}
     OptimizationDtos.Evaluate evaluation(long id,String prompt,String split,String sample)throws Exception {var p=candidate(prompt);return new OptimizationDtos.Evaluate(p,split,List.of(sample),hash(List.of(id,hash(p),split,List.of(sample))));}
-    void finishExperiment()throws Exception {
-        for(int i=0;i<2;i++){var dispatch=experiments.claim();assertThat(dispatch).isNotNull();
+    void finishExperiment()throws Exception {finishExperiment(1);}
+    void finishExperiment(int samples)throws Exception {
+        for(int i=0;i<2*samples;i++){var dispatch=experiments.claim();assertThat(dispatch).isNotNull();
             var request=json.createObjectNode().put("model","test-model").put("max_tokens",((Number)dispatch.body().get("maxTokens")).intValue());
             request.set("messages",json.createArrayNode().add(json.createObjectNode().put("role","system").put("content",(String)dispatch.body().get("systemPrompt"))).add(json.createObjectNode().put("role","user").put("content",(String)dispatch.body().get("input"))));
             JsonNode response=gateway.chatCompletions(request,agent,null,null,(String)dispatch.body().get("traceId"),GatewayDtos.ClassificationHints.empty()).getBody();
@@ -91,7 +93,7 @@ class OptimizationIntegrationTests {
         service.searchResult(root.id(),claim.token(),new OptimizationDtos.SearchReceipt("COMPLETED",selected.candidate(),hash(selected.candidate()),OptimizationService.ENGINE_VERSION,null));
         assertThat(service.get(root.id()).status()).isEqualTo("HOLDOUT");assertThatThrownBy(()->service.context(root.id(),claim.token())).isInstanceOf(ResponseStatusException.class);
         service.advanceHoldout();finishExperiment();service.advanceHoldout();finishExperiment();service.advanceHoldout();
-        var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("REVIEW_MANUAL");assertThat(result.reasonCode()).isEqualTo("SMALL_SAMPLE_REVIEW_REQUIRED");
+        var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("KEEP_BASELINE");assertThat(result.reasonCode()).isEqualTo("INSUFFICIENT_INDEPENDENT_HOLDOUT");
         assertThat(result.chargedCalls()).isEqualTo(13);assertThat(result.pendingReservations()).isZero();assertThat(result.evaluations()).filteredOn(e->"HOLDOUT".equals(e.split())).hasSize(2);
         assertThat(result.evaluations()).filteredOn(e->"HOLDOUT".equals(e.split())).allMatch(e->e.baseline().passed()==0&&e.candidate().passed()==1&&e.candidate().usageKnown()==1);
         verify(upstream,times(13)).chatCompletions(any());assertThat(json.writeValueAsString(result)).doesNotContain("BASELINE prompt","MANUAL prompt","SELECTED prompt","sealed input",claim.token());
@@ -192,4 +194,102 @@ class OptimizationIntegrationTests {
         var metadata=mvc.perform(get("/api/agent-optimizations/"+root.id()).with(identity)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();assertThat(metadata).doesNotContain("BASELINE prompt","MANUAL prompt","train input","sealed input");
         mvc.perform(get("/api/agent-optimizations/"+root.id()+"/content").with(identity)).andExpect(status().is(viewContent?200:403));
     }
+    OptimizationDtos.Submit largeRequest(String key,String engine,boolean oneGroup) {
+        List<OptimizationDtos.Sample> data=new ArrayList<>();
+        for(String split:List.of("TRAIN","VALIDATION","HOLDOUT"))for(int i=0;i<(split.equals("HOLDOUT")?10:3);i++) {
+            String sid=split.toLowerCase()+"-"+String.format("%02d",i),input="public-"+sid;
+            data.add(new OptimizationDtos.Sample(sid,oneGroup&&split.equals("HOLDOUT")?"same-holdout-group":"g-"+sid,split,input,"EXPECTED:"+input));
+        }
+        return new OptimizationDtos.Submit(agent,instance,profileDigest,"MANUAL prompt",engine,128,8,64,16384,data,true,"GEPA".equals(engine),key);
+    }
+    OptimizationDtos.Evaluate largeValidation(long id,String prompt)throws Exception {
+        var p=candidate(prompt);var ids=List.of("validation-00","validation-01","validation-02");
+        return new OptimizationDtos.Evaluate(p,"VALIDATION",ids,hash(List.of(id,hash(p),"VALIDATION",ids)));
+    }
+    OptimizationDtos.Claim sealLarge(OptimizationDtos.Summary root,String prompt)throws Exception {
+        var claim=service.claim();long manual=service.manualValidation(claim);finishExperiment(3);assertThat(service.manualReady(claim,manual)).isTrue();
+        service.evaluate(root.id(),claim.token(),largeValidation(root.id(),prompt));
+        if(!prompt.equals("MANUAL prompt"))finishExperiment(3);
+        service.searchResult(root.id(),claim.token(),new OptimizationDtos.SearchReceipt("COMPLETED",candidate(prompt),hash(candidate(prompt)),OptimizationService.ENGINE_VERSION,null));
+        return claim;
+    }
+    void finishAllBatches(long id)throws Exception {
+        for(int pass=0;pass<9;pass++) {
+            service.advanceHoldout();
+            var pending=service.get(id).evaluations().stream().filter(e->"QUEUED".equals(e.status())).findFirst();
+            if(pending.isPresent())finishExperiment(pending.get().sampleCount());
+        }
+    }
+    @Test void tenHoldoutsPersistEightBatchesRetainAllDenominatorsAndAggregateActualCosts()throws Exception {
+        var root=service.submit(largeRequest("large-batches-1","SIMPLE",false),"test-author");
+        assertThat(root.evidence().holdoutSamples()).isEqualTo(10);assertThat(root.evidence().independentHoldoutGroups()).isEqualTo(10);
+        assertThat(root.evidence().cost().plannedUpperCalls()).isEqualTo(62);assertThat(root.evidence().cost().plannedUpperOutputTokens()).isEqualTo(7936);
+        assertThat(root.evidence().holdout()).allMatch(a->a.registeredSamples()==10&&a.candidateNotRun()==10&&a.candidate().inputTokens()==null);
+        var claim=sealLarge(root,"SELECTED prompt");
+        var persisted=new OptimizationEvidenceService(db,json,experiments);
+        assertThat(persisted.batches(root.id())).hasSize(8).allMatch(b->json.valueToTree(b).path("sample_ids_json").asText().length()>0);
+        for(var batch:persisted.batches(root.id()))assertThat(json.readTree((String)batch.get("sample_ids_json")).size()).isBetween(1,3);
+        assertThatThrownBy(()->service.context(root.id(),claim.token())).isInstanceOf(ResponseStatusException.class);
+        service.advanceHoldout();
+        var pool=Executors.newFixedThreadPool(4);try{List<Future<?>> calls=new ArrayList<>();for(int i=0;i<4;i++)calls.add(pool.submit(service::advanceHoldout));for(var f:calls)f.get(20,TimeUnit.SECONDS);}finally{pool.shutdownNow();}
+        assertThat(db.queryForObject("select count(*) from agent_optimization_holdout_batches where run_id=? and evaluation_id is not null",Long.class,root.id())).isEqualTo(1);
+        assertThat(service.get(root.id()).evidence().holdout()).allMatch(a->a.candidate().samples()==10&&a.candidate().inputTokens()==null);
+        finishAllBatches(root.id());var result=service.get(root.id());
+        assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("REVIEW_MANUAL");assertThat(result.reasonCode()).isEqualTo("INDEPENDENT_COHORT_REVIEW_REQUIRED");
+        assertThat(result.evidence().holdout()).allMatch(a->a.completedBatches()==4&&a.candidate().samples()==10&&a.candidate().passed()==10&&a.baseline().passed()==0&&a.candidateNotRun()==0);
+        assertThat(result.chargedCalls()).isEqualTo(52);assertThat(result.evidence().cost().admittedCalls()).isEqualTo(52);assertThat(result.evidence().cost().usageKnownCalls()).isEqualTo(52);
+        assertThat(result.evidence().cost().inputTokens()).isEqualTo(364);assertThat(result.evidence().cost().outputTokens()).isEqualTo(156);
+        assertThat(result.evidence().cost().phases()).filteredOn(p->p.phase().equals("HOLDOUT")).singleElement().satisfies(p->{assertThat(p.admittedCalls()).isEqualTo(40);assertThat(p.latencySamples()).isEqualTo(40);});
+        assertThat(result.evidence().cost().monetaryStatus()).isEqualTo("UNPRICED");verify(upstream,times(52)).chatCompletions(any());
+        assertThat(json.writeValueAsString(result)).doesNotContain("public-holdout","EXPECTED:",claim.token(),"SELECTED prompt");
+        long calls=result.chargedCalls();service.advanceHoldout();assertThat(service.get(root.id()).chargedCalls()).isEqualTo(calls);
+    }
+    @Test void unknownFirstHoldoutBatchKeepsAllRegisteredSamplesAndNeverCreatesReplacement()throws Exception {
+        var root=service.submit(largeRequest("unknown-batch-1","SIMPLE",false),"test-author");sealLarge(root,"SELECTED prompt");service.advanceHoldout();
+        var dispatch=experiments.claim();var ticket=ledger.admitModel(json.createObjectNode().put("model","test-model").put("max_tokens",128),agent,null,null,(String)dispatch.body().get("traceId"),"ignored");ledger.unconfirmed(ticket,"RECEIPT_UNKNOWN");experiments.finish(dispatch,new AgentExperimentClient.Receipt("UNKNOWN","RECEIPT_UNKNOWN",null));
+        service.advanceHoldout();var result=service.get(root.id());assertThat(result.status()).isEqualTo("UNKNOWN");assertThat(result.recommendation()).isEqualTo("KEEP_BASELINE");
+        var manual=result.evidence().holdout().getFirst();assertThat(manual.baseline().samples()).isEqualTo(10);assertThat(manual.baseline().unknown()).isEqualTo(1);assertThat(manual.baselineNotRun()).isEqualTo(9);assertThat(manual.candidateNotRun()).isEqualTo(10);
+        assertThat(result.evidence().cost().inputTokens()).isNull();assertThat(result.pendingReservations()).isEqualTo(1);
+        service.advanceHoldout();assertThat(db.queryForObject("select count(*) from agent_optimization_holdout_batches where run_id=? and evaluation_id is not null",Long.class,root.id())).isEqualTo(1);assertThat(experiments.claim()).isNull();
+        assertThatThrownBy(()->service.submit(largeRequest("unknown-batch-2","SIMPLE",false),"test-author")).isInstanceOf(ConflictException.class);
+    }
+    @Test void identicalPromptsShareOriginalHoldoutAndNeverDoubleCountPhysicalCosts()throws Exception {
+        var root=service.submit(largeRequest("same-prompt-batch-1","SIMPLE",false),"test-author");sealLarge(root,"MANUAL prompt");finishAllBatches(root.id());
+        var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.evidence().holdout()).allMatch(a->a.completedBatches()==4&&a.candidate().samples()==10);
+        assertThat(result.evaluations()).filteredOn(e->"HOLDOUT".equals(e.split())).hasSize(4);assertThat(result.chargedCalls()).isEqualTo(26);assertThat(result.evidence().cost().admittedCalls()).isEqualTo(26);verify(upstream,times(26)).chatCompletions(any());
+        assertThat(db.queryForObject("select count(distinct evaluation_id) from agent_optimization_holdout_batches where run_id=?",Long.class,root.id())).isEqualTo(4);
+    }
+    @Test void completePlanChecksExistingSharedCapacityAndOutputBoundBeforeWakingRuntime() {
+        var r=largeRequest("preflight-large-1","GEPA",false);ledger.setLimit(new BudgetLedger.Limit("AGENT",Long.toString(agent),"MODEL_CALLS",63L,0,0),"test-author");
+        assertThatThrownBy(()->service.submit(r,"test-author")).isInstanceOf(BusinessException.class);verify(runtime,never()).profile(any());assertThat(service.list()).isEmpty();
+        var tooSmall=new OptimizationDtos.Submit(r.agentId(),r.instanceKey(),r.profileDigest(),r.manualPrompt(),r.engine(),r.maxTokens(),r.maxMetricCalls(),r.maxCalls(),8959,r.samples(),true,true,"preflight-output-1");
+        assertThatThrownBy(()->service.submit(tooSmall,"test-author")).isInstanceOf(BusinessException.class);assertThat(db.queryForObject("select count(*) from budget_reservations",Long.class)).isZero();
+        assertThat(db.queryForObject("select used_amount from budget_accounts where scope_type='AGENT' and unit='MODEL_CALLS'",java.math.BigDecimal.class)).isZero();
+    }
+    @Test void fullPrincipalFingerprintSurvivesTruncatedRequesterAndCannotReuseAnotherIdentity()throws Exception {
+        String a="principal-"+"x".repeat(150)+"A",b="principal-"+"x".repeat(150)+"B";var request=request("long-principal-1");var root=service.submit(request,a);
+        assertThat(db.queryForObject("select requested_by from agent_optimizations where id=?",String.class,root.id())).hasSize(128);
+        String full=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(a.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertThat(db.queryForObject("select principal_digest from agent_optimization_protocols where run_id=?",String.class,root.id())).isEqualTo(full);
+        assertThat(service.submit(request,a).id()).isEqualTo(root.id());assertThatThrownBy(()->service.submit(request,b)).isInstanceOf(ConflictException.class);
+    }
+    @Test void tenInputsWithinOneTaskGroupDoNotQualifyAsTenIndependentGroups()throws Exception {
+        var root=service.submit(largeRequest("one-group-batch-1","SIMPLE",true),"test-author");sealLarge(root,"SELECTED prompt");finishAllBatches(root.id());var result=service.get(root.id());
+        assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.evidence().holdoutSamples()).isEqualTo(10);assertThat(result.evidence().independentHoldoutGroups()).isEqualTo(1);
+        assertThat(result.recommendation()).isEqualTo("KEEP_BASELINE");assertThat(result.reasonCode()).isEqualTo("INSUFFICIENT_INDEPENDENT_HOLDOUT");
+    }
+    @Test void missingHoldoutUsageStopsWithUnknownCostAndAllRegisteredDenominators()throws Exception {
+        var root=service.submit(largeRequest("missing-usage-batch-1","SIMPLE",false),"test-author");sealLarge(root,"SELECTED prompt");service.advanceHoldout();
+        // Complete the original physical calls; provider receipts lack usage.
+        var original=provider("EXPECTED:public-holdout-00");((com.fasterxml.jackson.databind.node.ObjectNode)original).remove("usage");
+        doReturn(ResponseEntity.ok(original)).when(upstream).chatCompletions(any());
+        finishExperiment(3);service.advanceHoldout();var result=service.get(root.id());assertThat(result.status()).isEqualTo("UNKNOWN");assertThat(result.evidence().cost().inputTokens()).isNull();
+        assertThat(result.evidence().holdout()).allMatch(a->a.registeredSamples()==10&&a.candidate().samples()==10);assertThat(db.queryForObject("select count(*) from agent_optimization_holdout_batches where run_id=? and evaluation_id is not null",Long.class,root.id())).isEqualTo(1);
+    }
+    @Test void legacyRootWithoutProtocolKeepsOriginalSmallSampleContractAndNoBackfill()throws Exception {
+        var root=service.submit(request("legacy-protocol-1"),"test-author");db.update("delete from agent_optimization_protocols where run_id=?",root.id());var claim=service.claim();var selected=evaluation(root.id(),"SELECTED prompt","VALIDATION","validation-1");service.evaluate(root.id(),claim.token(),selected);finishExperiment();
+        service.searchResult(root.id(),claim.token(),new OptimizationDtos.SearchReceipt("COMPLETED",selected.candidate(),hash(selected.candidate()),OptimizationService.ENGINE_VERSION,null));service.advanceHoldout();finishExperiment();service.advanceHoldout();finishExperiment();service.advanceHoldout();
+        var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("REVIEW_MANUAL");assertThat(result.evidence().protocolVersion()).isZero();assertThat(result.evidence().holdout()).isEmpty();assertThat(evidence.batches(root.id())).isEmpty();
+    }
+
 }

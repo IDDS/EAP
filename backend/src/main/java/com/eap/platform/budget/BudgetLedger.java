@@ -91,6 +91,20 @@ public class BudgetLedger {
     private Long canonicalId(String key) {
         long id=Long.parseLong(key);if(id<1||!Long.toString(id).equals(key))throw new BusinessException("预算范围ID须为标准正整数");return id;
     }
+    /** Capacity check only, not a reservation: every later call still performs live shared admission. */
+    public void requireOptimizationCapacity(long agentId,long calls,long outputTokens) {
+        if(!enabled||agentId<1||calls<1||outputTokens<1)throw new BusinessException("优化共享预算预检无效");
+        joined.executeWithoutResult(status->{
+            lock();
+            var rows=db.query("select * from budget_accounts where (scope_type='PLATFORM' and scope_key='default' or scope_type='AGENT' and scope_key=?) and unit in ('MODEL_CALLS','OUTPUT_TOKENS')",(rs,n)->account(rs),Long.toString(agentId));
+            for(var a:rows){
+                long required="MODEL_CALLS".equals(a.unit)?calls:outputTokens;
+                var total=a.usedAmount.add(a.reservedAmount).add(BigDecimal.valueOf(required)).add(BigDecimal.valueOf(a.marginAmount));
+                if(a.violated||a.limitAmount!=null&&total.compareTo(BigDecimal.valueOf(a.limitAmount))>0)
+                    throw new BusinessException("共享预算剩余额度不足以覆盖完整优化计划");
+            }
+        });
+    }
     public void createOptimizationBudget(long id,long maxCalls,long outputTokens,String actor) {
         if(!enabled||id<1||maxCalls<1||maxCalls>64||outputTokens<1||outputTokens>65536)throw new BusinessException("优化预算未启用或范围无效");
         joined.executeWithoutResult(status->{lock();for(var unit:List.of("MODEL_CALLS","OUTPUT_TOKENS")) {

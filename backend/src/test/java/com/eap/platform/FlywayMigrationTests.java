@@ -9,6 +9,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class FlywayMigrationTests {
     @Test
+    void optimizationBatchMigrationNeverEnrollsHistoricalRoots()throws Exception {
+        String url="jdbc:h2:mem:optimization_migration_"+java.util.UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE";
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("66").load().migrate();
+        try(var c=java.sql.DriverManager.getConnection(url,"sa","");var q=c.createStatement()) {
+            q.executeUpdate("insert into agent_optimizations(agent_id,instance_key,submission_key,fingerprint,profile_json,dataset_json,dataset_digest,manual_prompt,engine,engine_version,max_tokens,max_metric_calls,max_calls,max_output_tokens,status,requested_by,created_at,updated_at) select id,'old-instance','old-root','a','{}','[]','b','old-prompt','SIMPLE','old-engine',64,8,32,8192,'FAILED','old-owner',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP from agents order by id limit 1");
+        }
+        Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").load().migrate();
+        try(var c=java.sql.DriverManager.getConnection(url,"sa","");var q=c.createStatement()) {
+            try(var r=q.executeQuery("select count(*) from agent_optimization_protocols")){r.next();assertThat(r.getInt(1)).isZero();}
+            try(var r=q.executeQuery("select count(*) from agent_optimization_holdout_batches")){r.next();assertThat(r.getInt(1)).isZero();}
+            try(var r=q.executeQuery("select manual_prompt,status from agent_optimizations where submission_key='old-root'")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("old-prompt");assertThat(r.getString(2)).isEqualTo("FAILED");}
+        }
+    }
+
+    @Test
     void newRecoveryMigrationPreservesLegacyUnknownIntentWithoutEnrollment() throws Exception {
         String url="jdbc:h2:mem:eap_legacy_"+java.util.UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("63").load().migrate();
@@ -62,7 +77,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(66);
+        assertThat(result.migrationsExecuted).isEqualTo(67);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

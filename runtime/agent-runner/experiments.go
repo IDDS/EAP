@@ -26,7 +26,7 @@ type experimentResult struct {
 	Status       string          `json:"status"`
 	ReasonCode   string          `json:"reasonCode,omitempty"`
 	TraceID      string          `json:"traceId"`
-	Output       string          `json:"output,omitempty"`
+	Output       string          `json:"output"`
 	FinishReason string          `json:"finishReason,omitempty"`
 	Usage        json.RawMessage `json:"usage,omitempty"`
 	LatencyMS    int64           `json:"latencyMs"`
@@ -218,7 +218,7 @@ func (r *runner) executeExperiment(in experimentInput) experimentResult {
 	var output struct {
 		Choices []struct {
 			Message struct {
-				Content   string            `json:"content"`
+				Content   *string           `json:"content"`
 				ToolCalls []json.RawMessage `json:"tool_calls"`
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
@@ -229,11 +229,11 @@ func (r *runner) executeExperiment(in experimentInput) experimentResult {
 		return result
 	}
 	choice := output.Choices[0]
-	if len(choice.Message.ToolCalls) > 0 || (choice.FinishReason != "stop" && choice.FinishReason != "length") {
+	if choice.Message.Content == nil || len(choice.Message.ToolCalls) > 0 || (choice.FinishReason != "stop" && choice.FinishReason != "length") {
 		return result
 	}
 	result.Status = "SUCCEEDED"
-	result.Output = choice.Message.Content
+	result.Output = *choice.Message.Content
 	result.FinishReason = choice.FinishReason
 	result.Usage = output.Usage
 	return result

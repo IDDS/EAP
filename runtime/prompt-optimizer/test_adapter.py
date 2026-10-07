@@ -70,6 +70,20 @@ class AdapterTests(unittest.TestCase):
         self.assertLessEqual(backend.calls, 2 * 8 + 2)
         self.assertEqual(result.candidate_digest, digest(result.candidate))
 
+    def test_three_train_and_validation_samples_still_validate_a_proposal_within_eight_metrics(self):
+        c = context(metric_calls=8)
+        for split in ("train", "validation"):
+            first = c[split][0]
+            c[split] = [dict(first, id=f"{split}-{i}", groupId=f"group-{split}-{i}", input=f"{first['input']} number {i}") for i in range(3)]
+        b = FakeBackend(c)
+        result = search(c, b)
+        self.assertEqual(result.validation_score, 1)
+        self.assertIn("only", result.candidate["system_prompt"])
+        self.assertLessEqual(result.metric_calls, 8)
+        self.assertLessEqual(b.calls, 18)
+        self.assertTrue(any(r["split"] == "VALIDATION" and len(r["sampleIds"]) == 3 and "only" in r["candidate"]["system_prompt"].lower() for r in b.requests))
+        self.assertTrue(all(len(r["sampleIds"]) == 1 for r in b.requests if r["split"] == "TRAIN"))
+
     def test_simple_search_uses_same_frozen_adapter_contract(self):
         backend = FakeBackend(context("SIMPLE"))
         result = search(context("SIMPLE"), backend)

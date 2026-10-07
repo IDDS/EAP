@@ -34,6 +34,7 @@ public class OptimizationService {
     private final ObjectMapper json;
     private final AgentExperimentService experiments;
     private final BudgetLedger budget;
+    private final OptimizationEvidenceService evidence;
     private final AgentService agents;
     private final OpenAiCompatibleGatewayService gateway;
     private final TransactionTemplate tx;
@@ -41,9 +42,9 @@ public class OptimizationService {
 
     public OptimizationService(JdbcTemplate db,ObjectMapper json,AgentExperimentService experiments,
                                BudgetLedger budget,AgentService agents,OpenAiCompatibleGatewayService gateway,
-                               PlatformTransactionManager manager) {
+                               PlatformTransactionManager manager,OptimizationEvidenceService evidence) {
         this.db=db;this.json=json;this.experiments=experiments;this.budget=budget;this.agents=agents;this.gateway=gateway;
-        this.tx=new TransactionTemplate(manager);
+        this.tx=new TransactionTemplate(manager);this.evidence=evidence;
     }
     public boolean enabled(){return enabled&&budget.enabled();}
     private void lock(){db.queryForObject("select id from agent_optimization_admission where id=1 for update",Long.class);}
@@ -61,7 +62,7 @@ public class OptimizationService {
     private JsonNode candidate(String p){return json.createObjectNode().put("system_prompt",p);}
     private List<JsonNode> samples(Map<String,Object> r,String split){List<JsonNode> result=new ArrayList<>();for(JsonNode s:tree(text(r,"dataset_json")))if(split.equals(s.path("split").asText()))result.add(s);return result;}
     private void validateDataset(List<OptimizationDtos.Sample> data){
-        if(data==null||data.size()<3||data.size()>9)throw new BusinessException("需要三种独立切分，各1–3条公开样本");
+        if(data==null||data.size()<3||data.size()>16)throw new BusinessException("训练与验证各1–3条，留出1–10条公开样本");
         Set<String> ids=new HashSet<>(),inputs=new HashSet<>();Map<String,String> groups=new HashMap<>();Map<String,Integer> counts=new HashMap<>();
         for(var s:data){
             if(s==null||s.input()==null||s.expected()==null||s.input().isBlank()||s.expected().isBlank()||s.input().getBytes(StandardCharsets.UTF_8).length>2000||s.expected().getBytes(StandardCharsets.UTF_8).length>2000||s.id()==null||s.groupId()==null||!s.id().matches("[A-Za-z0-9_.:-]{1,64}")||!s.groupId().matches("[A-Za-z0-9_.:-]{1,64}")||!Set.of("TRAIN","VALIDATION","HOLDOUT").contains(s.split()))throw new BusinessException("样本格式或字节长度不符合要求");
@@ -69,7 +70,7 @@ public class OptimizationService {
             if(!ids.add(s.id())||!inputs.add(normalized)||groups.containsKey(s.groupId())&&!groups.get(s.groupId()).equals(s.split()))throw new BusinessException("样本ID、输入重复或任务组跨切分");
             groups.put(s.groupId(),s.split());counts.merge(s.split(),1,Integer::sum);
         }
-        if(!counts.keySet().equals(Set.of("TRAIN","VALIDATION","HOLDOUT"))||counts.values().stream().anyMatch(n->n>3))throw new BusinessException("需要三种独立切分，各1–3条公开样本");
+        if(!counts.keySet().equals(Set.of("TRAIN","VALIDATION","HOLDOUT"))||counts.getOrDefault("TRAIN",0)>3||counts.getOrDefault("VALIDATION",0)>3||counts.getOrDefault("HOLDOUT",0)>10)throw new BusinessException("训练与验证各1–3条，留出1–10条公开样本");
     }
     public OptimizationDtos.Summary submit(OptimizationDtos.Submit request,String actor){
         if(!enabled())throw new BusinessException("受限优化尚未启用或预算不可用");
@@ -80,18 +81,25 @@ public class OptimizationService {
         int hold=(int)request.samples().stream().filter(s->"HOLDOUT".equals(s.split())).count();
         int planned=2*request.maxMetricCalls()+2*val+4*hold+("GEPA".equals(request.engine())?2:0);
         if(request.maxMetricCalls()<val||request.maxCalls()<planned||request.maxCalls()>64||request.maxMetricCalls()>16||request.maxMetricCalls()<2||request.maxOutputTokens()<1||request.maxOutputTokens()>65536)throw new BusinessException("总预算不足以覆盖搜索、反思、人工与留出评测的计划上限");
+        int reflections="GEPA".equals(request.engine())?2:0;
+        long outputPlan=(long)(planned-reflections)*request.maxTokens()+512L*reflections;
+        if(request.maxOutputTokens()<outputPlan)throw new BusinessException("输出预算不足以覆盖完整计划及反思上限");
+        if(actor==null||actor.isBlank())throw new BusinessException("认证主体缺失");
+        String actorLabel=actor.length()>128?actor.substring(0,128):actor;
         String fingerprint=hash(List.of(request,actor));
         return tx.execute(status->{
             lock();var prior=db.queryForList("select id,fingerprint from agent_optimizations where submission_key=?",request.requestKey());
             if(!prior.isEmpty()){if(!fingerprint.equals(prior.getFirst().get("fingerprint")))throw new ConflictException("提交标识对应不同优化请求");return summary(root(((Number)prior.getFirst().get("id")).longValue()));}
             if(db.queryForObject("select count(*) from agent_optimizations where status in ('QUEUED','SEARCHING','HOLDOUT','UNKNOWN')",Long.class)>0)throw new ConflictException("已有优化任务执行中或未知，请先核对");
+            budget.requireOptimizationCapacity(request.agentId(),planned,outputPlan);
             var profile=experiments.profile(new AgentExperimentDtos.Target(request.agentId(),request.instanceKey()));
             if(!request.profileDigest().equals(profile.profile().path("profileDigest").asText())||request.maxTokens()>profile.profile().path("maxTokens").asInt())throw new ConflictException("运行基线已改变或输出上限超出实例配置");
             ObjectNode frozen=(ObjectNode)profile.profile().deepCopy();frozen.put("_imageRef",profile.imageRef()).put("_deploymentVersion",profile.deploymentVersion()).put("_actorUid",profile.actorUid()).put("_template",profile.template());
             frozen.put("_reflectionThinking",Set.of("deepseek-flash","deepseek-pro").contains(frozen.path("model").asText())?"DISABLED":"PROVIDER_DEFAULT");
-            db.update("insert into agent_optimizations(agent_id,instance_key,submission_key,fingerprint,profile_json,dataset_json,dataset_digest,manual_prompt,public_samples_confirmed,reflection_use_confirmed,engine,engine_version,max_tokens,max_metric_calls,max_calls,max_output_tokens,status,requested_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,true,?,?,?,?,?,?,?,'QUEUED',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",request.agentId(),request.instanceKey(),request.requestKey(),fingerprint,encode(frozen),encode(request.samples()),hash(request.samples()),request.manualPrompt(),request.reflectionContentUseConfirmed(),request.engine(),ENGINE_VERSION,request.maxTokens(),request.maxMetricCalls(),request.maxCalls(),request.maxOutputTokens(),actor);
+            db.update("insert into agent_optimizations(agent_id,instance_key,submission_key,fingerprint,profile_json,dataset_json,dataset_digest,manual_prompt,public_samples_confirmed,reflection_use_confirmed,engine,engine_version,max_tokens,max_metric_calls,max_calls,max_output_tokens,status,requested_by,created_at,updated_at) values(?,?,?,?,?,?,?,?,true,?,?,?,?,?,?,?,'QUEUED',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",request.agentId(),request.instanceKey(),request.requestKey(),fingerprint,encode(frozen),encode(request.samples()),hash(request.samples()),request.manualPrompt(),request.reflectionContentUseConfirmed(),request.engine(),ENGINE_VERSION,request.maxTokens(),request.maxMetricCalls(),request.maxCalls(),request.maxOutputTokens(),actorLabel);
             long id=db.queryForObject("select id from agent_optimizations where submission_key=?",Long.class,request.requestKey());
-            budget.createOptimizationBudget(id,request.maxCalls(),request.maxOutputTokens(),actor);return summary(root(id));
+            evidence.register(id,planned,outputPlan,request.samples(),hashText(actor));
+            budget.createOptimizationBudget(id,request.maxCalls(),request.maxOutputTokens(),actorLabel);return summary(root(id));
         });
     }
     public List<OptimizationDtos.Summary> list(){return db.queryForList("select id from agent_optimizations order by id desc limit 30",Long.class).stream().map(id->{var r=root(id);try{agents.get(number(r,"agent_id"));return summary(r);}catch(BusinessException e){return null;}}).filter(Objects::nonNull).toList();}
@@ -236,6 +244,7 @@ public class OptimizationService {
             var rows=db.queryForList("select * from agent_optimization_evaluations where run_id=? and candidate_digest=? and split='VALIDATION'",id,pd);boolean valid=false;
             for(var row:rows)if(encode(expected).equals(text(row,"sample_ids_json"))){var e=experiments.get(number(row,"experiment_id"));if("COMPLETED".equals(e.status())&&metrics(e,"CANDIDATE").usageKnown()==expected.size()&&metrics(e,"CANDIDATE").succeeded()==expected.size())valid=true;}
             if(!valid)throw new BusinessException("候选缺少全部验证样本的完整执行和用量证据");
+            if(evidence.versionOne(id))evidence.seal(id,text(r,"manual_prompt"),p,text(r,"dataset_json"));
             db.update("update agent_optimizations set status='HOLDOUT',chosen_digest=?,claim_hash=null,reason_code=null,updated_at=CURRENT_TIMESTAMP where id=?",pd,id);
             return Map.of("sealed",true,"status","HOLDOUT");
         });
@@ -243,7 +252,7 @@ public class OptimizationService {
     public void advanceHoldout(){
         if(!enabled())return;
         tx.executeWithoutResult(status->{lock();for(long id:db.queryForList("select id from agent_optimizations where status='HOLDOUT' order by id limit 1",Long.class)){
-            var r=root(id);List<String> ids=samples(r,"HOLDOUT").stream().map(s->s.path("id").asText()).toList();
+            var r=root(id);if(evidence.versionOne(id)){advanceBatches(r);continue;}List<String> ids=samples(r,"HOLDOUT").stream().map(s->s.path("id").asText()).toList();
             String chosen=db.queryForList("select prompt_text from agent_optimization_evaluations where run_id=? and candidate_digest=? order by id limit 1",String.class,id,text(r,"chosen_digest")).getFirst();
             for(var item:List.of(Map.entry("MANUAL",text(r,"manual_prompt")),Map.entry("SELECTED",chosen))){
                 long eval=createEvaluation(r,item.getValue(),"HOLDOUT",ids,item.getKey(),null);var row=db.queryForMap("select experiment_id from agent_optimization_evaluations where id=?",eval);var e=experiments.get(number(row,"experiment_id"));
@@ -259,6 +268,42 @@ public class OptimizationService {
             String recommendation=selectedBenefit&&benefit(selected.candidate(),manual.candidate())?"REVIEW_CANDIDATE":manualBenefit?"REVIEW_MANUAL":"KEEP_BASELINE";
             db.update("update agent_optimizations set status='COMPLETED',recommendation=?,reason_code=?,updated_at=CURRENT_TIMESTAMP where id=?",recommendation,"KEEP_BASELINE".equals(recommendation)?"NO_CONFIRMED_HOLDOUT_BENEFIT":"SMALL_SAMPLE_REVIEW_REQUIRED",id);
         }});
+    }
+    private void advanceBatches(Map<String,Object> r) {
+        long id=number(r,"id");String chosen=db.queryForList("select prompt_text from agent_optimization_evaluations where run_id=? and candidate_digest=? order by id limit 1",String.class,id,text(r,"chosen_digest")).getFirst();
+        var plans=evidence.batches(id);
+        if(plans.isEmpty())throw new IllegalStateException("Sealed holdout registration missing");
+        for(var plan:plans) {
+            long eval;
+            if(plan.get("evaluation_id") instanceof Number n)eval=n.longValue();
+            else {
+                List<String> ids=new ArrayList<>();for(JsonNode sample:tree(text(plan,"sample_ids_json")))ids.add(sample.asText());
+                String p="MANUAL".equals(text(plan,"source"))?text(r,"manual_prompt"):chosen;
+                if(!hash(candidate(p)).equals(text(plan,"candidate_digest")))throw new IllegalStateException("Sealed candidate changed");
+                eval=createEvaluation(r,p,"HOLDOUT",ids,text(plan,"source"),text(plan,"operation_key"));
+                if(db.update("update agent_optimization_holdout_batches set evaluation_id=? where run_id=? and source=? and ordinal=? and evaluation_id is null",eval,id,plan.get("source"),plan.get("ordinal"))!=1)throw new IllegalStateException("Holdout batch already bound");
+            }
+            var row=db.queryForMap("select run_id,experiment_id from agent_optimization_evaluations where id=?",eval);
+            if(number(row,"run_id")!=id)throw new IllegalStateException("Holdout evaluation belongs to another root");
+            var e=experiments.get(number(row,"experiment_id"));
+            if(Set.of("QUEUED","RUNNING").contains(e.status()))return;
+            if(!"COMPLETED".equals(e.status())) {
+                String reason=e.trials().stream().map(AgentExperimentDtos.Trial::reasonCode).filter(Objects::nonNull).findFirst().orElse("HOLDOUT_EVIDENCE_UNKNOWN");
+                stop(id,"UNKNOWN".equals(e.status())?"UNKNOWN":"FAILED",reason);return;
+            }
+            for(String variant:List.of("BASELINE","CANDIDATE")) {
+                var m=metrics(e,variant);
+                if(m.succeeded()!=m.samples()||m.usageKnown()!=m.samples()){stop(id,"UNKNOWN","HOLDOUT_USAGE_UNKNOWN");return;}
+            }
+        }
+        var proof=evidence.report(id);var cost=proof.cost();
+        if(cost.unknownCalls()>0||cost.usageKnownCalls()!=cost.admittedCalls()||cost.settledCalls()!=cost.admittedCalls()) {stop(id,"UNKNOWN","ROOT_BUDGET_EVIDENCE_UNKNOWN");return;}
+        var manual=proof.holdout().stream().filter(a->"MANUAL".equals(a.source())).findFirst().orElseThrow();
+        var selected=proof.holdout().stream().filter(a->"SELECTED".equals(a.source())).findFirst().orElseThrow();
+        boolean enough=proof.independentHoldoutGroups()>=10;
+        String recommendation=enough&&benefit(selected.candidate(),selected.baseline())&&benefit(selected.candidate(),manual.candidate())?"REVIEW_CANDIDATE":enough&&benefit(manual.candidate(),manual.baseline())?"REVIEW_MANUAL":"KEEP_BASELINE";
+        String reason=!enough?"INSUFFICIENT_INDEPENDENT_HOLDOUT":"KEEP_BASELINE".equals(recommendation)?"NO_CONFIRMED_HOLDOUT_BENEFIT":"INDEPENDENT_COHORT_REVIEW_REQUIRED";
+        db.update("update agent_optimizations set status='COMPLETED',recommendation=?,reason_code=?,updated_at=CURRENT_TIMESTAMP where id=?",recommendation,reason,id);
     }
     private boolean benefit(OptimizationDtos.Metrics c,OptimizationDtos.Metrics b){
         if(c.samples()==0||c.passed()!=c.samples()||c.succeeded()!=c.samples()||b.succeeded()!=b.samples()||c.usageKnown()!=c.samples()||b.usageKnown()!=b.samples()||c.unknown()>0||b.unknown()>0)return false;
@@ -281,6 +326,6 @@ public class OptimizationService {
             if("MODEL_CALLS".equals(account.get("unit")))calls=((Number)account.get("used_amount")).longValue();
         }
         int pending=db.queryForObject("select count(distinct r.id) from budget_reservations r join budget_reservation_items i on i.reservation_id=r.id join budget_accounts a on a.id=i.account_id where a.scope_type='TASK' and a.scope_key=? and r.state in ('DISPATCHED','UNKNOWN')",Integer.class,"optimization:"+id);
-        return new OptimizationDtos.Summary(id,number(r,"agent_id"),text(r,"instance_key"),text(r,"status"),text(r,"engine"),text(r,"engine_version"),profile.path("profileDigest").asText(),text(r,"dataset_digest"),profile.path("_imageRef").asText(),profile.path("_deploymentVersion").asInt(),(int)number(r,"max_calls"),number(r,"max_output_tokens"),(int)number(r,"max_metric_calls"),text(r,"recommendation"),text(r,"reason_code"),r.get("created_at").toString(),r.get("updated_at").toString(),evaluations(id),reserved,used,calls,pending);
+        return new OptimizationDtos.Summary(id,number(r,"agent_id"),text(r,"instance_key"),text(r,"status"),text(r,"engine"),text(r,"engine_version"),profile.path("profileDigest").asText(),text(r,"dataset_digest"),profile.path("_imageRef").asText(),profile.path("_deploymentVersion").asInt(),(int)number(r,"max_calls"),number(r,"max_output_tokens"),(int)number(r,"max_metric_calls"),text(r,"recommendation"),text(r,"reason_code"),r.get("created_at").toString(),r.get("updated_at").toString(),evaluations(id),reserved,used,calls,pending,evidence.report(id));
     }
 }
