@@ -1,0 +1,17 @@
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+discovery-agent/dist/
+*.pem
+*.key

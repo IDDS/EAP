@@ -1,0 +1,232 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: enterprise-agent-platform
+  datasource:
+    url: ${EAP_DB_URL:jdbc:mysql://localhost:3306/eap?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${EAP_DB_USERNAME:eap}
+    password: ${EAP_DB_PASSWORD:eap}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui
+
+eap:
+  security:
+    # DEVELOPMENT keeps the local demo frictionless. Production must use JWT.
+    mode: ${EAP_SECURITY_MODE:DEVELOPMENT}
+    issuer-uri: ${EAP_SECURITY_ISSUER_URI:}
+    jwk-set-uri: ${EAP_SECURITY_JWK_SET_URI:}
+    audience: ${EAP_SECURITY_AUDIENCE:}
+    roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
+    # Console sign-in (OIDC authorization code + PKCE) against issuer-uri; empty keeps manual token entry only.
+    oidc-client-id: ${EAP_SECURITY_OIDC_CLIENT_ID:}
+    oidc-scopes: ${EAP_SECURITY_OIDC_SCOPES:openid profile}
+    allowed-origins: ${EAP_SECURITY_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  discovery:
+    enabled: ${EAP_DISCOVERY_ENABLED:false}
+    include-known-user-locations: ${EAP_DISCOVERY_INCLUDE_KNOWN_USER_LOCATIONS:true}
+    scan-roots: ${EAP_DISCOVERY_SCAN_ROOTS:}
+    initial-delay-ms: ${EAP_DISCOVERY_INITIAL_DELAY_MS:5000}
+    interval-ms: ${EAP_DISCOVERY_INTERVAL_MS:300000}
+    max-depth: ${EAP_DISCOVERY_MAX_DEPTH:6}
+    max-files: ${EAP_DISCOVERY_MAX_FILES:3000}
+    max-file-bytes: ${EAP_DISCOVERY_MAX_FILE_BYTES:1048576}
+    max-processes: ${EAP_DISCOVERY_MAX_PROCESSES:2000}
+    ingestion-token: ${EAP_DISCOVERY_INGESTION_TOKEN:}
+    agent-v1:
+      policy-version: ${EAP_DISCOVERY_AGENT_POLICY_VERSION:2026.08.3}
+      rules-version: ${EAP_DISCOVERY_AGENT_RULES_VERSION:2026.08.3}
+      heartbeat-interval-seconds: ${EAP_DISCOVERY_AGENT_HEARTBEAT_SECONDS:60}
+      scan-interval-seconds: ${EAP_DISCOVERY_AGENT_SCAN_SECONDS:300}
+      full-snapshot-interval-seconds: ${EAP_DISCOVERY_AGENT_FULL_SNAPSHOT_SECONDS:300}
+      offline-queue-days: ${EAP_DISCOVERY_AGENT_QUEUE_DAYS:7}
+      offline-queue-max-bytes: ${EAP_DISCOVERY_AGENT_QUEUE_MAX_BYTES:104857600}
+      require-https: ${EAP_DISCOVERY_AGENT_REQUIRE_HTTPS:true}
+      raw-content-sample-rate: ${EAP_DISCOVERY_AGENT_RAW_SAMPLE_RATE:0.10}
+      raw-content-retention-days: ${EAP_DISCOVERY_AGENT_RAW_RETENTION_DAYS:30}
+      content-approval-mode: ${EAP_DISCOVERY_AGENT_CONTENT_APPROVAL_MODE:DUAL}
+      content-auto-attach-enabled: ${EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_ENABLED:false}
+      content-auto-attach-profiles: ${EAP_DISCOVERY_AGENT_CONTENT_AUTO_ATTACH_PROFILES:litellm}
+      content-vault-master-key: ${EAP_CONTENT_VAULT_MASTER_KEY:}
+      content-vault-key-version: ${EAP_CONTENT_VAULT_KEY_VERSION:v1}
+    protocol:
+      enabled: ${EAP_DISCOVERY_PROTOCOL_ENABLED:true}
+      targets: ${EAP_DISCOVERY_PROTOCOL_TARGETS:}
+      initial-delay-ms: ${EAP_DISCOVERY_PROTOCOL_INITIAL_DELAY_MS:60000}
+      interval-ms: ${EAP_DISCOVERY_PROTOCOL_INTERVAL_MS:300000}
+      connect-timeout-ms: ${EAP_DISCOVERY_PROTOCOL_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_DISCOVERY_PROTOCOL_READ_TIMEOUT_MS:10000}
+      max-response-bytes: ${EAP_DISCOVERY_PROTOCOL_MAX_RESPONSE_BYTES:262144}
+      max-servers-per-registry: ${EAP_DISCOVERY_PROTOCOL_MAX_SERVERS_PER_REGISTRY:100}
+      allow-private-networks: ${EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS:false}
+    kubernetes:
+      enabled: ${EAP_DISCOVERY_KUBERNETES_ENABLED:true}
+      max-payload-bytes: ${EAP_DISCOVERY_KUBERNETES_MAX_PAYLOAD_BYTES:1048576}
+      max-containers: ${EAP_DISCOVERY_KUBERNETES_MAX_CONTAINERS:256}
+    ebpf:
+      enabled: ${EAP_DISCOVERY_EBPF_ENABLED:true}
+      max-flows: ${EAP_DISCOVERY_EBPF_MAX_FLOWS:1000}
+    host-observer:
+      enabled: ${EAP_DISCOVERY_HOST_OBSERVER_ENABLED:true}
+      max-observations: ${EAP_DISCOVERY_HOST_OBSERVER_MAX_OBSERVATIONS:1000}
+  safety:
+    gensee:
+      sidecar-enabled: ${EAP_GENSEE_SIDECAR_ENABLED:false}
+      sidecar-url: ${EAP_GENSEE_SIDECAR_URL:http://localhost:8787}
+  telemetry:
+    ingestion-token: ${EAP_TELEMETRY_INGESTION_TOKEN:}
+    require-governance-preflight: ${EAP_TELEMETRY_REQUIRE_GOVERNANCE_PREFLIGHT:true}
+    governance-decision-ttl-seconds: ${EAP_TELEMETRY_GOVERNANCE_DECISION_TTL_SECONDS:300}
+  knowledge:
+    ingestion-token: ${EAP_KNOWLEDGE_INGESTION_TOKEN:}
+  management:
+    ingestion-token: ${EAP_MANAGEMENT_INGESTION_TOKEN:}
+    connectors:
+      scheduler-enabled: ${EAP_MANAGEMENT_CONNECTOR_SCHEDULER_ENABLED:true}
+      allow-private-networks: ${EAP_MANAGEMENT_CONNECTOR_ALLOW_PRIVATE_NETWORKS:false}
+      connect-timeout-ms: ${EAP_MANAGEMENT_CONNECTOR_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_MANAGEMENT_CONNECTOR_READ_TIMEOUT_MS:15000}
+      max-response-bytes: ${EAP_MANAGEMENT_CONNECTOR_MAX_RESPONSE_BYTES:4194304}
+  governance-data:
+    ingestion-token: ${EAP_GOVERNANCE_INGESTION_TOKEN:}
+    approval-token: ${EAP_GOVERNANCE_APPROVAL_TOKEN:}
+    enforcement-enabled: ${EAP_GOVERNANCE_ENFORCEMENT_ENABLED:true}
+    fail-closed-on-secret: ${EAP_GOVERNANCE_FAIL_CLOSED_ON_SECRET:true}
+  gateway:
+    enabled: ${EAP_GATEWAY_ENABLED:false}
+    upstream-base-url: ${EAP_GATEWAY_UPSTREAM_BASE_URL:}
+    upstream-api-key: ${EAP_GATEWAY_UPSTREAM_API_KEY:}
+    ingestion-token: ${EAP_GATEWAY_INGESTION_TOKEN:}
+    allow-unauthenticated: ${EAP_GATEWAY_ALLOW_UNAUTHENTICATED:false}
+    auto-attribution-enabled: ${EAP_GATEWAY_AUTO_ATTRIBUTION_ENABLED:true}
+    provider: ${EAP_GATEWAY_PROVIDER:openai-compatible}
+    usage-pool-key: ${EAP_GATEWAY_USAGE_POOL_KEY:}
+    classifier: ${EAP_GATEWAY_CLASSIFIER:eap-heuristic-v1}
+    connect-timeout-ms: ${EAP_GATEWAY_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${EAP_GATEWAY_READ_TIMEOUT_MS:120000}
+    max-payload-bytes: ${EAP_GATEWAY_MAX_PAYLOAD_BYTES:1048576}
+    max-response-bytes: ${EAP_GATEWAY_MAX_RESPONSE_BYTES:4194304}
+    input-cost-per-1k-tokens: ${EAP_GATEWAY_INPUT_COST_PER_1K_TOKENS:0}
+    output-cost-per-1k-tokens: ${EAP_GATEWAY_OUTPUT_COST_PER_1K_TOKENS:0}
+  agentops:
+    signal-sync:
+      enabled: ${EAP_AGENTOPS_SIGNAL_SYNC_ENABLED:true}
+      interval-ms: ${EAP_AGENTOPS_SIGNAL_SYNC_INTERVAL_MS:${eap.agentops.signal-interval-ms:60000}}
+  registry:
+    runtime:
+      heartbeat-ttl-seconds: ${EAP_RUNTIME_HEARTBEAT_TTL_SECONDS:180}
+      availability-check-ms: ${EAP_RUNTIME_AVAILABILITY_CHECK_MS:30000}
+  control:
+    dispatch:
+      enabled: ${EAP_CONTROL_DISPATCH_ENABLED:false}
+      path: ${EAP_CONTROL_DISPATCH_PATH:/eap/control}
+      connect-timeout-ms: ${EAP_CONTROL_DISPATCH_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${EAP_CONTROL_DISPATCH_READ_TIMEOUT_MS:10000}
+      max-response-bytes: ${EAP_CONTROL_DISPATCH_MAX_RESPONSE_BYTES:65536}
+      max-attempts: ${EAP_CONTROL_DISPATCH_MAX_ATTEMPTS:3}
+      allow-private-networks: ${EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS:false}
+  # Agent Substrate runtime (docs/SUBSTRATE_RUNTIME_INTEGRATION.md). Only for a backend running in the
+  # Substrate cluster: the token file is a projected service account token with audience api.ate-system.svc,
+  # the CA file the servicedns.podcert.ate.dev ClusterTrustBundle.
+  optimization:
+    enabled: ${EAP_OPTIMIZATION_ENABLED:false}
+    worker-initial-delay-ms: ${EAP_OPTIMIZATION_WORKER_INITIAL_DELAY_MS:30000}
+
+  substrate:
+    enabled: ${EAP_SUBSTRATE_ENABLED:false}
+    api-target: ${EAP_SUBSTRATE_API_TARGET:api.ate-system.svc:443}
+    api-authority: ${EAP_SUBSTRATE_API_AUTHORITY:api.ate-system.svc}
+    token-file: ${EAP_SUBSTRATE_TOKEN_FILE:/var/run/secrets/ate-api/token}
+    ca-file: ${EAP_SUBSTRATE_CA_FILE:/var/run/secrets/ate-api/ca.crt}
+    call-timeout-ms: ${EAP_SUBSTRATE_CALL_TIMEOUT_MS:60000}
+    router-url: ${EAP_SUBSTRATE_ROUTER_URL:http://atenet-router.ate-system.svc}
+    task-path: ${EAP_SUBSTRATE_TASK_PATH:/eap/task}
+    # Console deployment. The runner image is the platform's configuration-driven agent; gateway-token is the
+    # EAP gateway ingestion token injected into deployed agents (the provider key never leaves the gateway).
+    deploy-atespace: ${EAP_SUBSTRATE_DEPLOY_ATESPACE:eap-agents}
+    worker-label: ${EAP_SUBSTRATE_WORKER_LABEL:workload=eap-agents}
+    snapshot-location: ${EAP_SUBSTRATE_SNAPSHOT_LOCATION:gs://ate-snapshots/eap/}
+    runner-image: ${EAP_SUBSTRATE_RUNNER_IMAGE:}
+    kagent-runner-image: ${EAP_SUBSTRATE_KAGENT_RUNNER_IMAGE:}
+    local-registry-prefix: ${EAP_SUBSTRATE_LOCAL_REGISTRY_PREFIX:localhost:5001/}
+    local-registry-url: ${EAP_SUBSTRATE_LOCAL_REGISTRY_URL:}
+    gateway-url: ${EAP_SUBSTRATE_GATEWAY_URL:}
+    gateway-host: ${EAP_SUBSTRATE_GATEWAY_HOST:}
+    gateway-token: ${EAP_GATEWAY_INGESTION_TOKEN:}
+    golden-timeout-seconds: ${EAP_SUBSTRATE_GOLDEN_TIMEOUT_SECONDS:900}
+    # Source builds run the repository's Dockerfile with kaniko in build-namespace; the backend service account
+    # needs jobs create/get/delete and pods/pods-log get/list there. build-push-prefix is how build pods reach
+    # the registry that templates reference as local-registry-prefix.
+    build-enabled: ${EAP_SUBSTRATE_BUILD_ENABLED:false}
+    build-namespace: ${EAP_SUBSTRATE_BUILD_NAMESPACE:eap-builds}
+    build-image: ${EAP_SUBSTRATE_BUILD_IMAGE:gcr.io/kaniko-project/executor:v1.23.2}
+    build-registry-mirror: ${EAP_SUBSTRATE_BUILD_REGISTRY_MIRROR:}
+    build-push-prefix: ${EAP_SUBSTRATE_BUILD_PUSH_PREFIX:}
+    build-timeout-seconds: ${EAP_SUBSTRATE_BUILD_TIMEOUT_SECONDS:1800}
+    # Comma-separated internal Git hosts allowed over plain http (e.g. an in-cluster mirror); all others need https.
+    build-http-git-hosts: ${EAP_SUBSTRATE_BUILD_HTTP_GIT_HOSTS:}
+  observability:
+    enabled: ${EAP_OBSERVABILITY_ENABLED:true}
+    alert-reconciliation:
+      enabled: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_ENABLED:false}
+      batch-size: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_BATCH_SIZE:50}
+      max-run-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_MAX_RUN_MS:10000}
+      initial-delay-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_INITIAL_DELAY_MS:30000}
+      interval-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_INTERVAL_MS:60000}
+    metrics-export:
+      enabled: ${EAP_OBSERVABILITY_METRICS_EXPORT_ENABLED:false}
+      url: ${EAP_OBSERVABILITY_METRICS_EXPORT_URL:}
+      window-minutes: ${EAP_OBSERVABILITY_METRICS_EXPORT_WINDOW_MINUTES:60}
+      interval-ms: ${EAP_OBSERVABILITY_METRICS_EXPORT_INTERVAL_MS:60000}
+    # Metadata-only model-call projection; independent from heuristic task evaluation.
+    content-analysis-enabled: ${EAP_CONTENT_ANALYSIS_ENABLED:true}
+    content-analysis-initial-delay-ms: ${EAP_CONTENT_ANALYSIS_INITIAL_DELAY_MS:15000}
+    content-analysis-interval-ms: ${EAP_CONTENT_ANALYSIS_INTERVAL_MS:5000}
+    capture-mode: ${EAP_OBSERVABILITY_CAPTURE_MODE:HASH_ONLY}
+    max-content-bytes: ${EAP_OBSERVABILITY_MAX_CONTENT_BYTES:65536}
+    max-list-items: ${EAP_OBSERVABILITY_MAX_LIST_ITEMS:200}
+    ingestion-token: ${EAP_OBSERVABILITY_INGESTION_TOKEN:}
+    otlp:
+      grpc:
+        enabled: ${EAP_OTLP_GRPC_ENABLED:true}
+        port: ${EAP_OTLP_GRPC_PORT:4317}
+        max-inbound-message-bytes: ${EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES:4194304}
+  evaluation:
+    # Marks abandoned/overlong jobs failed; does not retry or imply projection rollback.
+    job-timeout-seconds: ${EAP_EVALUATION_JOB_TIMEOUT_SECONDS:900}
+    # Keep automatic projection opt-in until evaluator precision is calibrated.
+    auto-sync-enabled: ${EAP_EVALUATION_AUTO_SYNC_ENABLED:false}
+    auto-sync-initial-delay-ms: ${EAP_EVALUATION_AUTO_SYNC_INITIAL_DELAY_MS:30000}
+    auto-sync-interval-ms: ${EAP_EVALUATION_AUTO_SYNC_INTERVAL_MS:60000}
+    async-worker-enabled: ${EAP_EVALUATION_ASYNC_WORKER_ENABLED:true}
+    worker-initial-delay-ms: ${EAP_EVALUATION_WORKER_INITIAL_DELAY_MS:10000}
+    worker-interval-ms: ${EAP_EVALUATION_WORKER_INTERVAL_MS:5000}
+  workflow:
+    execution:
+      enabled: ${EAP_WORKFLOW_EXECUTION_ENABLED:false}
+      allowed-hosts: ${EAP_WORKFLOW_EXECUTION_ALLOWED_HOSTS:}
+      token: ${EAP_WORKFLOW_EXECUTION_TOKEN:}
+      allow-insecure-http: ${EAP_WORKFLOW_EXECUTION_ALLOW_INSECURE_HTTP:false}
+      allow-private-networks: ${EAP_WORKFLOW_EXECUTION_ALLOW_PRIVATE_NETWORKS:false}
+      timeout-seconds: ${EAP_WORKFLOW_EXECUTION_TIMEOUT_SECONDS:900}

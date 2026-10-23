@@ -1,0 +1,20 @@
+[Unit]
+Description=EAP cross-platform host network observer
+Wants=network-online.target
+After=network-online.target docker.service eap-discovery-agent.service
+ConditionPathExists=/etc/eap-discovery-agent/config.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/eap-discovery-agent --config /etc/eap-discovery-agent/config.json observe-host
+TimeoutStartSec=45s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/eap-discovery-agent
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true

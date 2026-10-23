@@ -1,0 +1,8 @@
+{
+  "contract": "EAP_RUNTIME_BASES_V1",
+  "platform": "linux/amd64",
+  "applications": {
+    "backend": "registry.example.com/base/eclipse-temurin@sha256:628467024d428251da635661936d6180717b1ac1119d41c76d28a03b7293c43c",
+    "frontend": "registry.example.com/base/nginx@sha256:62223d644fa234c3a1cc785ee14242ec47a77364226f1c811d2f669f96dc2ac8"
+  }
+}

@@ -1,0 +1,63 @@
+spring:
+  datasource:
+    # Separate Spring contexts must not share committed fixtures (e.g. workflow concurrency tests).
+    url: jdbc:h2:mem:eap_test_${random.uuid};MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: none
+  flyway:
+    enabled: false
+
+eap:
+  experiment:
+    enabled: false
+  agentops:
+    signal-sync:
+      enabled: false
+  security:
+    mode: DEVELOPMENT
+  discovery:
+    enabled: false
+    content-retention:
+      enabled: false
+    ingestion-token:
+    protocol:
+      enabled: false
+      allow-private-networks: true
+    kubernetes:
+      enabled: true
+    ebpf:
+      enabled: true
+    host-observer:
+      enabled: true
+  telemetry:
+    ingestion-token:
+    require-governance-preflight: false
+    governance-decision-ttl-seconds: 300
+  knowledge:
+    ingestion-token:
+  management:
+    ingestion-token:
+  governance-data:
+    ingestion-token:
+    approval-token:
+    enforcement-enabled: true
+    fail-closed-on-secret: true
+  gateway:
+    enabled: false
+    upstream-base-url:
+    upstream-api-key:
+    ingestion-token:
+    allow-unauthenticated: false
+    max-response-bytes: 4194304
+  control:
+    dispatch:
+      enabled: false
+  observability:
+    content-analysis-enabled: false
+    otlp:
+      grpc:
+        enabled: false

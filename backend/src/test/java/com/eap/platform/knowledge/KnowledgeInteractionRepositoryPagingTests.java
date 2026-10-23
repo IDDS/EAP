@@ -1,0 +1,66 @@
+package com.eap.platform.knowledge;
+
+import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class KnowledgeInteractionRepositoryPagingTests {
+    @Test
+    void retrievesOlderAgentRowsBeyondGlobal500AndPagesDeterministically() {
+        var factory = new LocalContainerEntityManagerFactoryBean();
+        // DriverManagerDataSource closes every connection; retain schema between DDL and test transactions.
+        var dataSource = new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
+        factory.setDataSource(dataSource);
+        factory.setPackagesToScan("com.eap.platform.knowledge");
+        factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+        factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "create-drop"));
+        factory.afterPropertiesSet();
+        EntityManager em = factory.getObject().createEntityManager();
+        try {
+            em.getTransaction().begin();
+            var first = row("target-1", 7L);
+            var second = row("target-2", 7L);
+            em.persist(first);
+            em.persist(second);
+            for (int index = 0; index < 501; index++) em.persist(row("other-" + index, 8L));
+            em.flush();
+            // Equal timestamps exercise the id tie-breaker and place the target behind 501 other rows.
+            em.createNativeQuery("update knowledge_interactions set created_at = :date")
+                    .setParameter("date", Instant.parse("2026-01-01T00:00:00Z")).executeUpdate();
+            em.clear();
+            var repository = new JpaRepositoryFactory(em).getRepository(KnowledgeInteractionRepository.class);
+            assertThat(repository.findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(0, 500)))
+                    .noneMatch(row -> row.agentId.equals(7L));
+            assertThat(repository.findByAgentIdOrderByCreatedAtDescIdDesc(7L, PageRequest.of(0, 1)))
+                    .extracting(row -> row.id).containsExactly(second.id);
+            assertThat(repository.findByAgentIdOrderByCreatedAtDescIdDesc(7L, PageRequest.of(1, 1)))
+                    .extracting(row -> row.id).containsExactly(first.id);
+            assertThat(repository.findByAgentIdOrderByCreatedAtDescIdDesc(7L, PageRequest.of(2, 1))).isEmpty();
+            em.getTransaction().rollback();
+        } finally {
+            if (em.getTransaction().isActive()) em.getTransaction().rollback();
+            em.close();
+            factory.destroy();
+            new JdbcTemplate(dataSource).execute("SHUTDOWN");
+        }
+    }
+
+    private KnowledgeInteraction row(String key, Long agentId) {
+        var row = new KnowledgeInteraction();
+        row.agentId = agentId;
+        row.interactionKey = key;
+        row.inputType = "RAG_QUERY";
+        return row;
+    }
+}

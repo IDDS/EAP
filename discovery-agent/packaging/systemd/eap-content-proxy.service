@@ -1,0 +1,23 @@
+[Unit]
+Description=EAP Business Content Capture Proxy
+Wants=network-online.target eap-discovery-agent.service
+After=network-online.target eap-discovery-agent.service
+
+[Service]
+Type=simple
+User=eap-content
+Group=eap-agent
+ExecStart=/usr/local/bin/eap-content-proxy --config /etc/eap-discovery-agent/config.json
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/eap-content-proxy
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

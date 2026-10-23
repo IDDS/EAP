@@ -1,0 +1,12 @@
+{
+  "version": "EAP_MCP_SERVICES_V1",
+  "allowInsecureRuntimeHttp": true,
+  "services": [
+    {
+      "name": "synthetic",
+      "server": "eap-synthetic-mcp",
+      "tools": ["observation_probe"],
+      "command": ["/usr/local/bin/python3", "/opt/eap-mcp/fixture_server.py"]
+    }
+  ]
+}

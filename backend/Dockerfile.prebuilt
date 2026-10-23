@@ -1,0 +1,12 @@
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 eap
+COPY target/enterprise-agent-platform-*.jar /app/eap.jar
+RUN chown -R eap:eap /app
+USER eap
+EXPOSE 8080 4317
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/eap.jar"]

@@ -1,0 +1,23 @@
+[Unit]
+Description=EAP Discovery Agent
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=eap-discovery
+Group=eap-agent
+ExecStart=/usr/local/bin/eap-discovery-agent --config /etc/eap-discovery-agent/config.json run
+Restart=always
+RestartSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/eap-discovery-agent
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,3 @@
+alter table model_invocation_events add column governance_decision_key varchar(128);
+
+create index idx_model_invocation_governance_decision on model_invocation_events(governance_decision_key);
