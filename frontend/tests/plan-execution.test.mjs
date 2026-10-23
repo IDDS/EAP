@@ -15,6 +15,8 @@ function handler(name, globals) {
 const ref = value => ({ value })
 function state(api) {
   return { selectedPlanId: ref(7), submitting: ref(false), frozen: ref(false), suspendAfterTask: ref(true),
+    planLoading: ref(false), planError: ref(''), planSteps: ref([{ id: 1 }]), reclaimBlocked: ref(false),
+    planSubmissionError: () => '提交未确认',
     executionError: ref(''), permissions: { can: () => true }, EapApi: api, ElMessage: { success() {} }, selectPlan: async () => {} }
 }
 
@@ -44,6 +46,13 @@ test('uncertain plan submission retries with the same stable request key', async
   assert.match(s.executionError.value, /提交未确认/)
   s.frozen.value = true
   await execute(); assert.equal(calls.length, 2)
+})
+
+test('known reclaim blocker prevents any plan submission', async () => {
+  const s = state({ executePlan: async () => assert.fail('blocked execution must not be submitted') })
+  s.reclaimBlocked.value = true
+  await handler('executePlan', s)()
+  assert.equal(s.submitting.value, false)
 })
 
 test('member assignment cannot fake running and respects frozen/revoked permissions', async () => {

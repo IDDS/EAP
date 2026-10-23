@@ -78,11 +78,12 @@
           <div class="plan-section-heading"><h4 id="plan-execution-heading">执行与结果</h4><el-button :disabled="planLoading" @click="selectPlan(selectedPlanId!)">刷新进度</el-button></div>
           <div class="plan-execution-actions">
             <el-checkbox v-model="suspendAfterTask" :disabled="frozen || submitting || !permissions.can('runWorkflows')">步骤完成后休眠（专用实例）</el-checkbox>
-            <el-button type="primary" :loading="submitting" :disabled="frozen || planLoading || !!planError || !planSteps.length || !permissions.can('runWorkflows')" @click="executePlan">{{ frozen ? '已提交执行' : '执行计划' }}</el-button>
+            <el-button type="primary" :loading="submitting" :disabled="frozen || planLoading || !!planError || !planSteps.length || reclaimBlocked || !permissions.can('runWorkflows')" @click="executePlan">{{ frozen ? '已提交执行' : '执行计划' }}</el-button>
           </div>
           <p v-if="!permissions.can('runWorkflows')" class="plan-readonly-note">当前账号可查看计划，不能配置或执行。</p>
           <p class="plan-execution-guidance">按顺序执行，后一步接收前一步结果。提交后锁定成员分配与结果契约；结构不合格时停止后续交接。</p>
           <p class="plan-execution-guidance">未配置契约不代表业务验收通过。失败或结果未知时不会自动重跑，请先核对证据。</p>
+          <PlanReclaimCheck v-if="suspendAfterTask && !frozen" :result="reclaimResult" :loading="reclaimLoading" :error="reclaimError" @refresh="refreshReclaim" />
           <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
           <PlanOutputs v-if="activePlan.executionWorkflowId && activePlan.executionRunKey"
             :key="`${activePlan.executionWorkflowId}:${activePlan.executionRunKey}`"
@@ -161,6 +162,8 @@ import { Plus } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
 import { usePermissions } from '@/stores/permissions'
 import PlanOutputs from '@/components/workflow/PlanOutputs.vue'
+import PlanReclaimCheck from '@/components/workflow/PlanReclaimCheck.vue'
+import { planSubmissionError, usePlanReclaimCheck } from '@/api/planReclaim'
 import ExecutionTimeline from '@/components/workflow/ExecutionTimeline.vue'
 import WorkflowOutputConfig from '@/components/workflow/WorkflowOutputConfig.vue'
 import { taskConfig, planOutputConfig, planOutputValue, planOutputLabel } from '@/api/workflowTaskConfig'
@@ -188,6 +191,12 @@ const planSteps = ref<AgentPlanStep[]>([])
 const assignedStepCount = computed(() => planSteps.value.filter(step => step.assignedAgentId != null).length)
 const selectedTeamId = ref<number>()
 const selectedPlanId = ref<number>()
+const { result: reclaimResult, loading: reclaimLoading, error: reclaimError, blocked: reclaimBlocked, refresh: refreshReclaim } = usePlanReclaimCheck({
+  planId: () => selectedPlanId.value,
+  enabled: () => suspendAfterTask.value && !frozen.value && !planLoading.value && !planError.value,
+  revision: () => planSteps.value,
+  principal: () => permissions.state.user,
+})
 
 async function load() {
   loading.value = true
@@ -383,15 +392,15 @@ async function assignMember(stepId: number, assignedAgentId: number) {
 
 async function executePlan() {
   const planId = selectedPlanId.value
-  if (!planId || submitting.value || frozen.value || !permissions.can('runWorkflows')) return
+  if (!planId || submitting.value || frozen.value || planLoading.value || planError.value || !planSteps.value.length || reclaimBlocked.value || !permissions.can('runWorkflows')) return
   submitting.value = true
   executionError.value = ''
   try {
     await EapApi.executePlan(planId, { requestKey: `plan-${planId}`, suspendAfterTask: suspendAfterTask.value })
     if (selectedPlanId.value === planId) await selectPlan(planId)
     ElMessage.success('计划已提交，请查看真实执行进度')
-  } catch {
-    if (selectedPlanId.value === planId) executionError.value = '提交未确认，请刷新核对；再次提交使用同一请求标识，不会重复执行。'
+  } catch (error) {
+    if (selectedPlanId.value === planId) executionError.value = planSubmissionError(error)
   } finally { submitting.value = false }
 }
 

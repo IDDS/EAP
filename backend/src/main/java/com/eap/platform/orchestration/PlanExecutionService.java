@@ -28,6 +28,18 @@ public class PlanExecutionService {
     public record Request(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,64}") String requestKey,
                           Map<String, Object> context, boolean suspendAfterTask) {}
     public record Response(Long planId, Long workflowId, WorkflowExecutionService.Response execution) {}
+    public record ReclaimStep(Long stepId, Integer stepOrder, boolean allowed, String code, String message) {}
+    public record ReclaimReadiness(Long planId, boolean allowed, List<ReclaimStep> steps) {}
+
+    @Transactional(readOnly = true)
+    public ReclaimReadiness reclaimReadiness(Long planId) {
+        plans.findById(planId).orElseThrow(() -> new BusinessException("任务计划不存在"));
+        var checks = steps.findByPlanIdOrderByStepOrder(planId).stream().map(step -> {
+            var check = executions.reclaimReadiness(step.assignedAgentId, step.executionBackend);
+            return new ReclaimStep(step.id, step.stepOrder, check.allowed(), check.code(), check.message());
+        }).toList();
+        return new ReclaimReadiness(planId, !checks.isEmpty() && checks.stream().allMatch(ReclaimStep::allowed), checks);
+    }
 
     @Transactional
     public Response submit(Long planId, Request request, String requester) {

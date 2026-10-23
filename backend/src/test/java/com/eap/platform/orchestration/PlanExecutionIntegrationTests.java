@@ -81,6 +81,56 @@ class PlanExecutionIntegrationTests {
     }
     PlanExecutionService.Request request(String key) { return new PlanExecutionService.Request(key, Map.of("ticket", "synthetic"), false); }
 
+    @Test void globalReclaimBlockerIsReportedReadOnlyAndRejectsEntirePlanBeforeCreatingExecution() {
+        for (Long agent : List.of(producer, reviewer)) {
+            db.update("update agent_runtime_instances set protocol='SUBSTRATE',endpoint=? where agent_id=?",
+                    "substrate://plan/" + UUID.randomUUID(), agent);
+        }
+        String legacy = UUID.randomUUID().toString();
+        db.update("insert into runtime_work_claims values (?,'*','LEGACY','UNKNOWN',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", legacy);
+        long workflowsBefore = definitions.count(), executionsBefore = executionRepository.count();
+        long claimsBefore = db.queryForObject("select count(*) from runtime_work_claims", Long.class);
+        try {
+            var check = plans.reclaimReadiness(plan);
+            assertThat(check.allowed()).isFalse();
+            assertThat(check.steps()).extracting(PlanExecutionService.ReclaimStep::stepOrder).containsExactly(1, 2);
+            assertThat(check.steps()).extracting(PlanExecutionService.ReclaimStep::code).containsOnly("GLOBAL_UNRESOLVED_WORK");
+            assertThatThrownBy(() -> plans.submit(plan, new PlanExecutionService.Request("blocked", Map.of(), true), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("历史占用");
+            assertThat(definitions.count()).isEqualTo(workflowsBefore);
+            assertThat(executionRepository.count()).isEqualTo(executionsBefore);
+            assertThat(repository.findById(plan).orElseThrow().executionRunKey).isNull();
+            assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.READY);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims", Long.class)).isEqualTo(claimsBefore);
+            assertThat(db.queryForObject("select state from runtime_work_claims where work_id=?", String.class, legacy)).isEqualTo("UNKNOWN");
+            assertThat(received).isEmpty();
+        } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
+    }
+
+    @Test void reclaimPreviewDistinguishesHttpAxAndUnassignedWithoutBlockingNormalExecution() {
+        String legacy = UUID.randomUUID().toString();
+        db.update("insert into runtime_work_claims values (?,'*','LEGACY','UNKNOWN',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", legacy);
+        try {
+            assertThat(plans.reclaimReadiness(plan).steps()).extracting(PlanExecutionService.ReclaimStep::code).containsOnly("UNSUPPORTED_PROTOCOL");
+            var request = request("ordinary-http");
+            var submitted = plans.submit(plan, request, "operator");
+            executions.processNext();
+            assertThat(plans.synchronize(plan).execution().status()).isEqualTo("SUCCEEDED");
+            assertThat(plans.submit(plan, request, "operator").execution().runKey()).isEqualTo(submitted.execution().runKey());
+            assertThat(received).hasSize(2);
+            assertThat(executions.reclaimReadiness(producer, "AX").code()).isEqualTo("AX_MANAGED");
+            assertThat(executions.reclaimReadiness(null, "AX").allowed()).isFalse();
+        } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
+    }
+
+    @Test void reclaimPreviewMatchesSelectedRuntimeAndDetectsAxOwnedAlias() {
+        String endpoint = "substrate://plan/" + UUID.randomUUID();
+        db.update("update agent_runtime_instances set protocol='SUBSTRATE',endpoint=? where agent_id=?", endpoint, producer);
+        assertThat(plans.reclaimReadiness(plan).steps().getFirst().code()).isEqualTo("READY");
+        db.update("update agent_runtime_instances set protocol='SUBSTRATE_TASK',endpoint=? where agent_id=?", endpoint, reviewer);
+        assertThat(plans.reclaimReadiness(plan).steps().getFirst().code()).isEqualTo("AX_LIFECYCLE_OWNER");
+    }
+
     @Test void planFreezesBackendSelectionAndRollsBackIfAxUnavailable() {
         var step=stepRepository.findById(first).orElseThrow();step.executionBackend="AX";stepRepository.save(step);
         assertThatThrownBy(()->plans.submit(plan,request("ax-plan"),"operator")).isInstanceOf(BusinessException.class);

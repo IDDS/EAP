@@ -33,6 +33,11 @@ public class OrchestrationController {
         return ApiResponse.ok(executions.synchronize(planId));
     }
 
+    @GetMapping("/plans/{planId}/reclaim-readiness")
+    public ApiResponse<PlanExecutionService.ReclaimReadiness> reclaimReadiness(@PathVariable Long planId) {
+        return ApiResponse.ok(executions.reclaimReadiness(planId));
+    }
+
     @GetMapping("/teams")
     public ApiResponse<List<OrchestrationDtos.TeamResponse>> listTeams() {
         return ApiResponse.ok(orchestrationService.listTeams());

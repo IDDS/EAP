@@ -432,8 +432,8 @@ class WorkflowExecutionIntegrationTests {
             executions.processNext(); var result = executions.get(workflowId, queued.runKey());
             assertThat(result.status()).isEqualTo("FAILED"); assertThat(result.reason()).contains("MODEL_OUTPUT_EMPTY");
             assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("UNCONFIRMED");
-            var next = executions.submit(workflowId, new WorkflowDtos.RunRequest("do not race late pause"), "operator");
-            executions.processNext(); assertThat(executions.get(workflowId, next.runKey()).reason()).contains("未派发");
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("do not race late pause"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("回收状态未确认");
             assertThat(requests.get()).isEqualTo(1); verify(substrateClient, times(1)).resume(any());
         } finally { substrateProperties.setEnabled(false); }
     }
@@ -442,15 +442,107 @@ class WorkflowExecutionIntegrationTests {
         configureSubstrateTask(); reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_EMPTY");
         String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
         try (var other = work.start(endpoint, "CHAT")) {
-            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("busy reclaim"), "operator");
-            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
-            assertThat(result.status()).isEqualTo("FAILED"); assertThat(result.reason()).contains("MODEL_OUTPUT_EMPTY");
-            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("SKIPPED_BUSY");
-            verify(substrateClient, never()).suspend(any());
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("busy reclaim"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("占用");
             other.complete(false);
-            var second = executions.submit(workflowId, new WorkflowDtos.RunRequest("unknown stays busy"), "operator");
-            executions.processNext(); assertThat(executions.get(workflowId, second.runKey()).steps().get(1).reclaimStatus()).isEqualTo("SKIPPED_BUSY");
-            verify(substrateClient, never()).suspend(any());
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("unknown stays busy"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("占用");
+            assertThat(requests.get()).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void occupancyAppearingAfterQueueRejectsDispatchWithoutChangingUnknownOrReplayingIdempotencyKey() {
+        configureSubstrateTask();
+        String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
+        var request = new WorkflowDtos.RunRequest("late occupancy", Map.of(), "late-" + UUID.randomUUID());
+        try {
+            var queued = executions.submit(workflowId, request, "operator");
+            try (var other = work.start(endpoint, "EXPERIMENT")) { other.complete(false); }
+            assertThat(executions.submit(workflowId, request, "operator").runKey()).isEqualTo(queued.runKey());
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("未派发此任务");
+            assertThat(requests.get()).isZero(); verify(substrateClient, never()).resume(any());
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and state='UNKNOWN'", Long.class, endpoint.substring(12))).isEqualTo(1);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and work_kind='WORKFLOW'", Long.class, endpoint.substring(12))).isZero();
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void occupancyAppearingDuringTaskStillPreventsReclaimAndNextDispatch() {
+        configureSubstrateTask(); downstream("{}");
+        String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
+        when(substrateClient.resume(any())).thenAnswer(invocation -> {
+            try (var other = work.start(endpoint, "CHAT")) { other.complete(false); }
+            return new com.eap.platform.substrate.SubstrateClient.ActorState("RUNNING");
+        });
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("concurrent occupancy"), "operator");
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
+            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("SKIPPED_BUSY");
+            assertThat(requests.get()).isEqualTo(1); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftRejectsQueuedReclaimWhenExistingBindingChangesToHttp() {
+        configureSubstrateTask(); downstream("{}");
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        String actor = runtime.getEndpoint().substring(12);
+        var request = new WorkflowDtos.RunRequest("reclaim protocol drift", Map.of(), "drift-" + UUID.randomUUID());
+        try {
+            var queued = executions.submit(workflowId, request, "operator");
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("不支持", "未派发");
+            assertThat(result.steps()).extracting(step -> step.nodeKey()).containsExactly("start", "task");
+            assertThat(result.steps().get(1).status()).isEqualTo("FAILED");
+            assertThat(result.steps().get(1).runtimeInstanceKey()).isEqualTo(runtime.getInstanceKey());
+            assertThat(result.steps().get(1).runtimeBinding()).isNotNull();
+            assertThat(result.steps().get(1).httpStatus()).isNull();
+            assertThat(requests.get()).isZero();
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=?", Long.class, actor)).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+            assertThat(executions.submit(workflowId, request, "operator").runKey()).isEqualTo(queued.runKey());
+            assertThat(requests.get()).isZero();
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftRejectsQueuedReclaimWhenNewHttpInstanceReplacesUnavailableActor() {
+        configureSubstrateTask();
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("reclaim fallback drift"), "operator");
+            db.update("update agent_runtime_instances set status='OFFLINE' where instance_key=?", runtime.getInstanceKey());
+            String replacement = "http-replacement-" + UUID.randomUUID();
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(replacement,
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("不支持", "未派发");
+            assertThat(result.steps().get(1).runtimeInstanceKey()).isEqualTo(replacement);
+            assertThat(requests.get()).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftAllowsOrdinaryTaskWithoutAutomaticReclaim() {
+        configureSubstrateTask(); node("task", "AGENT", agentId);
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("ordinary protocol drift"), "operator");
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("SUCCEEDED");
+            assertThat(requests.get()).isEqualTo(1);
+            assertThat(result.steps().get(1).reclaimStatus()).isNull();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
         } finally { substrateProperties.setEnabled(false); }
     }
 

@@ -92,4 +92,29 @@ class RuntimeWorkIntegrationTests {
             assertThat(ticket.reclaim(() -> { throw new AssertionError("must not suspend"); })).isEqualTo("SKIPPED_BUSY");
         } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
     }
+
+    @Test void previewIsReadOnlyAndRequiredReclaimRejectsUnknownBeforeCreatingClaim() {
+        String actor = endpoint();
+        long actors = db.queryForObject("select count(*) from runtime_work_actors", Long.class);
+        assertThat(work.reclaimReadiness(actor).allowed()).isTrue();
+        assertThat(db.queryForObject("select count(*) from runtime_work_actors", Long.class)).isEqualTo(actors);
+        try (var completed = work.start(actor, "CHAT")) { completed.complete(true); }
+        assertThat(work.reclaimReadiness(actor).allowed()).isTrue();
+        try (var unknown = work.start(actor, "EXPERIMENT")) { unknown.complete(false); }
+        assertThat(work.reclaimReadiness(actor).code()).isEqualTo("ACTOR_UNRESOLVED_WORK");
+        assertThatThrownBy(() -> work.start(actor, "WORKFLOW", true)).isInstanceOf(BusinessException.class);
+        assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=?", Long.class, actor.substring(12))).isEqualTo(2);
+        try (var normal = work.start(actor, "WORKFLOW")) { normal.complete(true); }
+    }
+
+    @Test void globalUnknownPreventsRequiredReclaimAdmissionForNewActorWithoutConsumingClaim() {
+        String legacy = UUID.randomUUID().toString(), actor = endpoint();
+        db.update("insert into runtime_work_claims values (?,'*','LEGACY','UNKNOWN',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", legacy);
+        try {
+            assertThat(work.reclaimReadiness(actor).code()).isEqualTo("GLOBAL_UNRESOLVED_WORK");
+            assertThatThrownBy(() -> work.start(actor, "WORKFLOW", true)).isInstanceOf(BusinessException.class);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=?", Long.class, actor.substring(12))).isZero();
+            assertThat(db.queryForObject("select state from runtime_work_claims where work_id=?", String.class, legacy)).isEqualTo("UNKNOWN");
+        } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
+    }
 }

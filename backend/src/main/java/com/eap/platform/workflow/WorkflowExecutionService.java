@@ -149,6 +149,7 @@ public class WorkflowExecutionService {
                 if (runtime == null || !com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())) {
                     throw new BusinessException("suspendAfterTask 仅支持绑定可用 Substrate Runtime 的任务节点");
                 }
+                work.requireReclaimable(runtime.getEndpoint());
             }
             if (isTaskNode(node)) previousTasks.add(node.nodeKey());
             if (!Set.of("START", "END", "DECISION", "AGENT", "ARTIFACT").contains(node.nodeType().toUpperCase(Locale.ROOT))) {
@@ -257,6 +258,15 @@ public class WorkflowExecutionService {
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                     continue;
                 }
+                // Runtime selection happens again after queueing. Never silently downgrade a frozen
+                // reclaim requirement when a registry update or fallback selects an HTTP instance.
+                if (!axNode && suspendAfterTask(node)
+                        && !com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())) {
+                    String reason = "当前所选 Runtime 不支持完成后休眠，未派发此任务；请核对实例绑定后另建执行";
+                    steps.add(new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey,
+                            runtime.getInstanceKey(), "FAILED", "ALLOW", reason, null).bound(configurations.capture(runtime)));
+                    progress(run, steps, "FAILED", reason, true); return;
+                }
                 if (axNode) {
                     // Durable task includes workflow/node linkage before the AX worker can create any sandbox.
                     scheduling.begin(run, sequence, "ASYNC_WAIT");
@@ -298,11 +308,12 @@ public class WorkflowExecutionService {
                 RuntimeWorkService.Ticket admission;
                 try {
                     admission = com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())
-                            ? work.start(runtime.getEndpoint(), "WORKFLOW") : null;
+                            ? work.start(runtime.getEndpoint(), "WORKFLOW", suspendAfterTask(node)) : null;
                 } catch (BusinessException rejected) {
+                    String reason = "派发前检查未通过，未派发此任务：" + rejected.getMessage();
                     steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey,
-                            runtime.getInstanceKey(), "FAILED", "ALLOW", "实例回收尚未确认，未派发此任务", null).bound(binding));
-                    progress(run, steps, "FAILED", "实例回收尚未确认，未派发此任务", true); return;
+                            runtime.getInstanceKey(), "FAILED", "ALLOW", reason, null).bound(binding));
+                    progress(run, steps, "FAILED", reason, true); return;
                 }
                 try (var occupancy = admission) {
                     scheduling.begin(run, sequence, "PREPARATION");
@@ -366,8 +377,20 @@ public class WorkflowExecutionService {
     }
 
     private AgentRuntimeInstance selectRuntime(WorkflowDtos.NodeResponse node) {
-        Long id = node.agentId();
-        boolean tool = WorkflowToolConfig.read(node) != null;
+        return selectRuntime(node.agentId(), WorkflowToolConfig.read(node) != null);
+    }
+
+    public RuntimeWorkService.ReclaimReadiness reclaimReadiness(Long agentId, String backend) {
+        if (agentId == null) return new RuntimeWorkService.ReclaimReadiness(false, "UNASSIGNED", "请先为步骤分配团队成员");
+        if ("AX".equals(backend)) return new RuntimeWorkService.ReclaimReadiness(true, "AX_MANAGED", "AX 沙箱由独立生命周期负责收尾");
+        var runtime = selectRuntime(agentId, false);
+        if (runtime == null) return new RuntimeWorkService.ReclaimReadiness(false, "NO_RUNTIME", "未找到可用实例，请检查成员分配、实例连接与运行状态");
+        if (!com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol()))
+            return new RuntimeWorkService.ReclaimReadiness(false, "UNSUPPORTED_PROTOCOL", "所选实例不支持自动休眠；请选择 Substrate 实例或关闭自动休眠");
+        return work.reclaimReadiness(runtime.getEndpoint());
+    }
+
+    private AgentRuntimeInstance selectRuntime(Long id, boolean tool) {
         if (id == null || agents.findById(id).filter(agent -> agent.getLifecycleStatus() == AgentLifecycleStatus.ACTIVE).isEmpty()) return null;
         Instant cutoff = lease.cutoff();
         // Suspended Substrate actors send no heartbeats; the task client wakes them before dispatch.

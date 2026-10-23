@@ -25,6 +25,11 @@ public class RuntimeWorkService {
     }
 
     public Ticket start(String endpoint, String kind) {
+        return start(endpoint, kind, false);
+    }
+
+    /** Recheck under the admission lock; a preview never reserves an actor or guarantees future reclaim. */
+    public Ticket start(String endpoint, String kind, boolean requireReclaim) {
         String actor = SubstrateActorRef.parse(endpoint).routingValue();
         // Separate transaction: a duplicate insert must not roll back the subsequent admission.
         try { tx.executeWithoutResult(s -> db.update("insert into runtime_work_actors(actor_key,reclaim_state) values (?,'OPEN')", actor)); }
@@ -32,9 +37,31 @@ public class RuntimeWorkService {
         String id = UUID.randomUUID().toString();
         tx.executeWithoutResult(s -> {
             if (!"OPEN".equals(lock(actor))) throw new BusinessException("实例回收状态未确认，未派发任务；请核对原实例或使用新实例");
+            if (requireReclaim) requireReclaimable(endpoint);
             db.update("insert into runtime_work_claims(work_id,actor_key,work_kind,state,created_at,updated_at) values (?,?,?,'ACTIVE',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", id, actor, kind);
         });
         return new Ticket(id, actor);
+    }
+
+    public record ReclaimReadiness(boolean allowed, String code, String message) {}
+
+    /** Read-only evidence at this instant. No claim creation, TTL expiry, or UNKNOWN reconciliation. */
+    public ReclaimReadiness reclaimReadiness(String endpoint) {
+        String actor = SubstrateActorRef.parse(endpoint).routingValue();
+        if (db.queryForObject("select count(*) from runtime_work_actors where actor_key=? and reclaim_state<>'OPEN'", Long.class, actor) > 0)
+            return new ReclaimReadiness(false, "RECLAIM_UNCONFIRMED", "实例回收状态未确认，请核对原实例；未派发任务");
+        if (db.queryForObject("select count(*) from runtime_work_claims where actor_key='*' and state<>'DONE'", Long.class) > 0)
+            return new ReclaimReadiness(false, "GLOBAL_UNRESOLVED_WORK", "存在归属未确认的历史占用，自动休眠受阻；请核对历史记录，或关闭自动休眠并在任务后显式收尾");
+        if (db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and state<>'DONE'", Long.class, actor) > 0)
+            return new ReclaimReadiness(false, "ACTOR_UNRESOLVED_WORK", "实例仍有执行中或结果未知的占用；请核对原任务，或关闭自动休眠并在任务后显式收尾");
+        if (db.queryForObject("select count(*) from agent_runtime_instances where endpoint=? and protocol='SUBSTRATE_TASK'", Long.class, "substrate://" + actor) > 0)
+            return new ReclaimReadiness(false, "AX_LIFECYCLE_OWNER", "实例由 AX 管理生命周期，不能由 Runtime 步骤自动休眠；请使用 AX 执行方式或关闭自动休眠");
+        return new ReclaimReadiness(true, "READY", "当前未发现自动休眠阻塞；提交与派发时仍会复查");
+    }
+
+    public void requireReclaimable(String endpoint) {
+        var readiness = reclaimReadiness(endpoint);
+        if (!readiness.allowed()) throw new BusinessException("自动休眠检查未通过：" + readiness.message());
     }
 
     public <T> T perform(String endpoint, String kind, Supplier<T> action, Predicate<T> terminal) {
