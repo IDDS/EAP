@@ -9,7 +9,7 @@
     "The release manifest names the validated backend deployment; frontend digest and schema unchanged."
   ],
   "files": {
-    "README.md": "6f7a5489ff8e17051a5785f2553a8fc90f35647f421c43392c5612575e9f3458",
+    "README.md": "e7723d991515498c81864529123cced19f36d62f90cd6276f91537ad05883386",
     ".gitignore": "2b84e493cff495ee37738b74e2b709f49551fe185e8d4b399fed31067317a8a5",
     "frontend/tsconfig.node.json": "7e01603c8ad20b8abf204326ae668aad098da9250362aa5e1a1d14707e9779cd",
     "frontend/Dockerfile.prebuilt.dockerignore": "aad668f4b15915ef64dfa361f96d6060ece922780d2e9c76edea53552c309756",
@@ -1047,5 +1047,5 @@
     "discovery-agent/ebpf/eap_ebpf_observer.py": "0a2267dda6805651d75f70cc2dbaf85894bb6127ed905c552400a2b514848c3c",
     "discovery-agent/ebpf/eap-connect.bt": "b3190a8dd4917e95f5b80ae5a1f2aa54c993aca0d14cc15973734d9a477c91bc"
   },
-  "documentationRevision": "Detailed system architecture diagram; application sources unchanged"
+  "documentationRevision": "Expanded product, architecture, core technology, workflow, and deployment guide; test reporting removed from README"
 }
