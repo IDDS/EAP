@@ -345,4 +345,3 @@ docs/              接入、架构图片与专题说明
 - [安装配置示例](deploy/delivery/install/config.example.json)：目标环境所需的非敏感参数。
 - [应用镜像构建](deploy/delivery/images/README.md)：固定基础镜像和应用产物的构建方式。
 - [系统架构图说明](docs/images/README.md)：简版、详细版与生成来源。
-

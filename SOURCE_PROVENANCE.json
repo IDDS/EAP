@@ -9,7 +9,7 @@
     "The release manifest names the validated backend deployment; frontend digest and schema unchanged."
   ],
   "files": {
-    "README.md": "e7723d991515498c81864529123cced19f36d62f90cd6276f91537ad05883386",
+    "README.md": "62cd0b79d766c05d25a7fa97bb645494c895e1bf5f766513de95b9d469ac597c",
     ".gitignore": "2b84e493cff495ee37738b74e2b709f49551fe185e8d4b399fed31067317a8a5",
     "frontend/tsconfig.node.json": "7e01603c8ad20b8abf204326ae668aad098da9250362aa5e1a1d14707e9779cd",
     "frontend/Dockerfile.prebuilt.dockerignore": "aad668f4b15915ef64dfa361f96d6060ece922780d2e9c76edea53552c309756",
