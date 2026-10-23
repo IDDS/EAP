@@ -10,7 +10,9 @@
 
 </div>
 
-![EAP 系统总览：控制平面统筹智能体目录、团队计划、身份、模型预算和审计；运行适配器通过 Substrate 执行任务，发现与遥测返回观测证据。](docs/images/eap-system-overview.png)
+[![EAP 详细架构：访问与身份、九组控制平面能力、EAP/Kagent/AX 运行适配、Substrate 实例、外部依赖、五类发现与观测入口，以及六步多智能体任务链路。](docs/images/eap-system-architecture-detailed.png)](docs/images/eap-system-architecture-detailed.png)
+
+实线表示控制与调用，虚线表示发现与遥测。[查看架构原图](docs/images/eap-system-architecture-detailed.png) · [查看简版总览](docs/images/eap-system-overview.png)
 
 EAP 面向需要统一管理多个智能体、运行框架和工具服务的企业团队。它把 **Agent 资产、Team / Plan / Workflow、运行实例、任务结果、模型费用与审计证据**关联起来，让操作者能够回答：谁在执行、用了什么工具、结果是否合格、消耗了多少预算、异常应该如何处理。
 

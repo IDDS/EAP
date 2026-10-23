@@ -9,7 +9,7 @@
     "The release manifest names the validated backend deployment; frontend digest and schema unchanged."
   ],
   "files": {
-    "README.md": "6f17d800b6c5ea2627dd7e94d61ecc38bbc5add035596d8e72f248f7fa7f060d",
+    "README.md": "6f7a5489ff8e17051a5785f2553a8fc90f35647f421c43392c5612575e9f3458",
     ".gitignore": "2b84e493cff495ee37738b74e2b709f49551fe185e8d4b399fed31067317a8a5",
     "frontend/tsconfig.node.json": "7e01603c8ad20b8abf204326ae668aad098da9250362aa5e1a1d14707e9779cd",
     "frontend/Dockerfile.prebuilt.dockerignore": "aad668f4b15915ef64dfa361f96d6060ece922780d2e9c76edea53552c309756",
@@ -1002,7 +1002,8 @@
     "docs/VALIDATION.md": "4e7b3a1be8b58cbe59c217e4cd49ea46d80b92af6053653eab8d32be33b0afa1",
     "docs/GETTING_STARTED.md": "1113fb499e6e0efca38f481ea34d3e073f707aa91852c848453f13924364b1aa",
     "docs/images/eap-system-overview.png": "2d40707dd192cf69851e3880a31d0ed886b325998d5569f5c85c786693030a80",
-    "docs/images/README.md": "a2b02e0ded38f77f235c7d006436fd9444765258173b0b2f61f8b8c68771510f",
+    "docs/images/eap-system-architecture-detailed.png": "5841970055b940e40a7ca58c172c46df678036f5a04d2ca6418ea7917196a600",
+    "docs/images/README.md": "83ad65d483cdce907e9eef9b9c26ece3101ebfa93b4eb6153e38b5060345c4f8",
     "examples/arithmetic-plan/README.md": "034dbd846f46bffdb95ec8663aee1f139d123c5fa0c4a12291fe9d50b8ee7ca6",
     "scripts/eap_discovery_collector.py": "aa2069093699896134627e35376a2c6ae3d8b236c035dcdf835beaf76e3eee2f",
     "scripts/tests/test_eap_discovery_collector.py": "bf7c5711849e33779c728174131e7e40017bdfad27cb57c2ead30a1dd762b8bb",
@@ -1045,5 +1046,6 @@
     "discovery-agent/ebpf/test_eap_ebpf_observer.py": "47ddb8632c4aee75d1a2cc779c7c0b51f339058ea4f1db1167a4746ff972d746",
     "discovery-agent/ebpf/eap_ebpf_observer.py": "0a2267dda6805651d75f70cc2dbaf85894bb6127ed905c552400a2b514848c3c",
     "discovery-agent/ebpf/eap-connect.bt": "b3190a8dd4917e95f5b80ae5a1f2aa54c993aca0d14cc15973734d9a477c91bc"
-  }
+  },
+  "documentationRevision": "Detailed system architecture diagram; application sources unchanged"
 }
