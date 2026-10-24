@@ -24,15 +24,25 @@ type toolInput struct {
 	Arguments map[string]any `json:"arguments"`
 }
 type toolJournal struct {
-	Fingerprint      string `json:"fingerprint"`
-	CallID           string `json:"callId"`
-	TraceID          string `json:"traceId"`
-	Status           string `json:"status"`
-	GuardState       string `json:"guardState"`
-	Executed         bool   `json:"executed"`
-	ReceiptConfirmed bool   `json:"receiptConfirmed"`
-	Output           any    `json:"output,omitempty"`
-	EffectSource     string `json:"effectSource,omitempty"`
+	Fingerprint      string           `json:"fingerprint"`
+	CallID           string           `json:"callId"`
+	TraceID          string           `json:"traceId"`
+	Status           string           `json:"status"`
+	GuardState       string           `json:"guardState"`
+	Executed         bool             `json:"executed"`
+	ReceiptConfirmed bool             `json:"receiptConfirmed"`
+	Output           any              `json:"output,omitempty"`
+	EffectSource     string           `json:"effectSource,omitempty"`
+	Observation      *toolObservation `json:"observation,omitempty"`
+}
+type toolObservation struct {
+	Framework        string `json:"framework"`
+	ProducerID       string `json:"producerId"`
+	StreamKey        string `json:"streamKey,omitempty"`
+	Events           int    `json:"events"`
+	Pending          int    `json:"pending"`
+	DeliveryState    string `json:"deliveryState,omitempty"`
+	DeliveryAttempts int    `json:"deliveryAttempts,omitempty"`
 }
 type guardView struct {
 	CallID string `json:"callId"`
@@ -254,7 +264,17 @@ func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, inpu
 		return
 	}
 	// Once the intent is saved, no path replays this callback, including a lost receipt.
-	result := calculateSum(numbers)
+	var result float64
+	if r.sumExecutor != nil {
+		result, err = r.sumExecutor(numbers, j)
+		if err != nil {
+			j.GuardState = "FRAMEWORK_EXECUTION_UNCONFIRMED"
+			_ = saveTool(path, j)
+			return
+		}
+	} else {
+		result = calculateSum(numbers)
+	}
 	j.Executed = true
 	j.Output = map[string]any{"sum": result, "count": len(in.Arguments["numbers"].([]any))}
 	j.Status = "SUCCEEDED"
@@ -275,7 +295,11 @@ func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, inpu
 	}
 }
 func writeToolResult(w http.ResponseWriter, task string, j *toolJournal) {
-	writeJSON(w, map[string]any{"taskKey": task, "status": j.Status, "output": j.Output, "tool": map[string]any{"callId": j.CallID, "traceId": j.TraceID, "state": j.GuardState, "executed": j.Executed, "receiptConfirmed": j.ReceiptConfirmed}})
+	result := map[string]any{"taskKey": task, "status": j.Status, "output": j.Output, "tool": map[string]any{"callId": j.CallID, "traceId": j.TraceID, "state": j.GuardState, "executed": j.Executed, "receiptConfirmed": j.ReceiptConfirmed}}
+	if j.Observation != nil {
+		result["observation"] = j.Observation
+	}
+	writeJSON(w, result)
 }
 
 // Metadata only; used to verify actor-side execution counts after suspend/resume.

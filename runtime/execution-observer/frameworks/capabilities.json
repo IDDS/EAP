@@ -1,26 +1,73 @@
 {
   "schemaVersion": 1,
   "adapterVersion": "0.1.0",
-  "validationEnvironment": {"os": "Linux", "python": "3.10.12"},
+  "validationEnvironment": {
+    "os": "Linux",
+    "python": "3.10.12"
+  },
   "instrumentation": "EXPLICIT_WRAPPERS",
   "frameworks": [
     {
       "framework": "langgraph",
       "version": "1.2.17",
-      "verified": ["declared-agent-nodes", "parallel-invocations", "nested-subgraphs", "sync-and-async-tools", "cancellation", "separate-retry-attempts", "synchronous-interrupt-resume", "temporary-code-digest"],
-      "unsupported": ["typed-retry-resume-links", "cross-runtime-parentage", "streaming-callables"],
-      "knownEnvironmentLimits": ["interrupt via async graph invocation fails to obtain runnable context on tested Python 3.10, including without the adapter"],
-      "eapCreationTemplate": "NOT_IMPLEMENTED",
-      "eapManagedRuntimeEndToEnd": "NOT_VERIFIED"
+      "verified": [
+        "declared-agent-nodes",
+        "parallel-invocations",
+        "nested-subgraphs",
+        "sync-and-async-tools",
+        "cancellation",
+        "separate-retry-attempts",
+        "synchronous-interrupt-resume",
+        "temporary-code-digest"
+      ],
+      "unsupported": [
+        "typed-retry-resume-links",
+        "cross-runtime-parentage",
+        "streaming-callables"
+      ],
+      "knownEnvironmentLimits": [
+        "interrupt via async graph invocation fails to obtain runnable context on tested Python 3.10, including without the adapter"
+      ],
+      "eapCreationTemplate": "FIXED_SUM_IMAGE",
+      "eapManagedRuntimeEndToEnd": "VERIFIED_FIXED_SUM_EXPLICIT_RECLAIM",
+      "genericNoCodeCreation": false,
+      "eapRuntimeVerification": {
+        "date": "2026-10-24",
+        "python": "3.10.22",
+        "scope": "fixed sum; same-process agents; code digest; explicit EAP pause and revoke",
+        "automaticReclaimVerified": false
+      }
     },
     {
       "framework": "autogen-core",
       "version": "0.7.5",
       "runtime": "SingleThreadedAgentRuntime",
-      "verified": ["declared-message-handlers", "local-direct-rpc-parentage", "nested-parallel-rpc", "shared-agent-repeated-invocation", "function-tools", "cancellation", "bounded-pending-bindings"],
-      "unsupported": ["publish-subscribe", "distributed-runtime", "agentchat", "group-chat-handoff", "cross-runtime-parentage", "streaming-callables"],
-      "eapCreationTemplate": "NOT_IMPLEMENTED",
-      "eapManagedRuntimeEndToEnd": "NOT_VERIFIED"
+      "verified": [
+        "declared-message-handlers",
+        "local-direct-rpc-parentage",
+        "nested-parallel-rpc",
+        "shared-agent-repeated-invocation",
+        "function-tools",
+        "cancellation",
+        "bounded-pending-bindings"
+      ],
+      "unsupported": [
+        "publish-subscribe",
+        "distributed-runtime",
+        "agentchat",
+        "group-chat-handoff",
+        "cross-runtime-parentage",
+        "streaming-callables"
+      ],
+      "eapCreationTemplate": "FIXED_SUM_IMAGE",
+      "eapManagedRuntimeEndToEnd": "VERIFIED_FIXED_SUM_EXPLICIT_RECLAIM",
+      "genericNoCodeCreation": false,
+      "eapRuntimeVerification": {
+        "date": "2026-10-24",
+        "python": "3.10.22",
+        "scope": "fixed sum; same-process agents; code digest; explicit EAP pause and revoke",
+        "automaticReclaimVerified": false
+      }
     }
   ]
 }

@@ -61,6 +61,23 @@ class ExecutionTests(unittest.TestCase):
         self.journal.close()
         self.temp.cleanup()
 
+    def test_explicit_task_trace_is_inherited_by_child_and_tool(self):
+        with self.journal.agent("task", trace_id="1" * 32):
+            with self.journal.agent("child"):
+                with self.journal.tool("calculate"):
+                    pass
+        self.assertEqual({e["traceId"] for e in self.journal.pending()}, {"1" * 32})
+
+    def test_invalid_or_conflicting_task_trace_cannot_emit_a_run(self):
+        for trace in ["0" * 32, "A" * 32, "private-input", 1]:
+            with self.assertRaises(ValueError):
+                with self.journal.agent("task", trace_id=trace): pass
+        self.assertEqual(self.journal.pending(), [])
+        with self.journal.agent("task", trace_id="1" * 32):
+            with self.assertRaises(ValueError):
+                with self.journal.agent("child", trace_id="2" * 32): pass
+        self.assertEqual(len(self.journal.pending()), 2)
+
     def test_same_pid_parallel_agents_keep_parent_and_tool_ownership(self):
         scenario(self.journal, self.temp.name)
         events = self.journal.pending()

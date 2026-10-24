@@ -33,6 +33,7 @@ var runnerFramework = "EAP_NATIVE"
 var runnerEngineVersion = ""
 var generateModel = (*runner).gatewayCompletion
 var serveTask = (*runner).task
+var configureEngine = func(*runner) {}
 
 type message struct {
 	Role    string `json:"role"`
@@ -57,6 +58,7 @@ type runner struct {
 	toolMu           sync.Mutex
 	toolDir          string
 	toolsEnabled     bool
+	sumExecutor      func([]float64, *toolJournal) (float64, error)
 	kagentToolMode   string
 	handled          map[string]string // taskKey -> answer, for idempotent task delivery
 	gateway          string
@@ -116,6 +118,7 @@ func main() {
 	if manifestError != nil {
 		log.Fatal("invalid MCP service manifest")
 	}
+	configureEngine(r)
 	http.HandleFunc("/eap/identity/challenge", r.identityChallenge)
 	http.HandleFunc("/eap/identity/install", r.identityInstall)
 	http.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

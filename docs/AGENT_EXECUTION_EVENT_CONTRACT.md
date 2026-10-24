@@ -52,6 +52,8 @@ Agent、运行实例和事件流归属由服务端决定。客户端不提供 `a
 
 同一流中，重复 `eventId` 且规范化内容相同返回重复确认；相同ID不同内容、重复局部序号、重复生命周期位置、运行Trace变化、工具归属变化、父子环或已知父子Trace不一致均返回409。一个批次整体事务提交，不部分写入后返回成功。
 
+Python SDK 的有界 `deliver()` 会在网络故障、HTTP 429/5xx 后重传同一批原事件；认证拒绝、409 和非法回执停止。回执丢失不代表服务端未保存，后续重复确认用于确认原事件，不能触发业务重执行。投递状态只保存在本地 Journal 和固定框架任务的回执中，不增加本事件协议字段，也不等于控制台的集中采集状态。[投递状态与恢复](../runtime/execution-observer/README.md#有界投递与状态)。
+
 允许结束事件先到、父节点迟到和序号乱序。接收端保留事件，查询时标记缺口；后续事件到齐后可消除对应结构缺口。只在同一流中解析 `parentRunId`，不以名称、PID、时间近似或其他流的同名UUID补父节点。跨实例委派、handoff、多来源汇合、独立重试/恢复关系尚未实现，不能把它们伪装成同流父子关系。
 
 成功回执：
@@ -71,6 +73,8 @@ Agent、运行实例和事件流归属由服务端决定。客户端不提供 `a
 `streamKey` 由服务端生成，示例值仅用于说明格式。客户端仅在 `received` 与发送条数一致，且 `recorded + duplicates == received` 时确认该批次；超时、异常回执和未授权均保留原事件，不换事件ID重试。HTTP失败只影响遥测交付，不应重做业务工具。
 
 ## 查询与状态
+
+控制台入口为“运行与观测 → 执行关系”，支持按智能体/事件流查询、接收顺序分页、父子执行、工具与代码摘要及缺口阅读。界面规则与限制见[执行观测控制台](AGENT_EXECUTION_CONSOLE.md)。
 
 - `GET /api/observability/agent-executions?agentId=…&streamKey=…&afterId=0&limit=100`：按接收记录ID分页，支持1–500条，返回 `items`、`hasMore`、`nextAfterId`。这是历史查询接口，不承诺跨多个并发实例的全局CDC订阅顺序。
 - `GET /api/observability/agent-executions/{streamKey}/graph`：返回运行关系、工具开始/结束记录、代码产物和缺口。读权限来自 `PlatformPermission.VIEW_CONSOLE`；其他写方法拒绝。

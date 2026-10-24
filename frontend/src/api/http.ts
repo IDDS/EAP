@@ -61,7 +61,7 @@ http.interceptors.response.use(
   },
 )
 
-export async function getData<T>(url: string, options: { silentError?: boolean } = {}): Promise<T> {
+export async function getData<T>(url: string, options: { silentError?: boolean; signal?: AbortSignal } = {}): Promise<T> {
   const response = await http.get<ApiResponse<T>>(url, options)
   return response.data.data
 }

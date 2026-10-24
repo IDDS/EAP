@@ -1,8 +1,8 @@
 # 同实例逻辑执行观测 SDK（第一阶段）
 
-本目录提供框架中立的 Python 生命周期 API，首版面向 Linux/Python 3.10，使用标准库，不依赖特定多 Agent 框架。配套 EAP 接收接口为 `POST /api/runtime-access/v1/execution-events`，查询为 `GET /api/observability/agent-executions` 与 `GET /api/observability/agent-executions/{streamKey}/graph`。完整字段与回执见[事件v1契约](../../docs/AGENT_EXECUTION_EVENT_CONTRACT.md)。
+本目录提供框架中立的 Python 生命周期 API，首版面向 Linux/Python 3.10，使用标准库，不依赖特定多 Agent 框架。配套 EAP 接收接口为 `POST /api/runtime-access/v1/execution-events`，查询为 `GET /api/observability/agent-executions` 与 `GET /api/observability/agent-executions/{streamKey}/graph`。完整字段与回执见[事件v1契约](../../docs/AGENT_EXECUTION_EVENT_CONTRACT.md)。上报后可在“运行与观测 → 执行关系”查询，界面范围见[控制台说明](../../docs/AGENT_EXECUTION_CONSOLE.md)。
 
-这是显式接入的观测 SDK，不会自动发现框架内部 Agent，不提供代码执行器、工具许可或子 Agent 调度。[固定版本框架适配](frameworks/README.md)已提供LangGraph节点和AutoGen Core直接RPC入口；CrewAI、ADK/Kagent等适配仍待开发，新增框架创建模板和EAP托管实例端到端验证仍未完成。当前接口适用于既有受管、已验证的非 `SUBSTRATE_TASK` 运行实例；专属 AX 任务入口的原通道限制保持。
+这是显式接入的观测 SDK，不会自动发现框架内部 Agent，不提供代码执行器、工具许可或子 Agent 调度。[固定版本框架适配](frameworks/README.md)已提供 LangGraph 节点和 AutoGen Core 直接 RPC 入口；配套[固定求和模板](../framework-runner/README.md)已完成 EAP 创建、派发、真实观测与显式休眠验收。该结论只覆盖两个受控模板，不代表任意项目或零代码框架创建；CrewAI、ADK/Kagent 等内部执行适配仍待开发。当前接口适用于既有受管、已验证的非 `SUBSTRATE_TASK` 运行实例；专属 AX 任务入口的原通道限制保持。
 
 ## 使用方式
 
@@ -36,9 +36,51 @@ finally:
 
 两次 `worker()` 即使处于同一进程、同一线程，也会得到不同的 `runId`。它们共享父执行的 Trace，工具调用归属当前协程的执行上下文。线程池不默认继承上下文，需要显式 `contextvars.copy_context()`；不要在多个线程同时进入同一个 Context 对象。fork 后旧 Journal 拒绝继续记录或发送，不能把父进程上下文当作子进程的执行事实。
 
+可信任务入口可通过 `journal.agent("coordinator", trace_id=task_trace_id)` 传入既有 Trace，要求非全零的 32 位小写十六进制。子执行继承父 Trace，显式冲突会在开始记录前拒绝。未传入时仍自动生成；调用方不能借此覆盖服务端的实例身份归属。[受控框架样例](../framework-runner/README.md)展示了 Runner 工具调用与逻辑执行共用 Trace 的方式。
+
 框架适配器可通过 `current_or_none()` 捕获本地上下文，并在同Journal的队列接收边界使用 `agent(..., parent=captured_context)`；显式 `parent=None` 创建独立根执行，避免继承无关的队列启动上下文。不要从消息正文或远端自报字段构造父身份。`incomplete_on=(FrameworkControlFlow,)` 让指定的框架控制流异常保留开始事件而不伪造结束；该参数只接受Exception子类，不改变异常传播。
 
 `agent()` / `tool()` 是同步上下文管理器，可包住 `await`；本地记录有 SQLite 提交开销。网络发送使用显式 `flush()`，异步应用可通过 `asyncio.to_thread` 调用。没有性能或低延迟保证，需针对客户负载另测。
+
+## 有界投递与状态
+
+`flush()` 保留每批一次 HTTP 尝试。需要恢复短暂网络故障时使用 `deliver()`：
+
+```python
+status = journal.deliver(transport, max_attempts=3, max_batches=1,
+                         backoff_seconds=0.25, stop_event=stop_event)
+```
+
+每批最多 64 条。单批尝试次数为 1–8，单次调用处理 1–64 批；默认一批、最多三次。只对连接故障、HTTP 429 和 5xx 退避重试，每次等待最长 5 秒；单个 HTTP 请求仍受传输超时限制。同一批重试固定原事件与编号，并发新增事件留给后续批次。重传没有 Agent、模型、工具或代码执行回调。
+
+`delivery_status()` 从 SQLite 读取总事件数 `total`、全部待确认数 `pending`、已确认数 `acknowledged`、累计投递尝试 `attempts`（包括发送前发现凭据缺失）、最近尝试/确认时间和 `streamKey`；待发计数不受第一页 64 条限制。首次调用前尝试数为 0。状态与业务成功/失败分别表达：
+
+| 状态 | 含义 |
+|---|---|
+| `EMPTY` / `ACKNOWLEDGED` | 尚无事件 / 当前日志的全部事件已确认 |
+| `PENDING` / `BATCH_LIMIT` | 有待发事件 / 本次批数用尽，仍有待发事件 |
+| `SENDING` / `RETRY_WAIT` | 最近记录的发送/退避阶段；不是进程存活证明 |
+| `RETRY_EXHAUSTED` | 本次网络重试次数用尽，原事件保留 |
+| `BLOCKED_AUTH` | 凭据不可用或 HTTP 401/403，停止本次投递 |
+| `BLOCKED_CONFLICT` | HTTP 409 或流身份冲突，保留原日志核对 |
+| `BLOCKED_REQUEST` / `BLOCKED_RECEIPT` / `BLOCKED_TRANSPORT` | 请求被拒、回执非法或无法分类的传输错误，不循环重试 |
+| `CANCELLED` | 发送前或退避中收到停止信号，未确认事件保留 |
+
+`stop_event` 为可选 `threading.Event`。停止信号仅取消后续投递尝试，不取消 Agent 任务；正在等待的 HTTP 请求按传输超时退出，已收到合法回执的事件仍会确认。状态不包含 HTTP 正文、异常文本或凭据。`attempts` 是跨调用累计数，固定 Worker 回执中的值则是该次新日志的尝试数。
+
+进程退出后可对**已知的原日志和原实例身份**显式继续投递：
+
+```python
+recovery = Journal(original_journal_path, original_runtime_key,
+                   framework=original_framework, version=original_version,
+                   existing_only=True)
+try:
+    status = recovery.deliver(original_identity_transport)
+finally:
+    recovery.close()
+```
+
+`existing_only=True` 拒绝缺失或未初始化的文件，不创建新生产者；旧日志始终禁止新增执行事件。调用方必须确认原实例和身份代际仍然有效，不能换身份、换日志或重新执行任务来清除待发状态。永久错误的修复与再次调用需要调用方明确处理；没有后台常驻补发服务或集中队列 UI。SQLite 状态是最后持久化记录，应用异常退出后不会自动恢复投递。
 
 ## 临时代码
 

@@ -6,7 +6,7 @@
         <h2>运行与观测</h2>
         <span>统一查看端点、智能体、模型调用、Token 消耗、费用、延迟与运行状况</span>
       </div>
-      <div class="button-row">
+      <div v-if="activeSection !== 'executions'" class="button-row">
         <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
@@ -21,9 +21,10 @@
     <SectionNavigation v-model="activeSection" label="物理界面分区" :items="sectionItems" />
 
 
-    <el-alert v-if="loadError" :title="loadError" type="warning" show-icon :closable="false" />
-    <el-empty v-if="!summaryLoaded" :description="loading ? '正在加载遥测' : '遥测数据暂不可用'" />
-    <template v-if="summaryLoaded">
+    <AgentExecutionExplorer v-if="activeSection === 'executions'" :initial-agent-id="contextAgentId" />
+    <el-alert v-if="loadError && activeSection !== 'executions'" :title="loadError" type="warning" show-icon :closable="false" />
+    <el-empty v-if="!summaryLoaded && activeSection !== 'executions'" :description="loading ? '正在加载遥测' : '遥测数据暂不可用'" />
+    <template v-if="summaryLoaded && activeSection !== 'executions'">
     <div class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">最近 {{ windowHours }} 小时</span>
@@ -550,6 +551,7 @@ import SectionNavigation from '@/components/common/SectionNavigation.vue'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
+import AgentExecutionExplorer from '@/components/trace/AgentExecutionExplorer.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -619,8 +621,9 @@ const sectionItems = [
   { value: 'ingest', label: '调用接入' },
   { value: 'assets', label: '物理资产' },
   { value: 'trace', label: '深度 Trace' },
+  { value: 'executions', label: '执行关系' },
 ] as const
-const activeSection = ref<'overview' | 'ingest' | 'assets' | 'trace'>('overview')
+const activeSection = ref<'overview' | 'ingest' | 'assets' | 'trace' | 'executions'>('overview')
 const loading = ref(false)
 const scanLoading = ref(false)
 const telemetrySaving = ref(false)

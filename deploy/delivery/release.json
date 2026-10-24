@@ -1,12 +1,12 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261024-execution-observation-r1",
+  "releaseId": "private-pilot-20261024-execution-console-r2",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
   "schema": 91,
   "applications": {
     "backend": "registry.example.com/eap-backend@sha256:410da077d576067a1c93b729a44fbc65773714547923de3eced57b53b186e7bd",
-    "frontend": "registry.example.com/eap-frontend@sha256:a22213751acae5acb43475a82f60f15a08a3c7137156ee1b63f9178399b2178f"
+    "frontend": "registry.example.com/eap-frontend@sha256:f4a223e35e39b8e0e13606ebfaef54e5e2a8ef808f8af14eab706f39d92c9a27"
   },
   "capabilities": [
     {

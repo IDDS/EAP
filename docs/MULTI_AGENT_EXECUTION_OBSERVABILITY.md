@@ -1,6 +1,6 @@
 # 跨框架多智能体与临时代码工具观测设计
 
-日期与来源访问日：2026-10-24。**状态：事件接收、查询与显式Python SDK已实现；LangGraph 1.2.17和AutoGen Core 0.7.5的有界观测适配已分别验证。跨运行时/混合框架关联、其余适配器及界面仍待，EAP尚无这两类框架的专用创建模板。** 本文包含后续设计，已实现范围以[事件v1契约](AGENT_EXECUTION_EVENT_CONTRACT.md)、[固定版本适配说明](../runtime/execution-observer/frameworks/README.md)为准，实际通过结果见[验证记录](VALIDATION.md)。创建、运行与观测分别见[框架支持表](FRAMEWORK_SUPPORT.md)；本文不表示EAP已支持所有框架，也不改变已有执行权限、模型预算或Kagent运行边界。
+日期与来源访问日：2026-10-24。**状态：事件接收、查询与显式Python SDK已实现；LangGraph 1.2.17和AutoGen Core 0.7.5的有界观测适配已分别验证。同流执行关系控制台及两个固定求和 IMAGE 模板的 EAP 创建、派发、真实观测和显式休眠已验证；跨运行时/混合框架关联、其余适配器及通用零代码框架创建仍待。** 本文包含后续设计，已实现范围以[事件v1契约](AGENT_EXECUTION_EVENT_CONTRACT.md)、[固定版本适配说明](../runtime/execution-observer/frameworks/README.md)为准，实际通过结果见[验证记录](VALIDATION.md)。创建、运行与观测分别见[框架支持表](FRAMEWORK_SUPPORT.md)；本文不表示EAP已支持所有框架，也不改变已有执行权限、模型预算或Kagent运行边界。
 
 ## 1. 结论
 
@@ -100,11 +100,11 @@ EAP 托管的关键执行可要求开始事件持久确认后再启动；外部�
 - [`kagent_engine.go`](../runtime/agent-runner/kagent_engine.go) 明确限制文本单轮与受控工具路径，尚不是任意多 Agent runtime。
 - [当前 eBPF 契约](EBPF_OBSERVER_RELIABILITY.md) 采集连接尝试；未测量工具语义、返回结果或字节，也不能自动识别同进程子 Agent。
 
-**首版已实现：** [`AgentExecutionObservationService`](../backend/src/main/java/com/eap/platform/registry/AgentExecutionObservationService.java) 使用 V91 追加事件表；实例认证与写锁内身份复核、批次事务、事件幂等、序号/关系冲突检查，以及分页事件和关系查询已落地。[Python SDK](../runtime/execution-observer/README.md) 使用 ContextVar 隔离协程，SQLite 持久记录开始/结束和待发事件，临时代码只登记摘要、大小、语言。关系查询标记缺失序号/父节点、未结束调用和顺序矛盾；没有把事件自动转换成现有 OTel Span，也没有前端关系图。
+**首版已实现：** [`AgentExecutionObservationService`](../backend/src/main/java/com/eap/platform/registry/AgentExecutionObservationService.java) 使用 V91 追加事件表；实例认证与写锁内身份复核、批次事务、事件幂等、序号/关系冲突检查，以及分页事件和关系查询已落地。[Python SDK](../runtime/execution-observer/README.md) 使用 ContextVar 隔离协程，SQLite 持久记录开始/结束和待发事件，临时代码只登记摘要、大小、语言。关系查询标记缺失序号/父节点、未结束调用和顺序矛盾；没有把事件自动转换成现有 OTel Span。[执行关系控制台](AGENT_EXECUTION_CONSOLE.md)已提供按事件流读取、父子关系、工具与代码摘要，以及结构缺口说明；它不扩展现有同流关系契约。
 
 **新增有界适配：** LangGraph显式节点/工具保留函数签名与类型注解，覆盖并发、嵌套子图、重试分次记录、同步中断恢复和临时代码；AutoGen Core捕获本地发送上下文，通过单次消息绑定在接收端恢复父节点，覆盖同运行时直接RPC、共享Agent重复调用与取消。SDK新增显式父上下文和框架控制流不结束策略，不能据此跨运行实例绑定。
 
-**仍待实现：** 其余框架/版本与AutoGen AgentChat等执行方式、跨实例/框架上下文、handoff/消息/汇合/重试/恢复的类型化关系、代码内容与依赖的受控保管、多来源去重、集中丢失报告、关系图界面与按能力展示的覆盖报告。SDK当前是显式接入，不是零侵入自动发现；`AUTHENTICATED_PRODUCER_REPORT`只表示上报者身份经过验证，不是内核或外部系统对业务效果的独立证明。字段白名单禁止任意metadata绕过身份或内容控制。
+**仍待实现：** 其余框架/版本与AutoGen AgentChat等执行方式、跨实例/框架上下文、handoff/消息/汇合/重试/恢复的类型化关系、代码内容与依赖的受控保管、多来源去重、集中丢失报告、跨实例关系展示与按能力展示的覆盖报告。SDK当前是显式接入，不是零侵入自动发现；`AUTHENTICATED_PRODUCER_REPORT`只表示上报者身份经过验证，不是内核或外部系统对业务效果的独立证明。字段白名单禁止任意metadata绕过身份或内容控制。
 
 本方案以 EAP 原生能力为目标，不依赖接入 Galileo，也不要求把代码、凭证或私有遥测发送给外部观测服务。若将来接入外部服务，应作为独立出口适配与授权范围评估。
 

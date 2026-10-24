@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import http.client
 import json
+import math
 import os
 import re
 import sqlite3
@@ -47,6 +48,19 @@ class ObservationError(RuntimeError):
     pass
 
 
+class ExportError(ObservationError):
+    """Fixed error codes only. Never retain HTTP bodies or credential material."""
+    CODES = {"RETRYABLE_NETWORK", "RETRYABLE_SERVER", "RETRYABLE_THROTTLED",
+             "BLOCKED_AUTH", "BLOCKED_CONFLICT", "BLOCKED_REQUEST", "BLOCKED_RECEIPT", "BLOCKED_TRANSPORT"}
+
+    def __init__(self, code):
+        if code not in self.CODES:
+            raise ValueError("invalid export error code")
+        self.code = code
+        self.retryable = code.startswith("RETRYABLE_")
+        super().__init__(code)
+
+
 def _slug(value, limit):
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.:/@+-]{1," + str(limit) + "}", value):
         raise ValueError("invalid observation identifier")
@@ -59,7 +73,7 @@ class Journal:
     Reopen only to flush pending events. Use a fresh journal for a new process.
     Credential material is never stored. Parent edges never cross journals.
     """
-    def __init__(self, path, runtime_key, *, framework="eap-native", version="0.1.0", capacity=4096):
+    def __init__(self, path, runtime_key, *, framework="eap-native", version="0.1.0", capacity=4096, existing_only=False):
         if type(capacity) is not int or not 1 <= capacity <= 4096:
             raise ValueError("invalid journal capacity")
         self.runtime_key = _slug(runtime_key, 128)
@@ -67,9 +81,9 @@ class Journal:
         self.capacity = capacity
         self.process_id = os.getpid()
         self.lock = threading.RLock()
-        self.flush_lock = threading.Lock()
+        self.flush_lock = threading.RLock()
         self.closed = False
-        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        fd = os.open(path, (0 if existing_only else os.O_CREAT) | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             mode = os.fstat(fd)
             if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.getuid() or mode.st_mode & 0o077:
@@ -87,6 +101,15 @@ class Journal:
         except BaseException:
             os.close(fd)
             raise
+        if existing_only:
+            try:
+                if not dict(self.db.execute("select key,value from metadata")):
+                    raise ValueError("empty journal")
+                self.db.execute("select sequence,event,acknowledged from events limit 1")
+            except Exception:
+                self.db.close()
+                os.close(fd)
+                raise ObservationError("existing execution journal unavailable") from None
         self.db.execute("pragma journal_mode=DELETE")
         self.db.execute("pragma synchronous=FULL")
         self.db.execute("create table if not exists metadata (key text primary key, value text not null)")
@@ -141,28 +164,105 @@ class Journal:
                 raise ObservationError("journal closed")
             return [json.loads(row[0]) for row in self.db.execute("select event from events where acknowledged=0 order by sequence limit ?", (min(max(limit, 1), 64),))]
 
+    def delivery_status(self):
+        """Durable delivery metadata, separate from the business execution outcome."""
+        with self.lock:
+            if self.closed or os.getpid() != self.process_id:
+                raise ObservationError("journal closed")
+            total, pending = self.db.execute("select count(*),coalesce(sum(acknowledged=0),0) from events").fetchone()
+            row = self.db.execute("select value from metadata where key='delivery'").fetchone()
+            status = json.loads(row[0]) if row else {"state": "PENDING", "attempts": 0}
+            if not pending:
+                status["state"] = "ACKNOWLEDGED" if total else "EMPTY"
+            elif status["state"] in {"EMPTY", "ACKNOWLEDGED"}:
+                status["state"] = "PENDING"
+            stream = self.db.execute("select value from metadata where key='streamKey'").fetchone()
+            return dict(status, total=total, pending=pending, acknowledged=total-pending,
+                        streamKey=stream[0] if stream else "")
+
+    def _record_delivery(self, state, *, attempt=False, acknowledged=False):
+        with self.lock:
+            status = self.delivery_status()
+            saved = {k:status[k] for k in ("attempts", "lastAttemptAt", "lastAcknowledgedAt") if k in status}
+            saved["state"] = state
+            now = datetime.now(timezone.utc).isoformat()
+            if attempt:
+                saved["attempts"] += 1
+                saved["lastAttemptAt"] = now
+            if acknowledged:
+                saved["lastAcknowledgedAt"] = now
+            with self.db:
+                self.db.execute("insert or replace into metadata values('delivery',?)", (json.dumps(saved),))
+
     def flush(self, transport):
         """One HTTP attempt per batch. Retry explicitly with the same stored events."""
+        return self._flush_batch(transport, None)
+
+    def _flush_batch(self, transport, events):
         with self.flush_lock:
-            events = self.pending()
+            events = self.pending() if events is None else events
             if not events:
                 return 0
             body = dict(schemaVersion=1, producerId=self.producer_id, framework=self.framework,
                         frameworkVersion=self.version, events=events)
-            receipt = transport.send(self.runtime_key, body)
+            self._record_delivery("SENDING", attempt=True)
+            try:
+                receipt = transport.send(self.runtime_key, body)
+            except Exception as error:
+                safe = error if isinstance(error, ExportError) else ExportError("BLOCKED_TRANSPORT")
+                self._record_delivery(safe.code)
+                raise safe from None
             if (not isinstance(receipt, dict) or set(receipt) != {"streamKey", "received", "recorded", "duplicates"}
                     or not isinstance(receipt["streamKey"], str) or not re.fullmatch(r"[a-f0-9]{64}", receipt["streamKey"])
                     or any(type(receipt[k]) is not int or receipt[k] < 0 for k in ("received", "recorded", "duplicates"))
                     or receipt["received"] != len(events) or receipt["recorded"] + receipt["duplicates"] != len(events)):
-                raise ObservationError("invalid execution receipt")
+                self._record_delivery("BLOCKED_RECEIPT")
+                raise ExportError("BLOCKED_RECEIPT")
             with self.lock:
                 old = self.db.execute("select value from metadata where key='streamKey'").fetchone()
                 if old and old[0] != receipt["streamKey"]:
-                    raise ObservationError("runtime identity generation changed")
-                self.db.execute("insert or ignore into metadata values('streamKey',?)", (receipt["streamKey"],))
-                self.db.executemany("update events set acknowledged=1 where sequence=?", [(e["sequence"],) for e in events])
-                self.db.commit()
+                    self._record_delivery("BLOCKED_CONFLICT")
+                    raise ExportError("BLOCKED_CONFLICT")
+                with self.db:
+                    self.db.execute("insert or ignore into metadata values('streamKey',?)", (receipt["streamKey"],))
+                    self.db.executemany("update events set acknowledged=1 where sequence=?", [(e["sequence"],) for e in events])
+                self._record_delivery("ACKNOWLEDGED", acknowledged=True)
             return len(events)
+
+    def deliver(self, transport, *, max_attempts=3, max_batches=1, backoff_seconds=0.25, stop_event=None):
+        """Bounded retry of stored events only. No timers or business callbacks survive this call."""
+        if (type(max_attempts) is not int or not 1 <= max_attempts <= 8
+                or type(max_batches) is not int or not 1 <= max_batches <= 64
+                or type(backoff_seconds) not in (int, float) or not math.isfinite(backoff_seconds)
+                or not 0 <= backoff_seconds <= 5
+                or stop_event is not None and not isinstance(stop_event, threading.Event)):
+            raise ValueError("invalid delivery bounds")
+        stop = stop_event if stop_event is not None else threading.Event()
+        with self.flush_lock:
+            for _ in range(max_batches):
+                events = self.pending()
+                for attempt in range(max_attempts):
+                    if not events:
+                        return self.delivery_status()
+                    if stop.is_set():
+                        self._record_delivery("CANCELLED")
+                        return self.delivery_status()
+                    try:
+                        self._flush_batch(transport, events)
+                        break
+                    except ExportError as error:
+                        if not error.retryable:
+                            return self.delivery_status()
+                        if attempt+1 == max_attempts:
+                            self._record_delivery("RETRY_EXHAUSTED")
+                            return self.delivery_status()
+                        self._record_delivery("RETRY_WAIT")
+                        if stop.wait(min(backoff_seconds * 2**attempt, 5)):
+                            self._record_delivery("CANCELLED")
+                            return self.delivery_status()
+            if self.pending():
+                self._record_delivery("BATCH_LIMIT")
+            return self.delivery_status()
 
     def close(self):
         with self.flush_lock, self.lock:
@@ -184,14 +284,17 @@ class Journal:
         return ctx
 
     @contextmanager
-    def agent(self, definition_key, *, parent=_INHERIT, incomplete_on=()):
+    def agent(self, definition_key, *, parent=_INHERIT, incomplete_on=(), trace_id=None):
         definition_key = _slug(definition_key, 64)
         if not isinstance(incomplete_on, tuple) or any(not isinstance(t, type) or not issubclass(t, Exception) for t in incomplete_on):
             raise ValueError("invalid incomplete exception policy")
         parent = self.current_or_none() if parent is _INHERIT else parent
         if parent is not None and (not isinstance(parent, RunContext) or parent.producer_id != self.producer_id):
             raise ObservationError("cross-journal delegation is not supported")
-        ctx = RunContext(self.producer_id, str(uuid.uuid4()), parent.trace_id if parent else uuid.uuid4().hex)
+        if trace_id is not None and (not isinstance(trace_id, str) or not re.fullmatch(r"[a-f0-9]{32}", trace_id)
+                                     or trace_id == "0" * 32 or parent is not None and trace_id != parent.trace_id):
+            raise ValueError("invalid or mismatched trace identifier")
+        ctx = RunContext(self.producer_id, str(uuid.uuid4()), parent.trace_id if parent else (trace_id or uuid.uuid4().hex))
         self.emit("RUN_STARTED", ctx, definitionKey=definition_key, **({"parentRunId": parent.run_id} if parent else {}))
         token = _CURRENT.set(ctx)
         try:
@@ -260,7 +363,7 @@ class HttpTransport:
     def send(self, runtime_key, body):
         token = self.credential()
         if not isinstance(token, str) or not re.fullmatch(r"eap_rt_[A-Za-z0-9_-]{43}", token):
-            raise ObservationError("runtime credential unavailable")
+            raise ExportError("BLOCKED_AUTH")
         cls = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
         conn = cls(self.host, self.port, timeout=self.timeout)
         try:
@@ -268,17 +371,26 @@ class HttpTransport:
                          {"Content-Type": "application/json", "X-EAP-Runtime-Key": runtime_key, "X-EAP-Runtime-Token": token})
             response = conn.getresponse()
             if response.status != 200:
-                raise ObservationError("execution export not acknowledged")
+                code = ("BLOCKED_AUTH" if response.status in {401, 403} else
+                        "BLOCKED_CONFLICT" if response.status == 409 else
+                        "RETRYABLE_THROTTLED" if response.status == 429 else
+                        "RETRYABLE_SERVER" if 500 <= response.status < 600 else "BLOCKED_REQUEST")
+                raise ExportError(code)
             raw = response.read(4097)
             if len(raw) > 4096:
-                raise ObservationError("execution receipt too large")
-            result = json.loads(raw)
+                raise ExportError("BLOCKED_RECEIPT")
+            try:
+                result = json.loads(raw)
+            except (ValueError, UnicodeError):
+                raise ExportError("BLOCKED_RECEIPT") from None
             if not isinstance(result, dict) or result.get("success") is not True:
-                raise ObservationError("execution export not acknowledged")
+                raise ExportError("BLOCKED_RECEIPT")
             return result.get("data")
         except ObservationError:
             raise
+        except (OSError, http.client.HTTPException):
+            raise ExportError("RETRYABLE_NETWORK") from None
         except Exception:
-            raise ObservationError("execution export unavailable") from None
+            raise ExportError("BLOCKED_TRANSPORT") from None
         finally:
             conn.close()
