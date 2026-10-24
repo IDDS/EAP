@@ -70,6 +70,9 @@ public class HostObservationService {
         int limit = Math.max(1, properties.getMaxObservations());
         for (HostObservationDtos.HostNetworkObservation flow : request.observations().stream().limit(limit).toList()) {
             inspected++;
+            boolean connectAttempt = flow.observationKind() == HostObservationDtos.NetworkObservationKind.CONNECT_ATTEMPT
+                    || (request.sensorType() == HostObservationSensorType.EBPF
+                    && "eap-ebpf-bpftrace/1.0.0".equals(collectorVersion));
             String signal = String.join(" ", safe(flow.processName()), safe(flow.executablePath()), safe(flow.protocolHint()),
                     safe(flow.provider()), safe(flow.modelName()), safe(flow.tlsServerName()), safe(flow.identityKey()),
                     safe(flow.containerId()), safe(flow.workloadUid())).toLowerCase(Locale.ROOT);
@@ -88,22 +91,30 @@ public class HostObservationService {
             putIfPresent(evidence, "identityKey", truncate(flow.identityKey(), 256));
             putIfPresent(evidence, "workloadUid", truncate(flow.workloadUid(), 256));
             putIfPresent(evidence, "containerId", truncate(flow.containerId(), 256));
-            putIfPresent(evidence, "cgroupId", truncate(flow.cgroupId(), 256));
+            if (!connectAttempt) putIfPresent(evidence, "cgroupId", truncate(flow.cgroupId(), 256));
             putIfPresent(evidence, "processId", flow.processId());
             putIfPresent(evidence, "processName", process);
             putIfPresent(evidence, "executablePath", truncate(flow.executablePath(), 1024));
-            putIfPresent(evidence, "localAddress", truncate(flow.localAddress(), 128));
-            putIfPresent(evidence, "localPort", flow.localPort());
             putIfPresent(evidence, "remoteAddress", truncate(flow.remoteAddress(), 128));
             putIfPresent(evidence, "remotePort", flow.remotePort());
-            putIfPresent(evidence, "tlsServerName", remote);
-            putIfPresent(evidence, "transport", truncate(flow.transport(), 32));
             putIfPresent(evidence, "direction", truncate(flow.direction(), 32));
-            putIfPresent(evidence, "protocolHint", truncate(flow.protocolHint(), 64));
-            putIfPresent(evidence, "provider", provider);
-            putIfPresent(evidence, "modelName", truncate(flow.modelName(), 128));
-            putIfPresent(evidence, "bytesSent", flow.bytesSent());
-            putIfPresent(evidence, "bytesReceived", flow.bytesReceived());
+            if (connectAttempt) {
+                evidence.put("observationKind", "CONNECT_ATTEMPT");
+                evidence.put("connectionOutcome", "UNCONFIRMED");
+                evidence.put("byteMeasurement", "UNAVAILABLE");
+                evidence.put("protocolMeasurement", "UNAVAILABLE");
+                evidence.put("identityBasis", "PROCESS_OR_CONTAINER_HINT");
+            } else {
+                putIfPresent(evidence, "localAddress", truncate(flow.localAddress(), 128));
+                putIfPresent(evidence, "localPort", flow.localPort());
+                putIfPresent(evidence, "tlsServerName", truncate(flow.tlsServerName(), 256));
+                putIfPresent(evidence, "transport", truncate(flow.transport(), 32));
+                putIfPresent(evidence, "protocolHint", truncate(flow.protocolHint(), 64));
+                putIfPresent(evidence, "provider", provider);
+                putIfPresent(evidence, "modelName", truncate(flow.modelName(), 128));
+                putIfPresent(evidence, "bytesSent", flow.bytesSent());
+                putIfPresent(evidence, "bytesReceived", flow.bytesReceived());
+            }
 
             DiscoverySourceType sourceType = request.sensorType() == HostObservationSensorType.EBPF
                     ? DiscoverySourceType.EBPF : DiscoverySourceType.HOST_OBSERVER;
@@ -113,7 +124,7 @@ public class HostObservationService {
                     fingerprint(request.endpointKey(), request.sensorType(), process, remote, flow.processId(), flow.containerId()),
                     process,
                     mcp ? "MCP" : provider,
-                    mcp ? "MCP Network Client" : "Model Network Client",
+                    connectAttempt ? "Network Connection Attempt" : mcp ? "MCP Network Client" : "Model Network Client",
                     truncate(flow.modelName(), 64),
                     mcp ? DiscoveryAssetType.MCP_CONFIGURATION : DiscoveryAssetType.AGENT,
                     sourceType,
@@ -122,22 +133,29 @@ public class HostObservationService {
                     null, null, mcp ? 1 : 0,
                     flow.provider() != null || flow.modelName() != null ? 90 : 76,
                     mcp ? RiskLevel.MEDIUM : RiskLevel.LOW,
-                    request.sensorType().name() + "_NETWORK_FLOW", evidence
+                    request.sensorType().name() + (connectAttempt ? "_CONNECT_ATTEMPT" : "_NETWORK_FLOW"), evidence
             ));
         }
 
         if (request.observations().size() > limit) {
             warnings.add("观测数量超过服务端限制，已截断为 " + limit + " 条");
         }
+        int recorded = 0;
+        int agentsMatched = 0;
+        int mcpMatched = 0;
         if (!observations.isEmpty()) {
-            discoveryService.ingestEndpoint(new AgentDiscoveryDtos.EndpointObservationRequest(
+            var receipt = discoveryService.ingestEndpointWithReceipt(new AgentDiscoveryDtos.EndpointObservationRequest(
                     request.endpointKey(), observations));
+            recorded = receipt.observationsRecorded();
+            agentsMatched = receipt.agentsMatched();
+            mcpMatched = receipt.mcpServersMatched();
+            if (receipt.unassociatedObservations() > 0) {
+                warnings.add(receipt.unassociatedObservations() + " 条候选观测未匹配独立发现的资产身份，未保存；网络证据不能单独创建智能体身份");
+            }
         }
-        int mcp = (int) observations.stream()
-                .filter(item -> item.assetType() == DiscoveryAssetType.MCP_CONFIGURATION).count();
         return new AgentDiscoveryDtos.HostObservationResponse(
                 request.endpointKey(), request.sensorType(), inspected,
-                observations.size() - mcp, mcp, observations.size(), List.copyOf(warnings)
+                agentsMatched, mcpMatched, recorded, List.copyOf(warnings)
         );
     }
 
@@ -207,6 +225,8 @@ public class HostObservationService {
     public static final class HostObservationDtos {
         private HostObservationDtos() { }
 
+        public enum NetworkObservationKind { CONNECT_ATTEMPT, NETWORK_FLOW }
+
         public record HostObservationRequest(
                 @NotNull HostObservationSensorType sensorType,
                 @NotBlank @Size(max = 128) String endpointKey,
@@ -234,9 +254,21 @@ public class HostObservationService {
                 @Size(max = 128) String provider,
                 @Size(max = 128) String modelName,
                 @Size(max = 256) String tlsServerName,
-                @Min(0) long bytesSent,
-                @Min(0) long bytesReceived,
-                @Size(max = 256) String identityKey
-        ) { }
+                @Min(0) Long bytesSent,
+                @Min(0) Long bytesReceived,
+                @Size(max = 256) String identityKey,
+                NetworkObservationKind observationKind
+        ) {
+            // Preserve existing Java callers; omitted JSON measurements remain null.
+            public HostNetworkObservation(String processName, Long processId, String executablePath,
+                    String containerId, String cgroupId, String workloadUid, String localAddress, int localPort,
+                    String remoteAddress, int remotePort, String transport, String direction, String protocolHint,
+                    String provider, String modelName, String tlsServerName, long bytesSent, long bytesReceived,
+                    String identityKey) {
+                this(processName, processId, executablePath, containerId, cgroupId, workloadUid, localAddress,
+                        localPort, remoteAddress, remotePort, transport, direction, protocolHint, provider,
+                        modelName, tlsServerName, bytesSent, bytesReceived, identityKey, null);
+            }
+        }
     }
 }

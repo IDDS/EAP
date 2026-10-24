@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -19,6 +20,10 @@ public class AgentWorkItem {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
+
+    @Version
+    @Column(name = "row_version", nullable = false)
+    long rowVersion;
 
     @Column(name = "item_key", nullable = false, unique = true, length = 160)
     String itemKey;

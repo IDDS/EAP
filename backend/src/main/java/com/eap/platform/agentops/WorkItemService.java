@@ -388,7 +388,9 @@ public class WorkItemService {
         } else if (request.status() == WorkItemStatus.CLOSED) {
             item.closedAt = Instant.now();
         }
-        repository.save(item);
+        // Detect a stale transition before inserting events whose FK would lock the same item.
+        // The item, event and audit remain one transaction; a conflict never retries the action.
+        repository.saveAndFlush(item);
         appendEvent(item, "STATUS_CHANGED", actor, before, item.status, request.reason(), request.resolutionEvidenceJson());
         writeAudit(item, actor, before, item.status, request.reason());
         return AgentOpsDtos.from(item, Instant.now());

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "producerId": "a77fbf14-ad75-433a-9ddf-a0291b6f5d6d",
+  "framework": "langgraph",
+  "frameworkVersion": "1.2.17",
+  "events": [
+    {
+      "definitionKey": "coordinator",
+      "eventId": "b947cf77-0361-43f9-b91e-dd4a219209fa",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.204279+00:00",
+      "processId": 3870888,
+      "runId": "bc428a78-187b-4306-a65c-6922bad7fc45",
+      "sequence": 1,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "e954959d-f86c-4caa-8911-b85af8736189",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.211187+00:00",
+      "parentRunId": "bc428a78-187b-4306-a65c-6922bad7fc45",
+      "processId": 3870888,
+      "runId": "c8a67362-68fe-4eca-a246-5bd3ecf22b0a",
+      "sequence": 2,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "97c904f8-e50a-4302-9f58-4b42dc7021f1",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.214530+00:00",
+      "parentRunId": "bc428a78-187b-4306-a65c-6922bad7fc45",
+      "processId": 3870888,
+      "runId": "47e7516c-4b94-41c9-95a6-948097251b35",
+      "sequence": 3,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "definitionKey": "calculate",
+      "eventId": "8289c942-3092-4ba6-b903-07b7611a0303",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.217882+00:00",
+      "processId": 3870888,
+      "runId": "c8a67362-68fe-4eca-a246-5bd3ecf22b0a",
+      "sequence": 4,
+      "toolCallId": "094fe013-b87c-416b-a89b-2cd505114d21",
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "definitionKey": "calculate",
+      "eventId": "fea2df4f-ad21-4ce6-8daa-e8b4e12ad030",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.220806+00:00",
+      "processId": 3870888,
+      "runId": "47e7516c-4b94-41c9-95a6-948097251b35",
+      "sequence": 5,
+      "toolCallId": "a321d28e-acef-4451-b906-8fd39ef7e03d",
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "eventId": "fc6b2605-2268-4bef-a3fa-684bd8d3b5a2",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.223534+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "c8a67362-68fe-4eca-a246-5bd3ecf22b0a",
+      "sequence": 6,
+      "toolCallId": "094fe013-b87c-416b-a89b-2cd505114d21",
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "eventId": "cc9bfdc7-78b8-4b3a-9891-e8fb48399ebc",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.226625+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "47e7516c-4b94-41c9-95a6-948097251b35",
+      "sequence": 7,
+      "toolCallId": "a321d28e-acef-4451-b906-8fd39ef7e03d",
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "eventId": "39162a50-2897-4de1-9d4f-107b6ae15402",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.229691+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "c8a67362-68fe-4eca-a246-5bd3ecf22b0a",
+      "sequence": 8,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "eventId": "a3e33642-60bc-4acd-a932-13ef228f3edc",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.232461+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "47e7516c-4b94-41c9-95a6-948097251b35",
+      "sequence": 9,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    },
+    {
+      "eventId": "537b4542-9ec6-475b-a850-1ce215bc6242",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.236112+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "bc428a78-187b-4306-a65c-6922bad7fc45",
+      "sequence": 10,
+      "traceId": "a34ad69bd55f42c3981109d05fdc32cf"
+    }
+  ]
+}

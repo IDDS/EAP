@@ -107,6 +107,8 @@ class InfrastructureDiscoveryServiceTests {
 
     @Test
     void normalizesEbpfModelAndMcpFlowsAsPassiveEvidence() {
+        org.mockito.Mockito.when(discoveryService.ingestEndpointWithReceipt(any())).thenReturn(
+                new AgentDiscoveryService.EndpointIngestionReceipt(null, 2, 1, 1, 0));
         var response = ebpfService.ingest(new EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfObservationRequest(
                 "host-01", "worker-01", "svc-agent", "Linux", List.of(
                 new EbpfDiscoveryService.EbpfDiscoveryDtos.EbpfFlow(
@@ -122,13 +124,15 @@ class InfrastructureDiscoveryServiceTests {
         assertThat(response.mcpServersDiscovered()).isEqualTo(1);
         ArgumentCaptor<AgentDiscoveryDtos.EndpointObservationRequest> captor =
                 ArgumentCaptor.forClass(AgentDiscoveryDtos.EndpointObservationRequest.class);
-        verify(discoveryService).ingestEndpoint(captor.capture());
+        verify(discoveryService).ingestEndpointWithReceipt(captor.capture());
         assertThat(captor.getValue().observations()).allMatch(item -> item.sourceType() == DiscoverySourceType.EBPF);
         assertThat(captor.getValue().observations().getFirst().evidence()).containsEntry("sensorType", "EBPF");
     }
 
     @Test
     void normalizesWindowsAndMacSensorsThroughPortableHostObserver() {
+        org.mockito.Mockito.when(discoveryService.ingestEndpointWithReceipt(any())).thenReturn(
+                new AgentDiscoveryService.EndpointIngestionReceipt(null, 1, 1, 0, 0));
         for (HostObservationSensorType sensor : List.of(
                 HostObservationSensorType.ETW,
                 HostObservationSensorType.WFP,
@@ -150,7 +154,7 @@ class InfrastructureDiscoveryServiceTests {
             assertThat(response.agentsDiscovered()).isEqualTo(1);
             ArgumentCaptor<AgentDiscoveryDtos.EndpointObservationRequest> captor =
                     ArgumentCaptor.forClass(AgentDiscoveryDtos.EndpointObservationRequest.class);
-            verify(discoveryService).ingestEndpoint(captor.capture());
+            verify(discoveryService).ingestEndpointWithReceipt(captor.capture());
             var observation = captor.getValue().observations().getFirst();
             assertThat(observation.sourceType()).isEqualTo(DiscoverySourceType.HOST_OBSERVER);
             assertThat(observation.evidence())
@@ -178,7 +182,7 @@ class InfrastructureDiscoveryServiceTests {
 
         assertThat(response.observationsInspected()).isEqualTo(1);
         assertThat(response.observationsRecorded()).isZero();
-        verify(discoveryService, never()).ingestEndpoint(any());
+        verify(discoveryService, never()).ingestEndpointWithReceipt(any());
     }
 
     private void captorRiskIs(RiskLevel expected) {

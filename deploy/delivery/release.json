@@ -1,11 +1,11 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261023-runtime-drift-r1",
+  "releaseId": "private-pilot-20261024-execution-observation-r1",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
-  "schema": 89,
+  "schema": 91,
   "applications": {
-    "backend": "registry.example.com/eap-backend@sha256:3c12cba096eae00ee259627a6ca6d86caf7876e502f38b30ea778108a2567bfe",
+    "backend": "registry.example.com/eap-backend@sha256:410da077d576067a1c93b729a44fbc65773714547923de3eced57b53b186e7bd",
     "frontend": "registry.example.com/eap-frontend@sha256:a22213751acae5acb43475a82f60f15a08a3c7137156ee1b63f9178399b2178f"
   },
   "capabilities": [

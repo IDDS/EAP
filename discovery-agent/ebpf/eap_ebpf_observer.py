@@ -19,15 +19,18 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.1"
 SENSOR_TYPE = "EBPF"
 EVENT_PREFIX = "EAPBPF"
 CONTAINER_PATTERN = re.compile(r"(?i)([0-9a-f]{64})")
@@ -171,20 +174,17 @@ def build_observation(
     )
     container_id = workload.container_id if workload else ""
     return {
-        "processName": process_name,
+        "observationKind": "CONNECT_ATTEMPT",
+        "processName": process_name[:256],
         "processId": event.process_id,
-        "executablePath": metadata.get("executable", ""),
+        "executablePath": metadata.get("executable", "")[:1024],
         "containerId": container_id,
-        "cgroupId": container_id,
         "workloadUid": container_id,
         "remoteAddress": event.remote_address,
         "remotePort": event.remote_port,
-        "transport": "TCP",
         "direction": "OUTBOUND",
-        "protocolHint": "HTTPS" if event.remote_port == 443 else "TCP",
-        "bytesSent": 0,
-        "bytesReceived": 0,
-        "identityKey": identity_key,
+        # sys_enter_connect proves an attempt, not socket type, TLS or transferred bytes.
+        "identityKey": identity_key[:256],
     }
 
 
@@ -196,15 +196,36 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+class UploadFailure(RuntimeError):
+    pass
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def read_credential_fd(descriptor: int) -> str:
+    """Consume an inherited pipe once; never pass the credential to bpftrace."""
+    with os.fdopen(descriptor, "rb") as stream:
+        raw = stream.read(257)
+    if not raw or len(raw) > 256 or any(value < 33 or value > 126 for value in raw):
+        raise ValueError("INVALID_MACHINE_CREDENTIAL")
+    return raw.decode("ascii")
+
+
 def upload(config: dict[str, Any], observations: list[dict[str, Any]]) -> dict[str, Any]:
     server_url = str(config.get("server_url", "")).rstrip("/")
-    if not server_url:
-        raise ValueError("server_url is required")
+    parts = urllib.parse.urlsplit(server_url)
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username is not None or parts.password is not None or parts.query or parts.fragment:
+        raise UploadFailure("INVALID_SERVER_URL")
     if server_url.startswith("http://") and not bool(config.get("allow_insecure_http")):
         raise ValueError("plain HTTP requires allow_insecure_http=true")
-    state_dir = Path(str(config.get("state_dir") or "/var/lib/eap-discovery-agent"))
-    state = load_json(state_dir / "state.json")
-    credential = str(state.get("credential") or "")
+    credential = str(config.get("_machine_credential") or "")
+    if not credential:
+        state_dir = Path(str(config.get("state_dir") or "/var/lib/eap-discovery-agent"))
+        state = load_json(state_dir / "state.json")
+        credential = str(state.get("credential") or "")
     if not credential:
         raise ValueError("Discovery Agent is not enrolled")
     body = json.dumps({
@@ -223,12 +244,23 @@ def upload(config: dict[str, Any], observations: list[dict[str, Any]]) -> dict[s
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        with opener.open(request, timeout=15) as response:
+            raw = response.read(65537)
+            if len(raw) > 65536:
+                raise UploadFailure("INVALID_ACKNOWLEDGEMENT")
+            payload = json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as error:
-        detail = error.read(4096).decode("utf-8", errors="replace")
-        raise RuntimeError(f"EAP returned HTTP {error.code}: {detail}") from error
-    return payload.get("data", payload) if isinstance(payload, dict) else {"response": payload}
+        error.close()
+        raise UploadFailure(f"HTTP_{error.code}") from None
+    except urllib.error.URLError:
+        raise UploadFailure("NETWORK_ERROR") from None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise UploadFailure("INVALID_ACKNOWLEDGEMENT") from None
+    data = payload.get("data") if isinstance(payload, dict) and payload.get("success") is True else None
+    if not isinstance(data, dict) or type(data.get("observationsInspected")) is not int or data["observationsInspected"] != len(observations) or type(data.get("observationsRecorded")) is not int or not 0 <= data["observationsRecorded"] <= len(observations):
+        raise UploadFailure("INVALID_ACKNOWLEDGEMENT")
+    return {key: data[key] for key in ("observationsInspected", "observationsRecorded")}
 
 
 def emit_batch(config: dict[str, Any], observations: list[dict[str, Any]], dry_run: bool) -> None:
@@ -242,8 +274,113 @@ def emit_batch(config: dict[str, Any], observations: list[dict[str, Any]], dry_r
     if dry_run:
         print(json.dumps(payload, ensure_ascii=False, indent=2), flush=True)
         return
-    response = upload(config, observations)
-    print(json.dumps({"uploaded": len(observations), "response": response}, ensure_ascii=False), flush=True)
+    upload(config, observations)
+
+
+def start_upload(config: dict[str, Any], batch: list[dict[str, Any]], dry_run: bool) -> Future:
+    """Only one bounded batch can be in flight; slow delivery never blocks capture."""
+    future = Future()
+    def send() -> None:
+        try:
+            emit_batch(config, batch, dry_run)
+            future.set_result(None)
+        except Exception as error:
+            future.set_exception(error)
+    threading.Thread(target=send, name="eap-ebpf-upload", daemon=True).start()
+    return future
+
+
+class DeliveryBuffer:
+    def __init__(self, config, capacity, interval, retry_initial, retry_max, dry_run, now):
+        self.config, self.capacity, self.interval = config, capacity, interval
+        self.retry_initial, self.retry_max, self.dry_run = retry_initial, retry_max, dry_run
+        self.pending: dict[tuple, dict[str, Any]] = {}
+        self.inflight = None
+        self.batch = {}
+        self.next_attempt, self.next_flush, self.failures = now, now + interval, 0
+        self.last_error = None
+        self.stats = {k: 0 for k in ("eventsSeen", "eventsFiltered", "invalidLines", "observationsCoalesced",
+                      "observationsDropped", "observationsAcknowledged", "observationsPrinted", "uploadAttempts", "uploadFailures")}
+
+    def offer(self, observation):
+        key = (observation["identityKey"], observation["processId"], observation["remoteAddress"], observation["remotePort"])
+        if key in self.pending:
+            self.stats["observationsCoalesced"] += 1
+        elif len(self.pending) >= self.capacity:
+            self.stats["observationsDropped"] += 1
+            return
+        self.pending[key] = observation
+
+    def poll(self, now, *, force=False, start=True):
+        if self.inflight is not None and self.inflight.done():
+            try:
+                self.inflight.result()
+            except Exception as error:
+                self.stats["uploadFailures"] += 1
+                self.failures += 1
+                self.last_error = str(error) if isinstance(error, UploadFailure) else "UPLOAD_FAILED"
+                delay = min(self.retry_max, self.retry_initial * 2 ** min(self.failures - 1, 16))
+                self.next_attempt = now + delay
+            else:
+                self.stats["observationsPrinted" if self.dry_run else "observationsAcknowledged"] += len(self.batch)
+                # A new event with the same key during upload still needs its own delivery.
+                for key, value in self.batch.items():
+                    if self.pending.get(key) is value:
+                        del self.pending[key]
+                self.failures, self.last_error = 0, None
+                self.next_attempt, self.next_flush = now, now + self.interval
+            self.inflight, self.batch = None, {}
+        if start and self.inflight is None and self.pending and now >= self.next_attempt and (force or len(self.pending) >= self.capacity or now >= self.next_flush):
+            self.batch = dict(self.pending)
+            self.stats["uploadAttempts"] += 1
+            self.inflight = start_upload(self.config, list(self.batch.values()), self.dry_run)
+
+    def health(self, now, *, stopping=False):
+        return dict(self.stats, event="observer_health", sensorType=SENSOR_TYPE, collectorVersion=VERSION,
+                    state="STOPPED" if stopping else "DEGRADED" if self.failures else "RUNNING",
+                    captureStatus="EVENTS_OBSERVED" if self.stats["eventsSeen"] else "NO_EVENTS",
+                    queuedObservations=len(self.pending), queueCapacity=self.capacity,
+                    inFlightObservations=len(self.batch), retryInSeconds=max(0, round(self.next_attempt-now, 3)),
+                    lastDeliveryError=self.last_error, kernelLossAccounting="UNAVAILABLE", dryRun=self.dry_run)
+
+    def finish(self, now):
+        self.poll(now, force=True)
+        if self.inflight is not None:
+            try:
+                self.inflight.result(timeout=2)
+            except Exception:
+                pass
+            self.poll(time.monotonic(), start=False)
+
+
+class EventLines:
+    """Bound incomplete lines and read the pipe directly, without text-buffer read-ahead."""
+    def __init__(self):
+        self.pending = b""
+        self.discarding = False
+
+    def feed(self, data):
+        parts = data.split(b"\n")
+        lines, invalid = [], 0
+        for index, part in enumerate(parts):
+            complete = index < len(parts) - 1
+            if self.discarding:
+                if complete:
+                    self.discarding = False
+                continue
+            if len(self.pending) + len(part) > 4096:
+                self.pending = b""
+                self.discarding = not complete
+                invalid += 1
+                continue
+            self.pending += part
+            if complete:
+                try:
+                    lines.append(self.pending.decode("utf-8"))
+                except UnicodeDecodeError:
+                    invalid += 1
+                self.pending = b""
+        return lines, invalid
 
 
 def observe(args: argparse.Namespace) -> int:
@@ -253,19 +390,24 @@ def observe(args: argparse.Namespace) -> int:
     if os.geteuid() != 0:
         raise PermissionError("eBPF observer must run as root")
     if not shutil.which("bpftrace"):
-        print(json.dumps({"sensorType": SENSOR_TYPE, "warning": "bpftrace is not installed"}))
+        print(json.dumps({"event": "observer_health", "sensorType": SENSOR_TYPE, "state": "UNAVAILABLE", "reason": "BPFTRACE_MISSING"}))
         return 0
     if not Path("/sys/kernel/btf/vmlinux").is_file():
-        print(json.dumps({"sensorType": SENSOR_TYPE, "warning": "kernel BTF is unavailable"}))
+        print(json.dumps({"event": "observer_health", "sensorType": SENSOR_TYPE, "state": "UNAVAILABLE", "reason": "BTF_MISSING"}))
         return 0
 
     config = load_json(Path(args.config))
+    if getattr(args, "credential_fd", None) is not None:
+        config["_machine_credential"] = read_credential_fd(args.credential_fd)
     settings = config.get("ebpf_observer") if isinstance(config.get("ebpf_observer"), dict) else {}
     if str(settings.get("mode", "auto")).lower() == "off":
         print(json.dumps({"sensorType": SENSOR_TYPE, "status": "disabled"}))
         return 0
     batch_interval = max(5, min(300, int(settings.get("batch_interval_seconds", 30))))
     max_events = max(1, min(1000, int(settings.get("max_events", 1000))))
+    retry_initial = max(1, min(300, int(settings.get("retry_initial_seconds", 5))))
+    retry_max = max(retry_initial, min(3600, int(settings.get("retry_max_seconds", 300))))
+    status_interval = max(5, min(300, int(settings.get("status_interval_seconds", 30))))
     program = Path(args.program)
     if not program.is_file():
         raise FileNotFoundError(program)
@@ -274,8 +416,7 @@ def observe(args: argparse.Namespace) -> int:
         ["bpftrace", "-q", str(program)],
         stdout=subprocess.PIPE,
         stderr=None,
-        text=True,
-        bufsize=1,
+        bufsize=0,
     )
     if process.stdout is None:
         raise RuntimeError("unable to read bpftrace output")
@@ -290,56 +431,45 @@ def observe(args: argparse.Namespace) -> int:
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     started = time.monotonic()
-    next_flush = started + batch_interval
+    next_status = started
     host_name = socket.gethostname()
     workloads = docker_workloads()
-    observations: dict[tuple[Any, ...], dict[str, Any]] = {}
-
-    def flush_observations() -> bool:
-        if not observations:
-            return True
-        try:
-            emit_batch(config, list(observations.values()), args.dry_run)
-        except Exception as error:
-            print(f"eap-ebpf-observer: batch upload failed: {error}", file=sys.stderr, flush=True)
-            return False
-        observations.clear()
-        return True
+    buffer = DeliveryBuffer(config, max_events, batch_interval, retry_initial, retry_max, args.dry_run, started)
+    next_workloads = started + batch_interval
+    reader = EventLines()
 
     try:
         while not stop:
             now = time.monotonic()
             if args.duration > 0 and now - started >= args.duration:
                 break
-            timeout = max(0.1, min(1.0, next_flush - now))
+            buffer.poll(now)
+            if now >= next_status:
+                print(json.dumps(buffer.health(now)), flush=True)
+                next_status = now + status_interval
+            timeout = 0.1 if buffer.inflight is not None else 1.0
             for key, _mask in selector.select(timeout):
-                line = key.fileobj.readline()
-                if not line:
-                    if process.poll() is not None:
-                        raise RuntimeError(f"bpftrace exited with status {process.returncode}")
-                    continue
-                event = parse_event_line(line)
-                if not event:
-                    continue
-                observation = build_observation(event, host_name, workloads)
-                if not observation:
-                    continue
-                identity = (
-                    observation["identityKey"], observation["processId"],
-                    observation["remoteAddress"], observation["remotePort"],
-                )
-                observations[identity] = observation
-                if len(observations) >= max_events:
-                    flush_observations()
+                data = os.read(key.fileobj.fileno(), 65536)
+                if not data:
+                    raise RuntimeError("Capture pipe closed")
+                lines, invalid = reader.feed(data)
+                buffer.stats["invalidLines"] += invalid
+                for line in lines:
+                    event = parse_event_line(line)
+                    if not event:
+                        buffer.stats["invalidLines"] += 1
+                        continue
+                    buffer.stats["eventsSeen"] += 1
+                    observation = build_observation(event, host_name, workloads)
+                    if not observation:
+                        buffer.stats["eventsFiltered"] += 1
+                        continue
+                    buffer.offer(observation)
             now = time.monotonic()
-            if now >= next_flush:
-                flush_observations()
+            buffer.poll(now)
+            if now >= next_workloads:
                 workloads = docker_workloads()
-                next_flush = now + batch_interval
-        had_final_observations = bool(observations)
-        flush_observations()
-        if args.dry_run and not had_final_observations:
-            print(json.dumps({"sensorType": SENSOR_TYPE, "observations": []}), flush=True)
+                next_workloads = now + batch_interval
         return 0
     finally:
         selector.close()
@@ -350,6 +480,8 @@ def observe(args: argparse.Namespace) -> int:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+        buffer.finish(time.monotonic())
+        print(json.dumps(buffer.health(time.monotonic(), stopping=True)), flush=True)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -358,6 +490,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--program", default="/usr/local/lib/eap-discovery-agent/eap-connect.bt")
     result.add_argument("--duration", type=int, default=0, help="stop after N seconds; 0 runs continuously")
     result.add_argument("--dry-run", action="store_true", help="print sanitized observations without upload")
+    result.add_argument("--credential-fd", type=int, help="read a machine credential from an inherited pipe, then close it")
     result.set_defaults(handler=observe)
     return result
 
@@ -366,8 +499,9 @@ def main() -> int:
     args = parser().parse_args()
     try:
         return int(args.handler(args))
-    except Exception as error:  # systemd receives a non-zero status and can restart the adapter.
-        print(f"eap-ebpf-observer: {error}", file=sys.stderr)
+    except Exception:  # Never log server bodies, credentials or arbitrary exception messages.
+        print(json.dumps({"event": "observer_health", "sensorType": SENSOR_TYPE,
+                          "state": "FAILED", "reason": "CONFIG_OR_CAPTURE_ERROR"}), file=sys.stderr)
         return 1
 
 

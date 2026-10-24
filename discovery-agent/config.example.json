@@ -29,6 +29,9 @@
   "ebpf_observer": {
     "mode": "auto",
     "batch_interval_seconds": 30,
-    "max_events": 1000
+    "max_events": 1000,
+    "retry_initial_seconds": 5,
+    "retry_max_seconds": 300,
+    "status_interval_seconds": 30
   }
 }
