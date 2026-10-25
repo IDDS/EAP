@@ -46,4 +46,4 @@
 
 样例仅接受受限求和输入，不接受任意源码、模型生成代码、外部业务 MCP 或自定义工具。当前源码按数字数量生成求和代码，再交给同进程临时子 Agent 执行；文件删除后保留事件摘要。新版成功任务产生 12 条事件，包括 4 次逻辑 Agent 执行、1 次工具调用和生成者/执行者的 2 条代码登记。已部署旧镜像仍产生 9 条事件；实际发布状态见[验证记录](VALIDATION.md)，实现边界见[短生命周期追踪](EPHEMERAL_EXECUTION_OBSERVABILITY.md)。
 
-新版模板 Runner 增加[原身份绑定的有界后台补发](EXECUTION_BACKGROUND_DELIVERY.md)，普通 SDK 和旧日志不自动迁移。业务 Worker 在投递结束后报告一次[集中状态快照](EXECUTION_DELIVERY_STATUS.md)，后台可继续补原事件或报告。任务取消/恢复、跨实例子 Agent、AutoGen AgentChat/分布式和 LangGraph 异步中断仍未开放。具体实测范围见[验证记录](VALIDATION.md)，整体支持矩阵见[框架支持](FRAMEWORK_SUPPORT.md)。
+新版模板 Runner 增加[原身份绑定的有界后台补发](EXECUTION_BACKGROUND_DELIVERY.md)，普通 SDK 和旧日志不自动迁移。业务 Worker 在投递结束后报告一次[集中状态快照](EXECUTION_DELIVERY_STATUS.md)，后台可继续补原事件或报告。新工作流支持[停止后续调度](WORKFLOW_STOP.md)；即时中断、通用恢复、AutoGen AgentChat/分布式和 LangGraph 异步中断仍未开放。[可选交接样例](../runtime/handoff-sample/README.md)独立接入跨实例关联，默认模板不会自动集成。具体实测范围见[验证记录](VALIDATION.md)，整体支持矩阵见[框架支持](FRAMEWORK_SUPPORT.md)。

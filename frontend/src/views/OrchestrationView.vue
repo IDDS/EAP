@@ -84,7 +84,7 @@
           <p class="plan-execution-guidance">按顺序执行，后一步接收前一步结果。提交后锁定成员分配与结果契约；结构不合格时停止后续交接。</p>
           <p class="plan-execution-guidance">未配置契约不代表业务验收通过。失败或结果未知时不会自动重跑，请先核对证据。</p>
           <PlanReclaimCheck v-if="suspendAfterTask && !frozen" :result="reclaimResult" :loading="reclaimLoading" :error="reclaimError" @refresh="refreshReclaim" />
-          <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
+          <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" @changed="selectPlan(selectedPlanId!)" />
           <PlanOutputs v-if="activePlan.executionWorkflowId && activePlan.executionRunKey"
             :key="`${activePlan.executionWorkflowId}:${activePlan.executionRunKey}`"
             :workflow-id="activePlan.executionWorkflowId" :run-key="activePlan.executionRunKey" :steps="planSteps" />
@@ -407,7 +407,7 @@ async function executePlan() {
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
     DRAFT: '草稿', READY: '待执行', QUEUED: '排队中', RUNNING: '执行中',
-    COMPLETED: '已完成', DONE: '已完成', FAILED: '失败', BLOCKED: '已阻断',
+    COMPLETED: '已完成', CANCELLED: '已停止后续调度', DONE: '已完成', FAILED: '失败', BLOCKED: '已阻断',
     WAITING_APPROVAL: '待审批', EXECUTION_UNKNOWN: '结果未知', UNKNOWN: '结果未知',
     PENDING: '待分配', ASSIGNED: '已分配', SKIPPED: '已跳过',
   }

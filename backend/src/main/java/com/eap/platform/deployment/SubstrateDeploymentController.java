@@ -28,6 +28,12 @@ public class SubstrateDeploymentController {
         return ApiResponse.ok(service.list(agentId));
     }
 
+    @GetMapping("/{agentId}/substrate/deployments/{version}/content")
+    public ApiResponse<SubstrateDeploymentDtos.DeploymentContent> deploymentContent(@PathVariable Long agentId,
+            @PathVariable Integer version) {
+        return ApiResponse.ok(service.content(agentId, version));
+    }
+
     @PostMapping("/{agentId}/substrate/deployments")
     public ApiResponse<SubstrateDeploymentDtos.DeploymentResponse> deploy(@PathVariable Long agentId,
             @Valid @RequestBody SubstrateDeploymentDtos.DeployRequest request, Authentication authentication) {

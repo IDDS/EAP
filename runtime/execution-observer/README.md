@@ -1,4 +1,4 @@
-# 同实例逻辑执行观测 SDK（第一阶段）
+# 逻辑执行与跨实例关联观测 SDK
 
 本目录提供框架中立的 Python 生命周期 API，首版面向 Linux/Python 3.10，使用标准库，不依赖特定多 Agent 框架。配套 EAP 接收接口为 `POST /api/runtime-access/v1/execution-events`，查询为 `GET /api/observability/agent-executions` 与 `GET /api/observability/agent-executions/{streamKey}/graph`。完整字段与回执见[事件v1契约](../../docs/AGENT_EXECUTION_EVENT_CONTRACT.md)。上报后可在“运行与观测 → 执行关系”查询，界面范围见[控制台说明](../../docs/AGENT_EXECUTION_CONSOLE.md)。
 
@@ -124,7 +124,13 @@ with journal.agent("coder"):
 - 每次 `flush()` 最多64条、一次HTTP尝试，无自动重定向、环境代理或业务重试。失败或不合法回执保留待发事件；成功回执须满足 `recorded + duplicates == received`。
 - 服务端按已认证实例、身份代际及 producer 隔离。身份代际变更后不能给原 producer 重新归属。凭证过期/撤销时应报告待交付缺口，不绕过验证补投。
 
-服务端不接受调用方覆盖 `agentId`、端点、实例、任务或任意 metadata；只接受有界元数据字段。Trace 按原有可信运行逻辑解析。普通父子引用只在同一事件流内解析，缺少父记录会显示 `MISSING_PARENT`；跨流、跨实例和跨框架委派尚未支持。
+服务端不接受调用方覆盖 `agentId`、端点、实例、任务或任意 metadata；只接受有界元数据字段。Trace 按原有可信运行逻辑解析。普通父子引用只在同一事件流内解析，缺少父记录会显示 `MISSING_PARENT`；跨实例执行委派/代码交接需要显式使用 `eap_links.py` 双方确认协议，不按 Trace 或摘要自动推断。框架自动消息与委派适配仍待。
+
+## 跨实例执行与代码交接
+
+`eap_links.py` 提供 `ExecutionReference`、`LinkIntent` 和 `LinkJournal`。两方先分别投递原执行开始事件，再用各自实例身份报告同一不可变关联。来源声明待确认，接收方一致声明后才确认；代码交接还检查双方确切执行下的摘要、大小、语言。回执丢失只补投原意图，不重新执行业务。每 Journal 最多64条，重开只补发。
+
+接入顺序、示例、接口及边界见[跨实例关联](../../docs/EXECUTION_LINKS.md)。独立 [handoff样例](../handoff-sample/README.md)已完成真实EAP调度，由运行实例观察器在短进程退出后确认原关联；它使用自己的私有outbox，不放宽SDK重开Journal新建意图的限制。默认框架镜像、后台事件补发器尚未自动接入。观测API不保存源码正文，样例工作流业务输出包含公开固定程序；执行权限不转移。
 
 ## 查询含义
 

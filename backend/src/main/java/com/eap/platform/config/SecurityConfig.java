@@ -37,9 +37,11 @@ import java.util.Set;
 @EnableMethodSecurity
 public class SecurityConfig {
     private final SecurityProperties properties;
+    private final ProjectIsolation projectIsolation;
 
-    public SecurityConfig(SecurityProperties properties) {
+    public SecurityConfig(SecurityProperties properties, ProjectIsolation projectIsolation) {
         this.properties = properties;
+        this.projectIsolation = projectIsolation;
     }
 
     @Bean
@@ -110,7 +112,7 @@ public class SecurityConfig {
                             .hasAnyRole(PlatformPermission.REVIEW_EXPERIMENT_UNKNOWNS.roles())
                         .requestMatchers(HttpMethod.POST, "/api/observability/diagnostics/policy")
                             .hasAnyRole(PlatformPermission.GOVERNANCE.roles())
-                        .requestMatchers(HttpMethod.GET, "/api/observability/agent-executions", "/api/observability/agent-executions/*/graph", "/api/observability/agent-executions/deliveries")
+                        .requestMatchers(HttpMethod.GET, "/api/observability/agent-executions", "/api/observability/agent-executions/*/graph", "/api/observability/agent-executions/*/links", "/api/observability/agent-executions/deliveries")
                             .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers("/api/observability/agent-executions", "/api/observability/agent-executions/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/api/observability/logs")
@@ -136,6 +138,8 @@ public class SecurityConfig {
                             .hasAnyRole(PlatformPermission.OPERATE_INSTANCES.roles())
                         .requestMatchers(HttpMethod.GET, "/api/agents/*/substrate/deployments/requests/*")
                             .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/agents/*/substrate/deployments/*/content")
+                            .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers(HttpMethod.POST, "/api/evaluations/evaluators", "/api/evaluations/datasets", "/api/evaluations/datasets/*/items", "/api/evaluations/datasets/*/run", "/api/evaluations/results", "/api/evaluations/synchronize", "/api/evaluations/jobs")
                             .hasAnyRole(PlatformPermission.MANAGE_EVALUATIONS.roles())
@@ -195,6 +199,7 @@ public class SecurityConfig {
                 validators.add(new JwtClaimValidator<Collection<String>>("aud", audiences ->
                         audiences != null && audiences.contains(properties.getAudience())));
             }
+            validators.add(projectIsolation);
             nimbus.setJwtValidator(new DelegatingOAuth2TokenValidator<>(validators));
         }
         return decoder;

@@ -39,6 +39,9 @@ eap:
     jwk-set-uri: ${EAP_SECURITY_JWK_SET_URI:}
     audience: ${EAP_SECURITY_AUDIENCE:}
     roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
+    # Dedicated database deployment; never a caller-selected row filter.
+    project-key: ${EAP_SECURITY_PROJECT_KEY:}
+    initialize-project-binding: ${EAP_SECURITY_INITIALIZE_PROJECT_BINDING:false}
     # Console sign-in (OIDC authorization code + PKCE) against issuer-uri; empty keeps manual token entry only.
     oidc-client-id: ${EAP_SECURITY_OIDC_CLIENT_ID:}
     oidc-scopes: ${EAP_SECURITY_OIDC_SCOPES:openid profile}
@@ -165,6 +168,7 @@ eap:
     # Console deployment. The runner image is the platform's configuration-driven agent; gateway-token is the
     # EAP gateway ingestion token injected into deployed agents (the provider key never leaves the gateway).
     deploy-atespace: ${EAP_SUBSTRATE_DEPLOY_ATESPACE:eap-agents}
+    inventory-atespaces: ${EAP_SUBSTRATE_INVENTORY_ATESPACES:}
     worker-label: ${EAP_SUBSTRATE_WORKER_LABEL:workload=eap-agents}
     snapshot-location: ${EAP_SUBSTRATE_SNAPSHOT_LOCATION:gs://ate-snapshots/eap/}
     runner-image: ${EAP_SUBSTRATE_RUNNER_IMAGE:}

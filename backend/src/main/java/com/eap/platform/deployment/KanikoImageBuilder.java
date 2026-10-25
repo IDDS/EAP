@@ -39,9 +39,11 @@ public class KanikoImageBuilder implements ImageBuilder {
 
     private final SubstrateProperties properties;
     private final ObjectMapper mapper;
+    private final com.eap.platform.config.ProjectIsolation project;
     private HttpClient http;
 
-    public KanikoImageBuilder(SubstrateProperties properties, ObjectMapper mapper) {
+    public KanikoImageBuilder(SubstrateProperties properties, ObjectMapper mapper, com.eap.platform.config.ProjectIsolation project) {
+        this.project = project;
         this.properties = properties;
         this.mapper = mapper;
     }
@@ -53,16 +55,22 @@ public class KanikoImageBuilder implements ImageBuilder {
 
     @Override
     public String repository(Long agentId) {
-        return properties.getLocalRegistryPrefix() + "eap-src-a" + agentId;
+        return properties.getLocalRegistryPrefix() + repositoryName(agentId);
+    }
+
+    private String repositoryName(Long agentId) {
+        String key = project.context().projectKey();
+        return (key == null ? "eap" : "eap-" + key) + "-src-a" + agentId;
     }
 
     @Override
     public String destination(Long agentId, Integer version) {
-        return properties.getBuildPushPrefix() + "eap-src-a" + agentId + ":v" + version;
+        return properties.getBuildPushPrefix() + repositoryName(agentId) + ":v" + version;
     }
 
     @Override
     public void start(BuildSpec spec) {
+        project.requireBuildNamespace(properties.getBuildNamespace());
         List<String> args = new ArrayList<>(List.of(
                 "--context=" + gitContext(spec.gitUrl(), spec.gitRef()),
                 "--dockerfile=" + spec.dockerfile(),
@@ -165,10 +173,12 @@ public class KanikoImageBuilder implements ImageBuilder {
     }
 
     private String jobsPath() {
+        project.requireBuildNamespace(properties.getBuildNamespace());
         return "/apis/batch/v1/namespaces/" + properties.getBuildNamespace() + "/jobs";
     }
 
     private String podsPath() {
+        project.requireBuildNamespace(properties.getBuildNamespace());
         return "/api/v1/namespaces/" + properties.getBuildNamespace() + "/pods";
     }
 

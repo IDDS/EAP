@@ -125,8 +125,8 @@ class SubstrateDeploymentServiceTests {
         assertThat(response.sourceType()).isEqualTo("TEMPLATE"); assertThat(response.imageRef()).isEqualTo(RUNNER);
         var sample = FrameworkSamples.require(key);
         assertThat(response.config()).containsEntry("runnerFramework", key).containsEntry("frameworkVersion", sample.frameworkVersion())
-                .containsEntry("port", 80).containsEntry("readinessPath", "/readyz").containsEntry("command", List.of(sample.command()))
-                .doesNotContainKeys("image", "model", "systemPrompt", "maxTokens");
+                .containsEntry("port", 80)
+                .doesNotContainKeys("image", "model", "systemPrompt", "maxTokens", "readinessPath", "command", "env");
         when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
         service.processNext();
         var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class); verify(client).createTemplate(spec.capture());

@@ -65,7 +65,7 @@ test('switching nodes replaces the schema draft and refuses edits to malformed a
 test('timeline distinguishes successful receipt, rejected result, unknown and legacy lack of validation',()=>{
   const template=readFileSync(new URL('../src/components/workflow/ExecutionTimeline.vue',import.meta.url),'utf8')
   const code=ts.transpile(template.split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,''),{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None})
-  const labels=new Function('defineProps','ref','watch',code+';return {label,validationLabel,validationReason}')(()=>({execution:{runKey:'original'}}),Vue.ref,()=>{})
+  const labels=new Function('defineProps','ref','watch','defineEmits',code+';return {label,validationLabel,validationReason}')(()=>({execution:{runKey:'original'}}),Vue.ref,()=>{},()=>()=>{})
   assert.equal(labels.label('SUCCEEDED'),'已确认完成')
   assert.match(labels.validationLabel('REJECTED'),/停止后续交接/)
   assert.match(labels.validationLabel('NOT_EVALUATED'),/未确认成功/)

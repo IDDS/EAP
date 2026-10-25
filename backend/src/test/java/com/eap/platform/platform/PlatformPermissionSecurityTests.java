@@ -69,6 +69,22 @@ class PlatformPermissionSecurityTests {
     @MockitoBean EvaluationDatasetItemService annotations;
     @MockitoBean com.eap.platform.safety.GenseeSafetyService safety;
 
+    @MockitoBean com.eap.platform.workflow.WorkflowStopService stops;
+    @ParameterizedTest @CsvSource({"VIEWER,false", "OPERATOR,true", "GOVERNANCE_ADMIN,false", "PLATFORM_ADMIN,true"})
+    void stopUsesRunWorkflowsCapabilityAndReadsUseViewConsole(String role, boolean allowed) throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/stop").with(identity(role))).andExpect(status().isOk());
+        mockMvc.perform(post("/api/workflows/7/executions/original/stop").with(identity(role))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"requestKey\":\"stop-original\"}"))
+                .andExpect(allowed ? status().isOk() : status().isForbidden());
+        mockMvc.perform(get("/api/platform/me").with(identity(role)))
+                .andExpect(jsonPath("$.data.capabilities.runWorkflows").value(allowed));
+    }
+    @Test void anonymousCannotReadOrRequestStop() throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/stop")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/workflows/7/executions/original/stop").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestKey\":\"stop-original\"}")).andExpect(status().isUnauthorized());
+    }
+
     @ParameterizedTest @CsvSource({"VIEWER,false","OPERATOR,false","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true"})
     void scopedAuthorizationUsesSameGovernanceCapability(String role,boolean allowed)throws Exception {
         var identity=identity(role);

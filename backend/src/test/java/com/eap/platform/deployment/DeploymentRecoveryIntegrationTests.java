@@ -115,6 +115,78 @@ class DeploymentRecoveryIntegrationTests {
         assertThat(repository.findTop20ByAgentIdOrderByVersionDesc(agentId)).hasSize(1);
         verifyNoInteractions(nativeClient,owned);
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN"})
+    void deploymentMetadataNeverExposesConfigurationContent(String role) throws Exception {
+        var first = submit();
+        assertThat(first.toString()).doesNotContain("private configuration", "systemPrompt", "identityPublicKey");
+        // Include historical and unknown fields to ensure projection protects existing rows too.
+        var deployment = repository.findTop20ByAgentIdOrderByVersionDesc(agentId).get(0);
+        var config = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(deployment.configJson);
+        config.putObject("env").put("PRIVATE_CONTEXT", "synthetic-environment-content");
+        config.putArray("command").add("synthetic-command-content");
+        config.put("futureContentField", "synthetic-future-content");
+        config.put("readinessPath", "/ready?context=synthetic-path-content");
+        deployment.configJson = mapper.writeValueAsString(config);
+        repository.saveAndFlush(deployment);
+        String original = deployment.configJson;
+        String response = api.perform(get(path()).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_" + role))))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("private configuration", "systemPrompt", "identityPublicKey",
+                "synthetic-environment-content", "synthetic-command-content", "synthetic-future-content", "synthetic-path-content");
+        var metadata = mapper.readTree(response).path("data").get(0).path("config");
+        assertThat(metadata.path("model").asText()).isEqualTo("deepseek-flash");
+        assertThat(metadata.path("identityMode").asText()).isEqualTo("PER_INSTANCE_V1");
+        assertThat(repository.findByAgentIdAndVersion(agentId, 1).orElseThrow().configJson).isEqualTo(original);
+        verifyNoInteractions(nativeClient, owned);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN"})
+    void promptContentUsesTheCentralContentCapability(String role) throws Exception {
+        var first = submit();
+        var user = jwt().authorities(new SimpleGrantedAuthority("ROLE_" + role));
+        boolean allowed = Set.of("GOVERNANCE_ADMIN", "PLATFORM_ADMIN").contains(role);
+        var response = api.perform(get(path() + "/1/content").with(user))
+                .andExpect(allowed ? status().isOk() : status().isForbidden())
+                .andReturn().getResponse().getContentAsString();
+        var me = mapper.readTree(api.perform(get("/api/platform/me").with(user)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).path("data");
+        assertThat(me.path("capabilities").path("viewContent").asBoolean()).isEqualTo(allowed);
+        if (allowed) {
+            var body = mapper.readTree(response).path("data");
+            assertThat(body.path("systemPrompt").asText()).isEqualTo("private configuration");
+            assertThat(body.path("deploymentKey").asText()).isEqualTo(first.path("deploymentKey").asText());
+            assertThat(body.path("agentId").asLong()).isEqualTo(agentId);
+            assertThat(body.path("version").asInt()).isEqualTo(1);
+            assertThat(body.toString()).doesNotContain("identityPublicKey", "env", "command");
+        } else assertThat(response).doesNotContain("private configuration");
+        verifyNoInteractions(nativeClient, owned);
+    }
+
+    @Test void promptContentRejectsAnonymousAndDoesNotFallBackToAnotherVersion() throws Exception {
+        submit();
+        api.perform(get(path() + "/1/content")).andExpect(status().isUnauthorized());
+        var admin = jwt().authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"));
+        api.perform(get(path() + "/2/content").with(admin)).andExpect(status().isBadRequest());
+        api.perform(get("/api/agents/-7/substrate/deployments/1/content").with(admin)).andExpect(status().isBadRequest());
+        verifyNoInteractions(nativeClient, owned);
+    }
+
+    @Test void replayAndRetryResponsesCannotRestorePrivateConfiguration() throws Exception {
+        var first = submit();
+        var repeated = submit();
+        assertThat(repeated.path("deploymentKey")).isEqualTo(first.path("deploymentKey"));
+        assertThat(repeated.toString()).doesNotContain("private configuration", "systemPrompt", "identityPublicKey");
+        db.update("update substrate_agent_deployments set status='FAILED' where agent_id=?", agentId);
+        String response = api.perform(post(path() + "/1/retry").with(operator())).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("private configuration", "systemPrompt", "identityPublicKey");
+        assertThat(repository.findByAgentIdAndVersion(agentId, 1).orElseThrow().configJson).contains("private configuration");
+        assertThat(repository.findTop20ByAgentIdOrderByVersionDesc(agentId)).hasSize(1);
+        verifyNoInteractions(nativeClient, owned);
+    }
     @Test void concurrentSameKeyAdmissionsCannotPersistTwoVersions() throws Exception {
         var gate=new CountDownLatch(2);
         when(safety.evaluate(any())).thenAnswer(call->{gate.countDown();assertThat(gate.await(10,TimeUnit.SECONDS)).isTrue();

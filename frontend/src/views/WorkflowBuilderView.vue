@@ -6,7 +6,7 @@
         <span>从左侧拖拽 Agent 到画布，点击两个节点创建执行连线</span>
       </div>
       <div class="button-row">
-        <el-select v-model="selectedWorkflowId" aria-label="选择工作流" class="agent-select" @change="loadWorkflow">
+        <el-select v-model="selectedWorkflowId" aria-label="选择工作流" class="agent-select" popper-class="workflow-select-options" @change="loadWorkflow">
           <el-option v-for="workflow in workflows" :key="workflow.id" :label="`${workflow.name} · ${workflow.code}`" :value="workflow.id" />
         </el-select>
         <el-button type="primary" :icon="VideoPlay" :loading="running" :disabled="!permissions.can('runWorkflows')" @click="runWorkflow">安全预演</el-button>
@@ -177,7 +177,7 @@
         <el-table-column prop="reason" label="结果说明" min-width="220" />
       </el-table>
       <router-link v-if="selectedExecution" :to="{ path: '/task-workspace', query: { workflowId: selectedExecution.workflowId, runKey: selectedExecution.runKey } }">在任务工作台查看结果与证据 →</router-link>
-      <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
+      <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" @changed="loadExecutions" />
       <PlanOutputs v-if="selectedExecution" :workflow-id="selectedExecution.workflowId" :run-key="selectedExecution.runKey"
         :node-labels="Object.fromEntries(selectedExecution.steps.map(step => [step.nodeKey, step.label]))" />
       <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
@@ -290,7 +290,7 @@ async function executeWorkflow() {
   } finally { submittingExecution.value = false }
 }
 function executionStatusLabel(status: string) {
-  return ({ QUEUED: '排队中', RUNNING: '执行中', DISPATCHING: '派发中', SUCCEEDED: '已确认完成', FAILED: '失败',
+  return ({ QUEUED: '排队中', RUNNING: '执行中', CANCELLED: '已停止后续调度', DISPATCHING: '派发中', SUCCEEDED: '已确认完成', FAILED: '失败',
     EXECUTION_UNKNOWN: '结果未知，需核对', WAITING_APPROVAL: '需要审批', BLOCKED: '策略阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
 }
 watch(selectedWorkflowId, () => {
@@ -611,6 +611,8 @@ onUnmounted(() => { disposed = true; ++executionRequestId; ++workflowRequestId; 
 </script>
 
 <style scoped>
+:global(.el-popper.workflow-select-options) { max-width: calc(100vw - 24px); }
+:global(.workflow-select-options .el-select-dropdown__item) { height: auto; min-height: 34px; padding: 8px 12px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
 .advanced-node-config { margin: 12px 0 18px; }
 .advanced-node-config summary { cursor: pointer; margin-bottom: 12px; color: var(--el-text-color-secondary); }
 .workflow-view-tabs{display:flex;border-bottom:1px solid #dbe3eb;gap:8px}.workflow-view-tabs button{font:inherit;border:0;border-bottom:3px solid transparent;background:none;min-height:44px;padding:12px 20px;color:#526175;cursor:pointer}.workflow-view-tabs button.active{color:#176b9b;font-weight:600;border-bottom-color:#2683b8}.workflow-view-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.workflow-view-tabs span{font-size:12px;border-radius:4px;background:#e8eef4;padding:2px 6px;margin-left:8px}

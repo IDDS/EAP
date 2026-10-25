@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 
-class DeliveryError(Exception):
+class DeliveryError(ValueError):
     pass
 
 
@@ -129,6 +129,15 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check-release")
     check = commands.add_parser("inspect"); check.add_argument("--namespace", default="eap")
+    diagnostic = commands.add_parser("diagnose", help="只读采集应用、Pod、卷和节点磁盘状态；不读取日志或Secret")
+    diagnostic.add_argument("--namespace", default="eap")
+    diagnostic.add_argument("--output", required=True, help="必须不存在的诊断包目录")
+    diagnostic.add_argument("--reserve-bytes", type=int, default=1024 ** 3)
+    diagnostic.add_argument("--max-sample-age", type=int, default=120)
+    retention = commands.add_parser("plan-diagnostic-retention", help="核对诊断包摘要并生成保留计划，不执行删除")
+    retention.add_argument("--root", required=True)
+    retention.add_argument("--days", type=int, default=14)
+    retention.add_argument("--keep", type=int, default=3)
     plan = commands.add_parser("plan-upgrade"); plan.add_argument("component", choices=["backend", "frontend"])
     plan.add_argument("--namespace", default="eap"); plan.add_argument("--target", required=True)
     source = commands.add_parser("verify-source"); source.add_argument("--root", required=True); source.add_argument("--source-manifest", required=True)
@@ -138,9 +147,18 @@ def main():
         if args.command == "check-release": result = {"releaseId": release["releaseId"], "profile": release["profile"], "schema": release["schema"], "productionReady": False}
         elif args.command == "inspect": result = inspect(release, args.namespace)
         elif args.command == "verify-source": result = verify_source(args.root, args.source_manifest)
+        elif args.command == "diagnose":
+            from diagnostics import collect, write_bundle
+            if sys.platform != "linux": raise DeliveryError("诊断只能在远程Linux运维节点执行")
+            result = write_bundle(collect(release, args.namespace, reserve_bytes=args.reserve_bytes,
+                                         max_age=args.max_sample_age), args.output)
+        elif args.command == "plan-diagnostic-retention":
+            from diagnostics import retention_plan
+            result = retention_plan(args.root, days=args.days, keep=args.keep)
         else: result = upgrade_plan(kubectl(args.namespace, ["get", "deployment", args.component, "-o", "json"]), args.component, release["applications"][args.component], args.target)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if args.command == "inspect" and not result["applicationChecksPassed"]: return 2
+        if args.command == "diagnose" and result["status"] != "PASS": return 2
         return 0
     except (DeliveryError, OSError, ValueError, KeyError, TypeError):
         print(json.dumps({"passed": False, "error": "交付检查失败；请核对合同、文件与目标环境。未输出配置或集群错误正文。"}, ensure_ascii=False))

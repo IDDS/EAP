@@ -1,7 +1,8 @@
 export type Capability = 'viewConsole' | 'deployAgents' | 'operateInstances' | 'runWorkflows' | 'governance'
   | 'viewContent' | 'approveContent' | 'manageEvaluations' | 'annotateEvaluations' | 'manageFeedback' | 'runAgentExperiments' | 'reviewExperimentUnknowns' | 'manageBudgets' | 'manageSafety'
 export type CapabilityMap = Partial<Record<Capability, boolean>>
-export type CurrentUser = { mode: string; subject: string | null; roles: string[]; capabilities: CapabilityMap }
+export type ProjectContext = { isolationMode: 'SHARED_TRUST_DOMAIN' | 'DEDICATED_PROJECT'; projectKey: string | null }
+export type CurrentUser = { mode: string; subject: string | null; roles: string[]; capabilities: CapabilityMap; project?: ProjectContext }
 
 export function hasCapability(capabilities: CapabilityMap | null | undefined, capability: Capability): boolean {
   return capabilities?.[capability] === true

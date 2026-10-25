@@ -15,7 +15,7 @@
 
 通过 EAP 的 `TEMPLATE` 部署创建实例，平台固定端口 80、就绪路径 `/readyz`，配送身份及网关配置；既有 `IMAGE` 接入仍保留。工作流 Agent 节点冻结 `eapTool.name=calculate_sum` 和 1–100 个有限数字，每项绝对值不超过 `1e12`。样例使用 `[10,20,12]`，结果 42；模型预算为 0、工具额度为 1。本轮环境存在历史未决占用，使用 `suspendAfterTask:false`；任务终态后通过 EAP `PAUSE` 显式休眠并撤销凭证，未证明自动回收。
 
-Go Runner 持久化意图并领取许可后启动固定 Python 入口。协调者、校验者、coding Agent 和临时执行者是同一 Python 进程内的逻辑执行，各有独立编号。当前源码成功路径有 4 次 Agent 执行、1 次工具调用、2 条相同摘要的代码登记，共 12 条事件。旧镜像仍为 9 条事件，新 Go Runner 与 Worker 必须成套发布。
+Go Runner 持久化意图并领取许可后启动固定 Python 入口。协调者、校验者、coding Agent 和临时执行者是同一 Python 进程内的逻辑执行，各有独立编号。当前版本成功路径有 4 次 Agent 执行、1 次工具调用、2 条相同摘要的代码登记，共 12 条事件。2026-10-25 已成套发布并完成真实 EAP 工作流验收；历史旧镜像仍为 9 条事件，不回写旧记录。
 
 临时代码按已校验的数字数量生成固定求和语句，生成者捕获字节快照，临时子 Agent 用 `bind_code()` 登记并执行同一字节；文件在执行前删除，事件保留 SHA256、大小与语言。数字值和用户文本不会拼接进代码，不开放任意代码执行器、shell、外部 MCP 或模型生成代码。根执行继承工具 Trace，子执行继续继承；服务端按已认证实例处理归属，可在“运行与观测 → 执行关系”查看。
 
@@ -40,4 +40,6 @@ Go Runner 持久化意图并领取许可后启动固定 Python 入口。协调�
 
 Dockerfile 的 `PYTHON_BASE` 必须为经核验的 Python 3.10 linux/amd64 固定摘要。构建目录包含受测的两个 Go 二进制、`worker.py`、SDK/适配模块和匹配[依赖锁定表](../execution-observer/frameworks/requirements-lock.txt)的 `site` 目录。连接信息和 Secret 不进入镜像上下文。
 
-实测结果以[验证记录](../../docs/VALIDATION.md)和[框架支持表](../../docs/FRAMEWORK_SUPPORT.md)为准。跨实例关系、AutoGen AgentChat/分布式运行时、LangGraph 异步中断恢复、任意业务工具及通用零代码创建仍需独立实现和验收。
+实测结果以[验证记录](../../docs/VALIDATION.md)和[框架支持表](../../docs/FRAMEWORK_SUPPORT.md)为准。默认模板的跨实例关联自动接入、AutoGen AgentChat/分布式运行时、LangGraph 异步中断恢复、任意业务工具及通用零代码创建仍需独立实现和验收。
+
+发布证据见[验证范围](../../docs/VALIDATION.md)。镜像构建显式设置两个 Go 入口为 `0755`，避免复制产物丢失可执行权限。

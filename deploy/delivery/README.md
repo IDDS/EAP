@@ -12,6 +12,8 @@
 | --- | --- |
 | 首次安装 JWT 控制台 | [安装说明](install/README.md)、`bootstrap.py` |
 | 核对发布合同 | `python3 deploy/delivery/eapctl.py check-release` |
+| 汇总只读运维诊断 | `eapctl.py diagnose --namespace eap --output /path/to/diagnostics/new-check`，见[诊断说明](../../docs/OPERATIONS_DIAGNOSTICS.md) |
+| 审阅诊断包保留计划 | `eapctl.py plan-diagnostic-retention --root /path/to/diagnostics --days 14 --keep 3`；只生成候选，不执行删除 |
 | 检查已有环境 | `python3 deploy/delivery/eapctl.py inspect --namespace eap` |
 | 校验受测源码 | `eapctl.py verify-source --root ... --source-manifest ...` |
 | 从受测 JAR / dist 构建镜像 | [构建说明](images/README.md)、`image_build.py` |

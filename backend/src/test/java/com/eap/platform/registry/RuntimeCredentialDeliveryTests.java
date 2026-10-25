@@ -25,6 +25,7 @@ import javax.crypto.spec.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -50,13 +51,15 @@ class RuntimeCredentialDeliveryTests {
     KeyPair signing,encryption;
     String nonce=Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]);
     AtomicBoolean loseReply=new AtomicBoolean(),revokeOnInstall=new AtomicBoolean();
+    AtomicReference<String> actorState=new AtomicReference<>("SUSPENDED");
     @BeforeEach void setup()throws Exception{
         signing=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();var generator=KeyPairGenerator.getInstance("RSA");generator.initialize(2048);encryption=generator.generateKeyPair();
         config.setSigningKey("synthetic-independent-signing-material-only-for-tests");config.setDeliveryPrivateKey(Base64.getEncoder().encodeToString(signing.getPrivate().getEncoded()));config.setDeliveryPublicKey(Base64.getEncoder().encodeToString(signing.getPublic().getEncoded()));config.setLeaseSeconds(900);props.setEnabled(true);
         var agent=agents.create(new AgentDtos.AgentRequest("DELIVERY-"+UUID.randomUUID(),"Delivery test","","Test","Owner","Test",RiskLevel.LOW));agents.updateStatus(agent.id(),AgentLifecycleStatus.ACTIVE);
         runtime=new AgentRuntimeInstance();runtime.agentId=agent.id();runtime.instanceKey="eap-agents/delivery-"+agent.id();runtime.endpoint="substrate://"+runtime.instanceKey;runtime.protocol="SUBSTRATE_OBSERVED";runtime.importedActorUid=UUID.randomUUID().toString();runtime.importedActorTemplate="eap-agents/synthetic";runtimes.saveAndFlush(runtime);key=runtime.instanceKey;request=UUID.randomUUID().toString();
-        when(client.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),runtime.importedActorUid,runtime.importedActorTemplate,"SUSPENDED"));
-        when(client.resume(any())).thenReturn(new SubstrateClient.ActorState("RUNNING"));when(client.suspend(any())).thenReturn(new SubstrateClient.ActorState("SUSPENDED"));
+        when(client.inspect(any())).thenAnswer(call->new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),runtime.getBoundActorUid(),runtime.getBoundActorTemplate(),actorState.get()));
+        when(client.resume(any())).thenAnswer(call->{actorState.set("RUNNING");return new SubstrateClient.ActorState("RUNNING");});
+        when(client.suspend(any())).thenAnswer(call->{actorState.set("SUSPENDED");return new SubstrateClient.ActorState("SUSPENDED");});
         router=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         router.createContext("/eap/identity",e->{try{
             assertThat(e.getRequestHeaders().getFirst("Authorization")).isNull();assertThat(e.getRequestHeaders().getFirst("ate-target-actor")).isEqualTo(key);
@@ -181,5 +184,98 @@ class RuntimeCredentialDeliveryTests {
     }
     @Test void recreatedUidPreventsDeliveryAndAnyTaskResume(){
         when(client.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),UUID.randomUUID().toString(),runtime.importedActorTemplate,"RUNNING"));assertThatThrownBy(()->delivery.connect(key,request,"test-owner")).isInstanceOf(ConflictException.class);verify(client,never()).resume(any());assertThat(connections.findByInstanceKey(key)).isEmpty();
+    }
+
+    @Test void transientSuspendConflictRestoresSameInstanceWithoutRedelivery() {
+        when(client.suspend(any())).thenThrow(new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor"))
+                .thenAnswer(call->{actorState.set("SUSPENDED");return new SubstrateClient.ActorState("SUSPENDED");});
+        assertThatCode(()->delivery.connect(key,request,"test-owner")).doesNotThrowAnyException();
+        var confirmed=connections.findByInstanceKey(key).orElseThrow();
+        assertThat(actorState.get()).isEqualTo("SUSPENDED");
+        assertThat(confirmed.deliveryOperation).isNull();
+        assertThat(authentication.authenticate(key,installed).generation()).isEqualTo(confirmed.generation);
+        verify(client,times(1)).resume(any());verify(client,times(2)).suspend(any());
+        assertThat(db.queryForObject("select count(*) from audit_logs where resource_id=? and action='DELIVER_RUNTIME_CREDENTIAL'",Long.class,runtime.agentId.toString())).isEqualTo(1);
+        delivery.connect(key,request,"test-owner");
+        assertThat(connections.findByInstanceKey(key).orElseThrow().credentialRevision).isEqualTo(confirmed.credentialRevision);
+        verify(client,times(1)).resume(any());
+    }
+
+    @Test void repeatedSuspendConflictStopsWithoutReplacingTheConfirmedIdentity() {
+        when(client.suspend(any())).thenThrow(new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor"));
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("休眠");
+        var confirmed=connections.findByInstanceKey(key).orElseThrow();
+        assertThat(confirmed.deliveryOperation).isNull();assertThat(actorState.get()).isEqualTo("RUNNING");
+        assertThat(authentication.authenticate(key,installed).generation()).isEqualTo(confirmed.generation);
+        verify(client,times(1)).resume(any());verify(client,times(4)).suspend(any());
+        assertThat(db.queryForObject("select count(*) from audit_logs where resource_id=? and action='DELIVER_RUNTIME_CREDENTIAL'",Long.class,runtime.agentId.toString())).isEqualTo(1);
+    }
+
+    @ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"UNAVAILABLE","PERMISSION_DENIED","DEADLINE_EXCEEDED","ABORTED"})
+    void unrecognizedSuspendFailuresAreNeverRetried(String code) {
+        when(client.suspend(any())).thenThrow(new SubstrateClient.SubstrateException(code,"synthetic non-busy failure"));
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner"))
+                .isInstanceOf(SubstrateClient.SubstrateException.class);
+        verify(client,times(1)).suspend(any());verify(client,times(1)).resume(any());
+    }
+
+    @Test void replacementAfterSuspendConflictPreventsAnotherSuspend() {
+        when(client.suspend(any())).thenAnswer(call->{
+            when(client.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),UUID.randomUUID().toString(),runtime.getBoundActorTemplate(),"RUNNING"));
+            throw new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor");
+        });
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner")).isInstanceOf(ConflictException.class);
+        verify(client,times(1)).suspend(any());
+    }
+
+    @Test void aConcurrentConfirmedSuspendDoesNotNeedAnotherMutation() {
+        when(client.suspend(any())).thenAnswer(call->{
+            actorState.set("SUSPENDED");
+            throw new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor");
+        });
+        assertThatCode(()->delivery.connect(key,request,"test-owner")).doesNotThrowAnyException();
+        verify(client,times(1)).suspend(any());assertThat(actorState.get()).isEqualTo("SUSPENDED");
+    }
+
+    @Test void suspensionReplyMustMatchTheOriginalActorAfterTheRpc() {
+        when(client.suspend(any())).thenAnswer(call->{
+            when(client.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),UUID.randomUUID().toString(),runtime.getBoundActorTemplate(),"SUSPENDED"));
+            return new SubstrateClient.ActorState("SUSPENDED");
+        });
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner")).isInstanceOf(ConflictException.class);
+        verify(client,times(1)).suspend(any());
+    }
+
+    @Test void aNonSuspendedReplyRemainsUnconfirmedWithoutRetryingUnknownEffects() {
+        when(client.suspend(any())).thenReturn(new SubstrateClient.ActorState("RUNNING"));
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("休眠");
+        verify(client,times(1)).suspend(any());
+    }
+
+    @Test void interruptedRestoreStopsAndPreservesThreadInterruption() {
+        when(client.suspend(any())).thenAnswer(call->{Thread.currentThread().interrupt();throw new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor");});
+        try {
+            assertThatThrownBy(()->delivery.connect(key,request,"test-owner"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("中断");
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();verify(client,times(1)).suspend(any());
+        } finally { Thread.interrupted(); }
+    }
+
+    @Test void failedDeliveryRemainsThePrimaryErrorWhenRestoreAlsoFails() {
+        loseReply.set(true);
+        when(client.suspend(any())).thenThrow(new SubstrateClient.SubstrateException("ABORTED","another operation is in progress for this actor"));
+        assertThatThrownBy(()->delivery.connect(key,request,"test-owner"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("安全配送接口未确认成功")
+                .satisfies(e->assertThat(e.getSuppressed()).hasSize(1));
+        var pending=connections.findByInstanceKey(key).orElseThrow();
+        assertThat(pending.deliveryOperation).isEqualTo(request);assertThat(pending.verifiedAt).isNull();
+        verify(client,times(4)).suspend(any());
+    }
+
+    @Test void anInitiallyRunningInstanceIsNotSuspendedByDelivery() {
+        actorState.set("RUNNING");delivery.connect(key,request,"test-owner");
+        verify(client,never()).suspend(any());assertThat(actorState.get()).isEqualTo("RUNNING");
     }
 }

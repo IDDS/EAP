@@ -133,6 +133,7 @@ public class RuntimeCredentialDeliveryService {
     }
     private void deliver(Pending p,boolean restoreSleep){
         var r=runtime(p.key(),false);var actor=current(r);boolean restore=restoreSleep&&"SUSPENDED".equals(actor.state());
+        RuntimeException deliveryFailure=null;
         try{
             client.resume(SubstrateActorRef.parse(r.endpoint));current(r);
             // Commit the pending operation before network delivery. Lost replies resume this exact operation.
@@ -170,11 +171,34 @@ public class RuntimeCredentialDeliveryService {
                 c.deliveryOperation=null;c.deliveryRevision=null;c.deliveryExpiresAt=null;c.deliverySerial=null;c.lastMessage=null;connections.saveAndFlush(c);
                 event(locked,"DELIVER_RUNTIME_CREDENTIAL","runtime-controller");
             });
-        }catch(BusinessException|ConflictException e){throw e;}
-        catch(Exception e){throw new BusinessException("安全配送尚未确认，请刷新状态并使用原请求重试；未执行任务");}
+        }catch(BusinessException|ConflictException e){deliveryFailure=e;throw e;}
+        catch(Exception e){deliveryFailure=new BusinessException("安全配送尚未确认，请刷新状态并使用原请求重试；未执行任务");throw deliveryFailure;}
         finally{
-            if(restore){current(r);if(!"SUSPENDED".equals(client.suspend(SubstrateActorRef.parse(r.endpoint)).state()))throw new BusinessException("配送后未确认恢复休眠，请核对状态");}
+            if(restore)try{restoreSleep(r);}
+            catch(RuntimeException restoreFailure){
+                if(deliveryFailure!=null)deliveryFailure.addSuppressed(restoreFailure);
+                else throw restoreFailure;
+            }
         }
+    }
+    /** Retry only a known rejected operation, never delivery, wakeup, or an ambiguous control result. */
+    private void restoreSleep(AgentRuntimeInstance runtime){
+        for(int attempt=0;attempt<4;attempt++){
+            if(Thread.currentThread().isInterrupted())throw new BusinessException("恢复休眠已中断，请核对原实例状态");
+            if("SUSPENDED".equals(current(runtime).state()))return;
+            try{
+                var reply=client.suspend(SubstrateActorRef.parse(runtime.endpoint));
+                if(!"SUSPENDED".equals(reply.state())||!"SUSPENDED".equals(current(runtime).state()))
+                    throw new BusinessException("配送后未确认恢复休眠，请核对原实例状态");
+                return;
+            }catch(SubstrateClient.SubstrateException busy){
+                if(!"ABORTED".equals(busy.code())||!"another operation is in progress for this actor".equals(busy.getMessage()))throw busy;
+                if(attempt==3)break;
+            }
+            try{Thread.sleep(250);}
+            catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new BusinessException("恢复休眠已中断，请核对原实例状态");}
+        }
+        throw new BusinessException("原实例仍有运行操作，恢复休眠尚未确认；请核对状态后重试原请求");
     }
     private Map<String,String> signed(byte[] payload)throws Exception{
         var signer=Signature.getInstance("Ed25519");signer.initSign(KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(config.getDeliveryPrivateKey()))));signer.update(payload);

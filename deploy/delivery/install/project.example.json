@@ -1,0 +1,25 @@
+{
+  "contract": "EAP_INSTALL_V2",
+  "profile": "PROJECT_CONTROL_PLANE_BOOTSTRAP",
+  "installId": "862be545-a540-4109-a977-811060357f65",
+  "namespace": "eap-alpha",
+  "databaseCheckImage": "docker.io/library/mysql@sha256:0744ee5ef89ce6ccfa13de3e579fe6b9e27f93dd70da9c06d2c908b1b193fb8d",
+  "database": {
+    "host": "mysql.database.svc.cluster.local",
+    "port": 3306,
+    "name": "eap_alpha",
+    "secretName": "eap-database",
+    "usernameKey": "username",
+    "passwordKey": "password",
+    "sslMode": "REQUIRED",
+    "dedicated": true
+  },
+  "auth": {
+    "issuer": "https://login.example.com/realms/eap",
+    "jwkSetUri": "https://login.example.com/realms/eap/protocol/openid-connect/certs",
+    "audience": "eap-alpha-api",
+    "clientId": "eap-alpha-console",
+    "consoleOrigin": "https://alpha.agents.example.com"
+  },
+  "projectKey": "alpha"
+}

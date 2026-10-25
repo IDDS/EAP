@@ -67,6 +67,40 @@ class BootstrapTests(unittest.TestCase):
         c = config(); c['auth']['jwkSetUri'] += '?token=PRIVATE_VALUE'
         with self.assertRaises(b.Error): b.configuration(c)
 
+    def project_config(self):
+        c = config(); c.update(contract='EAP_INSTALL_V2', profile=b.PROJECT_PROFILE, projectKey='alpha', namespace='eap-alpha')
+        c['database']['name'] = 'eap_alpha'
+        c['auth'].update(audience='eap-alpha-api', clientId='eap-alpha-console')
+        return c
+
+    def test_project_profile_requires_dedicated_names_and_exact_contract(self):
+        self.assertEqual(b.configuration(self.project_config())['projectKey'], 'alpha')
+        for section, key, value in [(None, 'contract', 'EAP_INSTALL_V1'), (None, 'namespace', 'eap-beta'),
+                (None, 'projectKey', 'Alpha'), (None, 'projectKey', 'alpha_beta'), ('database', 'name', 'eap_beta'),
+                ('auth', 'audience', 'eap-api'), ('auth', 'clientId', 'eap-console')]:
+            c = self.project_config(); (c if section is None else c[section])[key] = value
+            with self.subTest(key=key), self.assertRaises(b.Error): b.configuration(c)
+
+    def test_project_resources_pin_binding_and_keep_runtime_disabled(self):
+        release = json.loads(Path(__file__).with_name('release.json').read_text()); release['schema'] = 93
+        objects, _ = b.resources(self.project_config(), release)
+        self.assertTrue(all(o['metadata']['labels'][b.PROJECT_LABEL] == 'alpha' for o in objects))
+        env = {e['name']: e.get('value') for e in objects[3]['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(env['EAP_SECURITY_PROJECT_KEY'], 'alpha')
+        self.assertEqual(env['EAP_SECURITY_INITIALIZE_PROJECT_BINDING'], 'true')
+        self.assertTrue(all(env[name] == 'false' for name in b.DISABLED))
+        release['schema'] = 92
+        with self.assertRaises(b.Error): b.resources(self.project_config(), release)
+
+    def test_project_namespace_requires_its_own_label_before_any_writes(self):
+        c = self.project_config(); cluster = FakeCluster()
+        with patch.object(b, 'kubectl', cluster), self.assertRaises(b.Error): b.namespace(c, NS_UID)
+        self.assertEqual(cluster.writes, [])
+        def project_namespace(args, data=None):
+            value = json.loads(cluster(args, data)); value['metadata']['labels'][b.PROJECT_LABEL] = 'alpha'
+            return json.dumps(value)
+        with patch.object(b, 'kubectl', project_namespace): self.assertEqual(b.namespace(c, NS_UID)['metadata']['uid'], NS_UID)
+
     def test_public_urls_require_https_except_loopback(self):
         for value in ['http://public.example', 'https://a.example/#x', 'https://a.example/?x=1', 'ftp://a.example', 'https://a.example/ bad']:
             with self.subTest(value=value), self.assertRaises(b.Error): b.url(value)

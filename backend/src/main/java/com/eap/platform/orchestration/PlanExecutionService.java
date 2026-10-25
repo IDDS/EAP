@@ -114,6 +114,7 @@ public class PlanExecutionService {
         var run = executions.get(plan.executionWorkflowId, plan.executionRunKey);
         plan.status = switch (run.status()) {
             case "SUCCEEDED" -> PlanStatus.COMPLETED;
+            case "CANCELLED" -> PlanStatus.CANCELLED;
             case "QUEUED" -> PlanStatus.QUEUED;
             case "RUNNING" -> PlanStatus.RUNNING;
             case "BLOCKED" -> PlanStatus.BLOCKED;

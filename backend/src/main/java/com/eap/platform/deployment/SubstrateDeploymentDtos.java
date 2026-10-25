@@ -85,6 +85,9 @@ public final class SubstrateDeploymentDtos {
                                      Instant createdAt, Instant updatedAt) {
     }
 
+    public record DeploymentContent(String deploymentKey, Long agentId, Integer version, String systemPrompt) {
+    }
+
     public record InstanceResponse(String instanceKey, String name, Integer version, String state, String eapStatus, String detail) {
     }
 

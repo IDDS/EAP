@@ -79,4 +79,21 @@ class PlatformRuntimeCreationTests {
         assertThat(service.existingDeployment(deployment.agentId,request)).isEqualTo(first);
         assertThatThrownBy(()->service.create(deployment,request,List.of())).isInstanceOf(ConflictException.class);verify(nativeClient,times(1)).createActorWithIdentity(any(),any());
     }
+    @Test void confirmedCredentialCannotHideAnUnrestoredRunningInstance() {
+        service.create(deployment,request,List.of());
+        when(nativeClient.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents",key.substring(key.indexOf('/')+1),uid,"eap-agents/"+deployment.templateName,"RUNNING"));
+        assertThatThrownBy(()->service.connect(deployment,request,"owner"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("休眠");
+        verify(nativeClient,never()).suspend(any());
+        when(nativeClient.inspect(any())).thenReturn(actor(uid));
+        service.connect(deployment,request,"owner");
+        verify(nativeClient,times(1)).createActorWithIdentity(any(),any());
+    }
+    @Test void replacementDuringDeliveryCannotBeReportedAsReady() {
+        service.create(deployment,request,List.of());
+        doAnswer(call->{when(nativeClient.inspect(any())).thenReturn(actor(UUID.randomUUID().toString()));return null;})
+                .when(delivery).connectCreated(anyString(),anyString(),anyString());
+        assertThatThrownBy(()->service.connect(deployment,request,"owner")).isInstanceOf(ConflictException.class);
+        verify(nativeClient,never()).suspend(any());
+    }
 }

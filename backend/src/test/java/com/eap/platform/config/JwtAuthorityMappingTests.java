@@ -15,7 +15,7 @@ class JwtAuthorityMappingTests {
     void mapsNestedRolesAndScopesWithoutCaseSensitivity() {
         SecurityProperties properties = new SecurityProperties();
         properties.setRolesClaim("realm_access.roles");
-        SecurityConfig config = new SecurityConfig(properties);
+        SecurityConfig config = new SecurityConfig(properties, org.mockito.Mockito.mock(ProjectIsolation.class));
         Jwt jwt = new Jwt(
                 "token",
                 Instant.now(),

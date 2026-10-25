@@ -18,6 +18,7 @@ import java.util.*;
 
 @Service
 public class WorkflowExecutionService {
+    @org.springframework.beans.factory.annotation.Autowired private WorkflowStopService stops;
     @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.observability.ObservationCoverageService coverage;
     @org.springframework.beans.factory.annotation.Autowired private WorkflowExecutionConfigurationService configurations;
     private final WorkflowExecutionRepository repository;
@@ -167,7 +168,7 @@ public class WorkflowExecutionService {
         run.requester = requester == null || requester.isBlank() ? "console" : requester.substring(0, Math.min(requester.length(), 128));
         run.snapshotJson = json(new Snapshot(path, List.of(), context));
         if (run.snapshotJson.getBytes(StandardCharsets.UTF_8).length > 60000) throw new BusinessException("工作流快照超过 60KB，请精简配置");
-        run.createdAt = Instant.now(); run.recoveryVersion = 1;
+        run.createdAt = Instant.now(); run.recoveryVersion = 1; run.stopVersion = 1;
         scheduling.lockEnrollment();
         repository.saveAndFlush(run);
         scheduling.enroll(run, requester == null || requester.isBlank() ? "console" : requester);
@@ -202,6 +203,7 @@ public class WorkflowExecutionService {
             safety.createSession(new SafetyDtos.SessionRequest(run.runKey, null, run.objective));
             for (var node : snapshot.nodes()) {
                 if (!progress(run, steps, "RUNNING", null, false)) return;
+                if (!stops.checkpoint(run)) return;
                 boolean axNode = usesAx(node);
                 AgentRuntimeInstance runtime = isTaskNode(node) && !axNode ? selectRuntime(node) : null;
                 if (isTaskNode(node) && !axNode && runtime == null) {
@@ -350,7 +352,8 @@ public class WorkflowExecutionService {
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                 }
             }
-            progress(run, steps, "SUCCEEDED", "所选路径全部完成；所有任务均已收到匹配标识的业务终态", true);
+            if (stops.checkpoint(run))
+                progress(run, steps, "SUCCEEDED", "所选路径全部完成；所有任务均已收到匹配标识的业务终态", true);
         } catch (Exception exception) {
             progress(run, steps, "EXECUTION_UNKNOWN", "执行中断，已发生的外部效果未回滚；请按任务标识核对", true);
         }

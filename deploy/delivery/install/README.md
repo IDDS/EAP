@@ -57,3 +57,7 @@ python3 deploy/delivery/bootstrap.py status \
 工具尚无自动续装、卸载或数据库回退。需要清理时，由实施人员对照原回执核验归属和 UID，再执行有前置条件的删除；数据库、PVC、IdP 与业务记录不由安装器删除。已有应用的升级使用 `eapctl.py`，不使用首次安装入口。历史验收批次和旧任务不重放。
 
 首次安装包的远程验收记录见 [验证说明](../../../docs/VALIDATION.md)。该记录覆盖同一 PoC 集群的新命名空间与空库；未参与开发的实施人员、独立客户集群、外部生产 IdP/TLS、完整运行系统接入仍需单独验收。
+
+## 项目独立部署
+
+需要固定项目边界时，采用 [project.example.json](project.example.json) 的 `EAP_INSTALL_V2 / PROJECT_CONTROL_PLANE_BOOTSTRAP` 配置。每个项目使用独立数据库、命名空间、OIDC audience/client 和凭据，JWT 必须携带精确的 `eap_project` 声明；数据库绑定采用 Schema93 以上的配套发布。安装器只创建控制平面，原生权限、网络、登录及业务接入仍需验收。配置与迁移边界见[项目独立部署](../../../docs/PROJECT_ISOLATION.md)。

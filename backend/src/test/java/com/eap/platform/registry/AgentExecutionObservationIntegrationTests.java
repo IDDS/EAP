@@ -34,6 +34,8 @@ class AgentExecutionObservationIntegrationTests {
     @Autowired AgentExecutionObservationService service;
     @Autowired ExecutionDeliveryService delivery;
     @Autowired ExecutionDeliveryController deliveryController;
+    @Autowired ExecutionLinkController linkController;
+    @Autowired ExecutionLinkService links;
     @Autowired RuntimeConnectionService connections;
     @Autowired RuntimeConnectionProperties config;
     @Autowired RuntimeConnectionRepository leases;
@@ -291,13 +293,109 @@ class AgentExecutionObservationIntegrationTests {
         mvc.perform(post(path).header("X-EAP-Runtime-Key",owner.instanceKey).header("X-EAP-Runtime-Token",token(owner)).contentType("application/json").content(report(1,2,0,0,"PENDING").toString())).andExpect(status().isOk());
         mvc.perform(post(path).header("X-EAP-Runtime-Key",owner.instanceKey).header("X-EAP-Runtime-Token",token(owner)).header("X-EAP-Agent-Id","999").contentType("application/json").content(report(2,2,0,0,"PENDING").toString())).andExpect(status().isBadRequest());
     }
+    ObjectNode link(boolean code) {
+        var first=event("RUN_STARTED",run,1);var last=event("RUN_STARTED",child,1);
+        var source=code?ingest(first,event("ARTIFACT_REGISTERED",run,2).put("artifactDigest","a".repeat(64)).put("sizeBytes",7).put("language","PYTHON")):ingest(first);
+        var target=controller.ingest(code?body(last,event("ARTIFACT_REGISTERED",child,2).put("artifactDigest","a".repeat(64)).put("sizeBytes",7).put("language","PYTHON")):body(last),request(other)).data();
+        var value=json.createObjectNode().put("schemaVersion",1).put("producerId",producer).put("framework","eap-native").put("frameworkVersion","0.1.0")
+                .put("side","SOURCE").put("linkId",UUID.randomUUID().toString()).put("relation",code?"CODE_HANDOFF":"DELEGATE")
+                .put("sourceStream",source.streamKey()).put("sourceRun",run).put("targetStream",target.streamKey()).put("targetRun",child);
+        if(code)value.put("artifactDigest","a".repeat(64));return value;
+    }
+    ExecutionLinkService.Receipt linkReport(ObjectNode body,AgentRuntimeInstance runtime) {return linkController.report(body,request(runtime)).data();}
+    @Test void linksNeedTwoAuthenticatedSidesAndDoNotMergeParentsOrGrantExecution() {
+        var b=link(false);long events=count();assertThat(linkReport(b,owner).state()).isEqualTo("PENDING_CONFIRMATION");
+        var source=b.path("sourceStream").asText();var pending=links.page(source,0,50).items().getFirst();
+        assertThat(pending.targetAgentId()).isNull();assertThat(pending.evidenceKind()).isEqualTo("SOURCE_PRODUCER_REPORT");
+        assertThat(linkReport(b.deepCopy().put("side","TARGET"),other).state()).isEqualTo("CONFIRMED");
+        var confirmed=links.page(source,0,50).items().getFirst();assertThat(confirmed.targetRuntimeKey()).isEqualTo(other.instanceKey);
+        assertThat(confirmed.evidenceKind()).isEqualTo("TWO_AUTHENTICATED_PRODUCER_REPORTS");assertThat(confirmed.executionPermissionGranted()).isFalse();
+        assertThat(service.graph(b.path("targetStream").asText()).runs().getFirst().parentRunId()).isNull();assertThat(count()).isEqualTo(events);
+    }
+    @Test void linkReplayKeepsOriginalTimestampAndChangedTupleIsRejected() {
+        var b=link(false);linkReport(b,owner);var source=b.path("sourceStream").asText();long offered=links.page(source,0,50).items().getFirst().offeredMs();
+        assertThat(linkReport(b,owner).duplicate()).isTrue();var accept=b.deepCopy().put("side","TARGET");linkReport(accept,other);
+        var confirmed=links.page(source,0,50).items().getFirst().confirmedMs();assertThat(linkReport(accept,other).duplicate()).isTrue();
+        assertThat(linkReport(b,owner).state()).isEqualTo("CONFIRMED");assertThat(links.page(source,0,50).items().getFirst().offeredMs()).isEqualTo(offered);
+        assertThat(links.page(source,0,50).items().getFirst().confirmedMs()).isEqualTo(confirmed);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("targetRun",UUID.randomUUID().toString()),owner)).isInstanceOf(ConflictException.class);
+    }
+    @Test void unofferedOrWrongRuntimeCannotConfirmRelationship() {
+        var b=link(false);var accept=b.deepCopy().put("side","TARGET");
+        assertThatThrownBy(()->linkReport(accept,other)).isInstanceOf(ConflictException.class);
+        linkReport(b,owner);assertThatThrownBy(()->linkReport(accept,owner)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->linkReport(b,other)).isInstanceOf(ConflictException.class);
+        assertThat(links.page(b.path("sourceStream").asText(),0,50).items().getFirst().state()).isEqualTo("PENDING_CONFIRMATION");
+    }
+    @Test void codeHandoffRequiresSameDigestAndMetadataAtBothExactRuns() {
+        var b=link(true);linkReport(b,owner);linkReport(b.deepCopy().put("side","TARGET"),other);
+        var row=links.page(b.path("sourceStream").asText(),0,50).items().getFirst();assertThat(row.artifactDigest()).isEqualTo("a".repeat(64));assertThat(row.artifactSize()).isEqualTo(7);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("linkId",UUID.randomUUID().toString()).put("artifactDigest","b".repeat(64)),owner)).isInstanceOf(ConflictException.class);
+        var mismatch=b.deepCopy().put("linkId",UUID.randomUUID().toString());linkReport(mismatch,owner);
+        // An independently reported target language for these bytes must not be silently ignored.
+        var targetArtifact=event("ARTIFACT_REGISTERED",child,2).put("artifactDigest","a".repeat(64)).put("sizeBytes",7).put("language","SHELL");
+        db.update("update agent_execution_events set payload_json=? where stream_key=? and event_kind='ARTIFACT_REGISTERED'",targetArtifact.toString(),b.path("targetStream").asText());
+        assertThatThrownBy(()->linkReport(mismatch.deepCopy().put("side","TARGET"),other)).isInstanceOf(ConflictException.class);
+    }
+    @Test void missingRunAndForeignRunArtifactCannotCreateRelationship() {
+        var b=link(false);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("sourceRun",UUID.randomUUID().toString()),owner)).isInstanceOf(ConflictException.class);
+        ingest(event("RUN_STARTED",child,2),event("ARTIFACT_REGISTERED",child,3).put("artifactDigest","a".repeat(64)).put("sizeBytes",1).put("language","PYTHON"));
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("relation","CODE_HANDOFF").put("artifactDigest","a".repeat(64)),owner)).isInstanceOf(ConflictException.class);
+        assertThat(links.page(b.path("sourceStream").asText(),0,50).items()).isEmpty();
+    }
+    @Test void linkFieldsRejectContentAuthorityAndOversizedSchemaVersion() {
+        var b=link(false);
+        for(String field:List.of("code","metadata","agentId","authorization"))
+            assertThatThrownBy(()->linkReport(b.deepCopy().put(field,"SYNTHETIC_PRIVATE"),owner)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("schemaVersion",4294967297L),owner)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("artifactDigest","a".repeat(64)),owner)).isInstanceOf(BusinessException.class);
+        assertThat(links.page(b.path("sourceStream").asText(),0,50).items()).isEmpty();
+    }
+    @Test void targetCanConfirmHistoricalSourceButRevokedTargetCannotWrite() {
+        var b=link(false);linkReport(b,owner);
+        var sourceLease=leases.findByInstanceKey(owner.instanceKey).orElseThrow();sourceLease.generation=null;sourceLease.verifiedAt=null;leases.saveAndFlush(sourceLease);
+        assertThat(linkReport(b.deepCopy().put("side","TARGET"),other).state()).isEqualTo("CONFIRMED");
+        var access=connections.authenticate(other.instanceKey,token(other));var targetLease=leases.findByInstanceKey(other.instanceKey).orElseThrow();targetLease.verifiedAt=null;leases.saveAndFlush(targetLease);
+        assertThatThrownBy(()->links.report(access,b.deepCopy().put("side","TARGET"))).isInstanceOf(com.eap.platform.config.UnauthorizedException.class);
+        assertThat(links.page(b.path("sourceStream").asText(),0,50).items().getFirst().state()).isEqualTo("CONFIRMED");
+    }
+    @Test void sourceQuotaIsBoundedAndOriginalLinkStillReplaysAtLimit() {
+        var b=link(false);linkReport(b,owner);
+        for(int i=1;i<64;i++)linkReport(b.deepCopy().put("linkId",UUID.randomUUID().toString()),owner);
+        assertThatThrownBy(()->linkReport(b.deepCopy().put("linkId",UUID.randomUUID().toString()),owner)).isInstanceOf(BusinessException.class);
+        assertThat(linkReport(b,owner).duplicate()).isTrue();var page=links.page(b.path("sourceStream").asText(),0,50);
+        assertThat(page.hasMore()).isTrue();assertThat(links.page(b.path("sourceStream").asText(),page.nextAfterId(),50).items()).hasSize(14);
+    }
+    @Test void concurrentLinkOffersAndConfirmationsAreIdempotent() throws Exception {
+        var b=link(false);var start=new CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
+        try {
+            var a=pool.submit(()->{start.await();return linkReport(b,owner);});var c=pool.submit(()->{start.await();return linkReport(b,owner);});start.countDown();
+            assertThat(a.get(45,TimeUnit.SECONDS).duplicate()).isNotEqualTo(c.get(45,TimeUnit.SECONDS).duplicate());
+            var accept=b.deepCopy().put("side","TARGET");var x=pool.submit(()->linkReport(accept,other));var y=pool.submit(()->linkReport(accept,other));
+            assertThat(x.get(45,TimeUnit.SECONDS).duplicate()).isNotEqualTo(y.get(45,TimeUnit.SECONDS).duplicate());
+            assertThat(links.page(b.path("sourceStream").asText(),0,50).items()).hasSize(1);
+        }finally{start.countDown();pool.shutdownNow();}
+    }
+    @Test void linkEndpointsUseExistingHumanCapabilityAndRuntimeAuthentication() throws Exception {
+        var b=link(false);String read="/api/observability/agent-executions/"+b.path("sourceStream").asText()+"/links",write="/api/runtime-access/v1/execution-links";
+        mvc.perform(get(read)).andExpect(status().isUnauthorized());
+        for(String role:List.of("VIEWER","OPERATOR","GOVERNANCE_ADMIN","PLATFORM_ADMIN"))
+            mvc.perform(get(read).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_"+role)))).andExpect(status().isOk());
+        mvc.perform(get(read).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OTHER")))).andExpect(status().isForbidden());
+        mvc.perform(post(read).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN")))).andExpect(status().isForbidden());
+        mvc.perform(post(write).contentType("application/json").content(b.toString())).andExpect(status().isUnauthorized());
+        mvc.perform(post(write).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN"))).contentType("application/json").content(b.toString())).andExpect(status().isUnauthorized());
+        mvc.perform(post(write).header("X-EAP-Runtime-Key",owner.instanceKey).header("X-EAP-Runtime-Token",token(owner)).contentType("application/json").content(b.toString())).andExpect(status().isOk());
+    }
+
     @Test void v92PreservesPriorExecutionEventsWithoutFabricatingReports() throws Exception {
         String url=migrationJdbcUrl().replace("execution_upgrade","execution_delivery_upgrade"),user=url.startsWith("jdbc:h2:")?"sa":"root";
         org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").target("91").load().migrate();
         try(var c=java.sql.DriverManager.getConnection(url,user,"");var q=c.createStatement()) {
             q.executeUpdate("insert into agent_execution_events(stream_key,event_id,producer_sequence,event_digest,slot_key,agent_id,runtime_instance_key,producer_id,event_kind,run_id,payload_json,received_at) values('old-stream','old-event',1,'old-digest','old-slot',1,'original-instance','original-producer','RUN_STARTED','old-run','{\"original\":true}',CURRENT_TIMESTAMP)");
         }
-        var f=org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").load();assertThat(f.migrate().migrationsExecuted).isEqualTo(1);assertThat(f.migrate().migrationsExecuted).isZero();
+        var f=org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").target("92").load();assertThat(f.migrate().migrationsExecuted).isEqualTo(1);assertThat(f.migrate().migrationsExecuted).isZero();
         try(var c=java.sql.DriverManager.getConnection(url,user,"");var q=c.createStatement()) {
             try(var r=q.executeQuery("select payload_json,runtime_instance_key from agent_execution_events where event_id='old-event'")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("{\"original\":true}");assertThat(r.getString(2)).isEqualTo("original-instance");}
             try(var r=q.executeQuery("select count(*) from execution_delivery_reports")){r.next();assertThat(r.getLong(1)).isZero();}

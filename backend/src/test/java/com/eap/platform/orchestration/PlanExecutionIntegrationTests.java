@@ -81,6 +81,18 @@ class PlanExecutionIntegrationTests {
     }
     PlanExecutionService.Request request(String key) { return new PlanExecutionService.Request(key, Map.of("ticket", "synthetic"), false); }
 
+    @Autowired WorkflowStopService stops;
+    @Test void stoppedPlanRemainsFrozenAndUnstartedStepsAreSkipped() {
+        var submitted = plans.submit(plan, request("stop-plan"), "operator");
+        stops.request(submitted.workflowId(), submitted.execution().runKey(), new WorkflowStopService.Request("stop"), "operator");
+        assertThat(plans.synchronize(plan).execution().status()).isEqualTo("CANCELLED");
+        assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.CANCELLED);
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).allMatch(s -> s.status == StepStatus.SKIPPED);
+        assertThat(plans.submit(plan, request("stop-plan"), "operator").execution().runKey()).isEqualTo(submitted.execution().runKey());
+        assertThatThrownBy(() -> plans.submit(plan, request("new-key"), "operator")).isInstanceOf(ConflictException.class);
+        executions.processNext(); assertThat(received).isEmpty();
+    }
+
     @Test void globalReclaimBlockerIsReportedReadOnlyAndRejectsEntirePlanBeforeCreatingExecution() {
         for (Long agent : List.of(producer, reviewer)) {
             db.update("update agent_runtime_instances set protocol='SUBSTRATE',endpoint=? where agent_id=?",

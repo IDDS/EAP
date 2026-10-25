@@ -22,6 +22,8 @@ Error = eapctl.DeliveryError
 HERE = Path(__file__).resolve().parent
 LABEL = 'eap.io/bootstrap-id'
 PROFILE = 'CONTROL_PLANE_BOOTSTRAP'
+PROJECT_PROFILE = 'PROJECT_CONTROL_PLANE_BOOTSTRAP'
+PROJECT_LABEL = 'eap.io/project'
 DISABLED = [
     'EAP_SUBSTRATE_ENABLED', 'EAP_SUBSTRATE_BUILD_ENABLED', 'EAP_GATEWAY_ENABLED',
     'EAP_AX_ENABLED', 'EAP_CONTROL_DISPATCH_ENABLED', 'EAP_WORKFLOW_EXECUTION_ENABLED',
@@ -69,8 +71,9 @@ def url(value, internal=False, origin=False):
 
 
 def configuration(data):
-    exact(data, ['contract', 'profile', 'installId', 'namespace', 'database', 'auth', 'databaseCheckImage'])
-    if data['contract'] != 'EAP_INSTALL_V1' or data['profile'] != PROFILE:
+    project = isinstance(data, dict) and data.get('profile') == PROJECT_PROFILE
+    exact(data, ['contract', 'profile', 'installId', 'namespace', 'database', 'auth', 'databaseCheckImage'] + (['projectKey'] if project else []))
+    if data['contract'] != ('EAP_INSTALL_V2' if project else 'EAP_INSTALL_V1') or data['profile'] not in {PROFILE, PROJECT_PROFILE}:
         raise Error('当前只支持 JWT 控制台初始化阶段')
     if str(uuid.UUID(data['installId'])) != data['installId']:
         raise Error('安装标识必须为规范 UUID')
@@ -96,6 +99,13 @@ def configuration(data):
     for key in ['audience', 'clientId']:
         if not re.fullmatch(r'[A-Za-z0-9._:-]{1,128}', auth[key]):
             raise Error('OIDC clientId 或 audience 无效')
+    if project:
+        key = data['projectKey']
+        if not isinstance(key, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', key):
+            raise Error('项目标识无效')
+        if (namespace != 'eap-' + key or db['name'] != 'eap_' + key.replace('-', '_')
+                or auth['audience'] != 'eap-' + key + '-api' or auth['clientId'] != 'eap-' + key + '-console'):
+            raise Error('项目安装必须使用项目专属 namespace、数据库、audience 和 clientId')
     return copy.deepcopy(data)
 
 
@@ -110,7 +120,7 @@ def secret_env(name, db, key):
 def resources(config, release):
     c = configuration(config); ns = c['namespace']; identity = c['installId']; db = c['database']; auth = c['auth']
     def meta(name):
-        return {'name': name, 'namespace': ns, 'labels': {LABEL: identity}}
+        return {'name': name, 'namespace': ns, 'labels': {LABEL: identity, **({PROJECT_LABEL: c['projectKey']} if 'projectKey' in c else {})}}
     def service(name, port):
         return {'apiVersion': 'v1', 'kind': 'Service', 'metadata': meta(name), 'spec': {
             'type': 'ClusterIP', 'selector': {'app': name, LABEL: identity}, 'ports': [{'name': 'http', 'port': port, 'targetPort': port}]}}
@@ -121,6 +131,14 @@ def resources(config, release):
         env('EAP_SECURITY_ROLES_CLAIM', 'roles'), env('EAP_SECURITY_OIDC_CLIENT_ID', auth['clientId']),
         env('EAP_SECURITY_OIDC_SCOPES', 'openid profile'), env('EAP_SECURITY_ALLOWED_ORIGINS', auth['consoleOrigin']),
         env('EAP_BUDGET_ENABLED', 'true')] + [env(name, 'false') for name in DISABLED]
+    if 'projectKey' in c:
+        if release['schema'] < 93:
+            raise Error('项目部署需要 Schema 93 或更新的匹配镜像')
+        backend_env += [env('EAP_SECURITY_PROJECT_KEY', c['projectKey']), env('EAP_SECURITY_INITIALIZE_PROJECT_BINDING', 'true')]
+        backend_env += [env('EAP_SUBSTRATE_DEPLOY_ATESPACE', 'eap-' + c['projectKey'] + '-agents'),
+                        env('EAP_SUBSTRATE_INVENTORY_ATESPACES', 'eap-' + c['projectKey'] + '-ax'),
+                        env('EAP_AX_ATESPACE', 'eap-' + c['projectKey'] + '-ax'),
+                        env('EAP_SUBSTRATE_BUILD_NAMESPACE', 'eap-' + c['projectKey'] + '-builds')]
     apps = []
     for name, port in [('backend', 8080), ('frontend', 80)]:
         container = {'name': name, 'image': eapctl.image(release['applications'][name]), 'ports': [{'containerPort': port}],
@@ -162,7 +180,7 @@ def render(config_path, release_path, output):
     write_json(root / 'resources.json', {'apiVersion': 'v1', 'kind': 'List', 'items': objects})
     write_json(root / 'database-check.json', job)
     write_json(root / 'bundle.json', {'contract': 'EAP_INSTALL_BUNDLE_V1', 'files': files(root)})
-    return {'passed': True, 'profile': PROFILE, 'bundleSha256': hashlib.sha256((root / 'bundle.json').read_bytes()).hexdigest(),
+    return {'passed': True, 'profile': c['profile'], 'bundleSha256': hashlib.sha256((root / 'bundle.json').read_bytes()).hexdigest(),
             'installationComplete': False, 'notice': '仅生成安装包；尚未检查依赖或执行安装'}
 
 
@@ -202,6 +220,8 @@ def namespace(c, uid):
     n = json.loads(kubectl(['get', 'namespace', c['namespace'], '-o', 'json']))
     if n['metadata']['uid'] != uid or n['metadata'].get('labels', {}).get(LABEL) != c['installId'] or n.get('status', {}).get('phase') != 'Active' or n['metadata'].get('deletionTimestamp'):
         raise Error('命名空间身份或安装标识不匹配')
+    if 'projectKey' in c and n['metadata'].get('labels', {}).get(PROJECT_LABEL) != c['projectKey']:
+        raise Error('命名空间未绑定当前项目')
     return n
 
 
@@ -216,7 +236,7 @@ def preflight(root, expected, uid):
     if not {c['database']['usernameKey'], c['database']['passwordKey']} <= set(keys):
         raise Error('数据库 Secret 缺少所需键')
     kubectl(['-n', ns, 'create', '--dry-run=server', '-f', '-', '-o', 'name'], {'apiVersion': 'v1', 'kind': 'List', 'items': objects + [job]})
-    return {'passed': True, 'namespaceUid': uid, 'profile': PROFILE, 'bundleSha256': expected,
+    return {'passed': True, 'namespaceUid': uid, 'profile': c['profile'], 'bundleSha256': expected,
             'resourceCount': len(objects), 'databaseEmptyVerified': False, 'installationComplete': False,
             'unverified': ['数据库连接和空库由安装前 Job 检查', 'IdP 与真实登录', 'HTTP 与 Schema', '运行调度/模型接入', '备份和生产运维']}
 
@@ -228,7 +248,7 @@ def install(root, expected, uid, receipt_path):
         raise Error('必须使用安装包之外的新回执路径；不得覆盖或重试已有回执')
     preflight(root, expected, uid)
     state = {'contract': 'EAP_INSTALL_RECEIPT_V1', 'namespace': c['namespace'], 'namespaceUid': uid,
-             'installId': c['installId'], 'bundleSha256': expected, 'profile': PROFILE, 'resources': [], 'stage': 'PREFLIGHT_PASSED'}
+             'installId': c['installId'], 'bundleSha256': expected, 'profile': c['profile'], 'resources': [], 'stage': 'PREFLIGHT_PASSED'}
     with receipt.open('x') as f:
         json.dump(state, f, indent=2)
     def save():
@@ -273,7 +293,7 @@ def status(root, expected, uid):
         if d['metadata'].get('labels', {}).get(LABEL) != c['installId']:
             raise Error('应用不属于本次安装')
         apps[name] = eapctl.application_facts(d, release['applications'][name])
-    return {'profile': PROFILE, 'applications': apps, 'applicationChecksPassed': all(x['ready'] and x['imageMatches'] for x in apps.values()),
+    return {'profile': c['profile'], 'applications': apps, 'applicationChecksPassed': all(x['ready'] and x['imageMatches'] for x in apps.values()),
             'installationComplete': False, 'runtimeEnabled': False,
             'unverified': ['数据库 Schema 和持久化', 'HTTP 与真实登录', 'Substrate/网关/调度接入', '生产交付']}
 

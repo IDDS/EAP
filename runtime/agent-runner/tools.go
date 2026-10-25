@@ -162,6 +162,11 @@ func calculateSum(numbers []float64) float64 {
 }
 
 func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, input any) {
+	r.guardedTaskWithExecutor(w, task, objective, input, r.sumExecutor)
+}
+
+// A fixed adapter may supply a request-scoped executor without changing shared runner state.
+func (r *runner) guardedTaskWithExecutor(w http.ResponseWriter, task, objective string, input any, execute func([]float64, *toolJournal) (float64, error)) {
 	if !r.toolsEnabled || r.runtimeKey == "" || r.toolDir == "" || len(task) > 256 {
 		http.Error(w, "guarded tools unavailable", 400)
 		return
@@ -266,8 +271,8 @@ func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, inpu
 	}
 	// Once the intent is saved, no path replays this callback, including a lost receipt.
 	var result float64
-	if r.sumExecutor != nil {
-		result, err = r.sumExecutor(numbers, j)
+	if execute != nil {
+		result, err = execute(numbers, j)
 		if err != nil {
 			j.GuardState = "FRAMEWORK_EXECUTION_UNCONFIRMED"
 			_ = saveTool(path, j)

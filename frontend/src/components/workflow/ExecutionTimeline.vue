@@ -11,6 +11,7 @@
       </li>
     </ol>
     <el-empty v-else :image-size="48" :description="execution.status === 'QUEUED' ? '已入队，等待开始处理' : '暂无步骤记录'" />
+    <WorkflowStopPanel :workflow-id="execution.workflowId" :run-key="execution.runKey" :status="execution.status" @changed="emit('changed')" />
     <ToolRecoveryFacts :workflow-id="execution.workflowId" :run-key="execution.runKey" />
     <p class="timeline-footnote">点击步骤查看证据。结果未知时先核对外部任务；此视图不会重放操作。</p>
   </section>
@@ -18,12 +19,14 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import ToolRecoveryFacts from './ToolRecoveryFacts.vue'
+import WorkflowStopPanel from './WorkflowStopPanel.vue'
 import type { WorkflowExecution } from '@/types/domain'
 const props = defineProps<{ execution: WorkflowExecution }>()
+const emit = defineEmits<{ changed: [] }>()
 const selected = ref<number>()
 watch(() => props.execution.runKey, () => { selected.value = undefined })
 function label(status: string) {
-  return ({ QUEUED: '等待执行', RUNNING: '正在执行', DISPATCHING: '正在派发', SUCCEEDED: '已确认完成', FAILED: '执行失败', EXECUTION_UNKNOWN: '结果未知 · 需核对', WAITING_APPROVAL: '等待审批', BLOCKED: '已阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
+  return ({ QUEUED: '等待执行', RUNNING: '正在执行', CANCELLED: '已停止后续调度', DISPATCHING: '正在派发', SUCCEEDED: '已确认完成', FAILED: '执行失败', EXECUTION_UNKNOWN: '结果未知 · 需核对', WAITING_APPROVAL: '等待审批', BLOCKED: '已阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
 }
 function validationLabel(status?: string) {
   return ({ PASSED: '结构验收通过', REJECTED: '结构验收未通过 · 已停止后续交接', NOT_EVALUATED: '未验收 · 任务未确认成功' } as Record<string, string>)[status || ''] || '未记录结构验收'

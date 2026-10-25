@@ -6,6 +6,7 @@ import { useExecutionQuery } from './useExecutionQuery'
 import { executionStreams } from './executionPresentation'
 import AgentExecutionGraph from './AgentExecutionGraph.vue'
 import ExecutionDeliveryPanel from './ExecutionDeliveryPanel.vue'
+import ExecutionLinksPanel from './ExecutionLinksPanel.vue'
 
 const props = defineProps<{ initialAgentId?: number }>()
 const permissions = usePermissions()
@@ -72,6 +73,7 @@ function previous() {
       </ul>
       <nav v-if="filter" class="event-paging" aria-label="执行事件分页"><el-button :disabled="loading || !cursors.length" @click="previous">上一事件页</el-button><span>第 {{ cursors.length + 1 }} 页{{ data ? ` · ${data.items.length} 条事件` : '' }}</span><el-button :disabled="loading || !data?.hasMore" @click="next">下一事件页</el-button></nav>
       <AgentExecutionGraph v-if="selectedStream" :key="selectedStream" :stream-key="selectedStream" />
+      <ExecutionLinksPanel v-if="selectedStream" :key="`links-${selectedStream}`" :stream-key="selectedStream" @open-stream="selectedStream = $event" />
     </template>
   </section>
 </template>

@@ -436,6 +436,9 @@ class HttpTransport:
     def report_delivery(self, runtime_key, body):
         return self._post("/api/runtime-access/v1/execution-delivery", runtime_key, body)
 
+    def report_link(self, runtime_key, body):
+        return self._post("/api/runtime-access/v1/execution-links", runtime_key, body)
+
     def _post(self, path, runtime_key, body):
         token = self.credential()
         if not isinstance(token, str) or not re.fullmatch(r"eap_rt_[A-Za-z0-9_-]{43}", token):

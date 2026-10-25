@@ -138,6 +138,15 @@ public class SubstrateDeploymentService {
     }
 
     @Transactional(readOnly = true)
+    public SubstrateDeploymentDtos.DeploymentContent content(Long agentId, Integer version) {
+        SubstrateDeployment deployment = repository.findByAgentIdAndVersion(agentId, version)
+                .orElseThrow(() -> new BusinessException("部署版本不存在"));
+        Object prompt = config(deployment).get("systemPrompt");
+        return new SubstrateDeploymentDtos.DeploymentContent(deployment.deploymentKey, deployment.agentId,
+                deployment.version, prompt instanceof String value ? value : null);
+    }
+
+    @Transactional(readOnly = true)
     public SubstrateDeploymentDtos.DeploymentReceipt receipt(Long agentId, String requestKey) {
         if (requestKey == null || !REQUEST_KEY.matcher(requestKey).matches())
             throw new BusinessException("requestKey 必须是 1–64 位字母、数字、下划线或短横线");
@@ -817,7 +826,19 @@ public class SubstrateDeploymentService {
     private SubstrateDeploymentDtos.DeploymentResponse response(SubstrateDeployment deployment) {
         return new SubstrateDeploymentDtos.DeploymentResponse(deployment.deploymentKey, deployment.agentId, deployment.version,
                 deployment.sourceType, deployment.status, deployment.imageRef, deployment.templateName, deployment.instanceKey,
-                deployment.reason, deployment.requestedBy, steps(deployment), config(deployment), deployment.createdAt, deployment.updatedAt);
+                deployment.reason, deployment.requestedBy, steps(deployment), metadata(deployment), deployment.createdAt, deployment.updatedAt);
+    }
+
+    private Map<String, Object> metadata(SubstrateDeployment deployment) {
+        Map<String, Object> stored = config(deployment);
+        Map<String, Object> visible = new LinkedHashMap<>();
+        // Configuration is retained intact for execution; general responses expose only console metadata.
+        for (String key : List.of("sourceType", "runnerFramework", "frameworkVersion", "runnerToolMode",
+                "model", "maxTokens", "thinkingMode", "port", "sandboxClass", "size", "identityMode")) {
+            Object value = stored.get(key);
+            if (value instanceof String || value instanceof Number || value instanceof Boolean) visible.put(key, value);
+        }
+        return visible;
     }
 
     private void audit(String actor, String action, Long agentId, String detail, boolean success) {

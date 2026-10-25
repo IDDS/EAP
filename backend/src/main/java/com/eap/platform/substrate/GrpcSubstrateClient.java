@@ -41,24 +41,29 @@ public class GrpcSubstrateClient implements SubstrateClient {
     private static final Logger log = LoggerFactory.getLogger(GrpcSubstrateClient.class);
 
     private final SubstrateProperties properties;
+    private final com.eap.platform.config.ProjectIsolation project;
     private ManagedChannel channel;
 
-    public GrpcSubstrateClient(SubstrateProperties properties) {
+    public GrpcSubstrateClient(SubstrateProperties properties, com.eap.platform.config.ProjectIsolation project) {
+        this.project = project;
         this.properties = properties;
     }
 
     @Override
     public ActorState get(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return call(stub -> stub.getActor(GetActorRequest.newBuilder().setActor(ref(actor)).build()));
     }
 
     @Override
     public ActorInventory inspect(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return inventory(rpc(stub -> stub.getActor(GetActorRequest.newBuilder().setActor(ref(actor)).build())));
     }
 
     @Override
     public ActorLocation locate(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return rpc(stub -> {
             // One total deadline for all reads, with no retries or lifecycle operations.
             var read = stub.withDeadline(io.grpc.Deadline.after(
@@ -98,6 +103,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public ActorPage listActors(String atespace, String pageToken) {
+        project.requireRuntimeScope(atespace);
         if (atespace == null || atespace.isBlank()) throw new IllegalArgumentException("运行空间不可为空");
         var page = rpc(stub -> stub.withDeadlineAfter(5, TimeUnit.SECONDS).listActors(ListActorsRequest.newBuilder()
                 .setAtespace(atespace).setPageSize(100).setPageToken(pageToken).build()));
@@ -113,21 +119,25 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public ActorState suspend(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return call(stub -> stub.suspendActor(SuspendActorRequest.newBuilder().setActor(ref(actor)).build()).getActor());
     }
 
     @Override
     public ActorState resume(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return call(stub -> stub.resumeActor(ResumeActorRequest.newBuilder().setActor(ref(actor)).build()).getActor());
     }
 
     @Override
     public ActorState revert(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         return call(stub -> stub.revertActor(RevertActorRequest.newBuilder().setActor(ref(actor)).build()).getActor());
     }
 
     @Override
     public void ensureAtespace(String atespace) {
+        project.requireRuntimeScope(atespace);
         try {
             rpc(stub -> stub.createAtespace(CreateAtespaceRequest.newBuilder()
                     .setAtespace(Atespace.newBuilder().setMetadata(ResourceMetadata.newBuilder().setName(atespace))).build()));
@@ -138,6 +148,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public void createTemplate(TemplateSpec spec) {
+        project.requireRuntimeScope(spec.atespace());
         Container.Builder container = Container.newBuilder().setName("agent").setImage(spec.image())
                 .addAllCommand(spec.command())
                 .setWakeupProbe(ContainerWakeupProbe.newBuilder().setTimeoutSeconds(120)
@@ -171,6 +182,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public GoldenStatus goldenStatus(String atespace, String template) {
+        project.requireRuntimeScope(atespace);
         ActorTemplate current = rpc(stub -> stub.getActorTemplate(GetActorTemplateRequest.newBuilder()
                 .setActorTemplate(ObjectRef.newBuilder().setAtespace(atespace).setName(template)).build()));
         var golden = current.getStatus().getGoldenSnapshotStatus();
@@ -180,6 +192,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public ActorState createActor(SubstrateActorRef actor, String template) {
+        project.requireRuntimeScope(actor.atespace());
         return call(stub -> stub.createActor(CreateActorRequest.newBuilder().setActor(Actor.newBuilder()
                 .setMetadata(ResourceMetadata.newBuilder().setAtespace(actor.atespace()).setName(actor.name()))
                 .setActorTemplate(ObjectRef.newBuilder().setAtespace(actor.atespace()).setName(template))).build()));
@@ -187,6 +200,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public ActorInventory createActorWithIdentity(SubstrateActorRef actor, String template) {
+        project.requireRuntimeScope(actor.atespace());
         return inventory(rpc(stub -> stub.createActor(CreateActorRequest.newBuilder().setActor(Actor.newBuilder()
             .setMetadata(ResourceMetadata.newBuilder().setAtespace(actor.atespace()).setName(actor.name()))
             .setActorTemplate(ObjectRef.newBuilder().setAtespace(actor.atespace()).setName(template))).build())));
@@ -194,6 +208,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public void deleteActor(SubstrateActorRef actor) {
+        project.requireRuntimeScope(actor.atespace());
         try {
             rpc(stub -> stub.deleteActor(DeleteActorRequest.newBuilder().setActor(ref(actor)).setAnyState(true).build()));
         } catch (SubstrateException exception) {
@@ -203,6 +218,7 @@ public class GrpcSubstrateClient implements SubstrateClient {
 
     @Override
     public void setEgressHostnames(SubstrateActorRef actor, List<String> hostnames) {
+        project.requireRuntimeScope(actor.atespace());
         if (hostnames.isEmpty()) {
             try {
                 rpc(stub -> stub.deleteActorEgressPolicy(DeleteActorEgressPolicyRequest.newBuilder().setActor(ref(actor)).build()));

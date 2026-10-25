@@ -3,6 +3,7 @@ package com.eap.platform.platform;
 import com.eap.platform.common.ApiResponse;
 import com.eap.platform.config.PlatformPermission;
 import com.eap.platform.config.SecurityProperties;
+import com.eap.platform.config.ProjectIsolation;
 import com.eap.platform.control.ControlDispatchProperties;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,13 +22,16 @@ import java.util.Map;
 public class PlatformStatusController {
     private final SecurityProperties securityProperties;
     private final ControlDispatchProperties controlDispatchProperties;
+    private final ProjectIsolation projectIsolation;
 
     public PlatformStatusController(
             SecurityProperties securityProperties,
-            ControlDispatchProperties controlDispatchProperties
+            ControlDispatchProperties controlDispatchProperties,
+            ProjectIsolation projectIsolation
     ) {
         this.securityProperties = securityProperties;
         this.controlDispatchProperties = controlDispatchProperties;
+        this.projectIsolation = projectIsolation;
     }
 
     @GetMapping("/status")
@@ -51,11 +55,12 @@ public class PlatformStatusController {
         return ApiResponse.ok(new CurrentUser(
                 securityProperties.getMode().name(),
                 authentication == null ? null : authentication.getName(),
-                roles, PlatformPermission.capabilities(authentication, securityProperties.isDevelopmentMode())
+                roles, PlatformPermission.capabilities(authentication, securityProperties.isDevelopmentMode()), projectIsolation.context()
         ));
     }
 
-    public record CurrentUser(String mode, String subject, List<String> roles, Map<String, Boolean> capabilities) {}
+    public record CurrentUser(String mode, String subject, List<String> roles, Map<String, Boolean> capabilities,
+                              ProjectIsolation.Context project) {}
 
     public record OidcConfig(String issuer, String clientId, String scopes) {}
 

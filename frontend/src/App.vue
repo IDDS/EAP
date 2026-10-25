@@ -27,6 +27,7 @@
       <el-header class="topbar">
         <el-button v-if="compactViewport" class="mobile-nav-trigger" :icon="Expand" aria-label="打开功能导航" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = true" />
         <div class="topbar-title">
+          <span v-if="permissionState.user?.project?.projectKey" class="topbar-kicker project-identity" :title="permissionState.user.project.projectKey">项目 · {{ permissionState.user.project.projectKey }}</span>
           <div class="breadcrumb-line">
             <router-link to="/" class="topbar-kicker">EAP 工作台</router-link>
             <span class="breadcrumb-separator">/</span>
@@ -172,7 +173,8 @@ import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
 import { startOidcSignIn } from '@/api/oidc'
-import { loadCurrentUser } from '@/stores/permissions'
+import { loadCurrentUser, usePermissions } from '@/stores/permissions'
+const { state: permissionState } = usePermissions()
 import { useAgentOpsContextStore } from '@/stores/agentOps'
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
 
@@ -444,3 +446,13 @@ onBeforeUnmount(() => {
   if (versionCheckTimer) window.clearInterval(versionCheckTimer)
 })
 </script>
+
+<style scoped>
+.project-identity {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+</style>

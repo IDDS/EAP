@@ -19,6 +19,13 @@ public class SecurityProperties {
     private String jwkSetUri = "";
     private String audience = "";
     private String rolesClaim = "roles";
+    private String projectKey = "";
+    private boolean initializeProjectBinding;
+
+    public String getProjectKey() { return projectKey == null ? "" : projectKey; }
+    public void setProjectKey(String value) { projectKey = value; }
+    public boolean isInitializeProjectBinding() { return initializeProjectBinding; }
+    public void setInitializeProjectBinding(boolean value) { initializeProjectBinding = value; }
     // Public client the console signs in with; published by /api/platform/status so the console always uses
     // the same identity provider (issuer-uri) whose tokens this backend accepts.
     private String oidcClientId = "";
