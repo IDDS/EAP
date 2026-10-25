@@ -3,11 +3,11 @@
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">管理 · 价值</span>
-        <strong>智能体管理界面</strong>
+        <h2>成本与价值</h2>
         <span>查看投入产出比、任务成效、知识采用与复用，并登记业务方确认的价值事件</span>
       </div>
       <div class="button-row">
-        <el-select v-model="windowHours" style="width: 150px" @change="load">
+        <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
           <el-option label="最近 7 天" :value="168" />
@@ -21,19 +21,14 @@
       </div>
     </div>
 
-    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="管理界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">价值总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'attribution' }" :effect="activeSection === 'attribution' ? 'dark' : 'plain'" @click="activeSection = 'attribution'">投入产出</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'connectors' }" :effect="activeSection === 'connectors' ? 'dark' : 'plain'" @click="activeSection = 'connectors'">业务连接器</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'value' }" :effect="activeSection === 'value' ? 'dark' : 'plain'" @click="activeSection = 'value'">价值事件</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'budget' }" :effect="activeSection === 'budget' ? 'dark' : 'plain'" @click="activeSection = 'budget'">预算与准入</el-tag>
-    </div>
+    <SectionNavigation v-model="activeSection" label="管理界面分区" :items="sectionItems" />
+
     <BudgetPanel v-if="activeSection === 'budget'" />
 
     <el-alert v-if="activeSection!=='budget'&&summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
     <p v-if="activeSection!=='budget'" class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
 
-    <div v-if="activeSection!=='budget'" class="analysis-hero management-hero">
+    <div v-show="activeSection === 'overview'" class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">价值分析 / 最近 {{ windowHours }} 小时</span>
         <h2>价值回路</h2>
@@ -47,7 +42,7 @@
       </div>
     </div>
 
-    <div v-if="activeSection!=='budget'" class="management-flow-strip">
+    <div v-show="activeSection === 'overview'" class="management-flow-strip">
       <div class="management-flow-step">
         <span class="management-flow-index">01</span>
         <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
@@ -499,12 +494,13 @@
           <div class="form-row">
             <el-form-item label="认证方式">
               <el-select v-model="connectorForm.authType" style="width: 100%">
-                <el-option label="无需认证" value="NONE" /><el-option label="Bearer 环境变量" value="BEARER_ENV" />
-                <el-option label="自定义 Header 环境变量" value="HEADER_ENV" />
+                <el-option label="无需认证" value="NONE" /><el-option label="Bearer 已登记凭据" value="BEARER_ENV" />
+                <el-option label="Header 已登记凭据" value="HEADER_ENV" />
               </el-select>
             </el-form-item>
-            <el-form-item label="凭据环境变量名"><el-input v-model="connectorForm.credentialEnvKey" :disabled="connectorForm.authType === 'NONE'" placeholder="CRM_API_TOKEN" /></el-form-item>
+            <el-form-item label="平台凭据引用"><el-input v-model="connectorForm.credentialEnvKey" :disabled="connectorForm.authType === 'NONE'" placeholder="由平台管理员提供，如 crm-readonly" /></el-form-item>
           </div>
+          <p v-if="connectorForm.authType !== 'NONE'" class="management-metric-hint">凭据引用须由平台管理员登记并绑定此连接器和 HTTPS 目标；认证请求头必须与登记值一致。</p>
           <div v-if="connectorForm.authType === 'HEADER_ENV'" class="form-row">
             <el-form-item label="认证 Header"><el-input v-model="connectorForm.authHeader" placeholder="X-API-Key" /></el-form-item>
             <el-form-item label="值前缀"><el-input v-model="connectorForm.authPrefix" placeholder="可留空" /></el-form-item>
@@ -593,6 +589,7 @@
 </template>
 
 <script setup lang="ts">
+import SectionNavigation from '@/components/common/SectionNavigation.vue'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -647,6 +644,13 @@ const selectedCurrency = ref('')
 const currencyOptions = computed(() => [...new Set([...summary.value.availableCurrencies, ...(selectedCurrency.value ? [selectedCurrency.value] : [])])].sort())
 const route = useRoute()
 let loadRequestId = 0
+const sectionItems = [
+  { value: 'overview', label: '价值总览' },
+  { value: 'attribution', label: '投入产出' },
+  { value: 'connectors', label: '业务连接器' },
+  { value: 'value', label: '价值事件' },
+  { value: 'budget', label: '预算与准入' },
+] as const
 const activeSection = ref<'overview' | 'attribution' | 'connectors' | 'value' | 'budget'>(route.query.section==='budget'?'budget':'overview')
 const loading = ref(false)
 const saving = ref(false)

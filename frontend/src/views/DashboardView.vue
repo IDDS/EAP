@@ -19,7 +19,7 @@
     <el-alert v-if="dashboardError" type="error" :closable="false" show-icon :title="dashboardError" />
     <nav class="workbench-start" aria-label="开始处理工作">
       <button type="button" @click="openWorkQueue"><strong><el-icon aria-hidden="true"><List /></el-icon>处理待办</strong><span>查看异常、负责人和处理记录</span><small>{{ hasDashboard ? `${dashboard.workItems.totalOpen} 项待处理` : '查看待办列表' }} →</small></button>
-      <router-link to="/operations"><strong><el-icon aria-hidden="true"><VideoPlay /></el-icon>跟进任务</strong><span>查看任务进展，阅读执行结果</span><small>打开任务列表 →</small></router-link>
+      <router-link to="/task-workspace"><strong><el-icon aria-hidden="true"><VideoPlay /></el-icon>跟进任务</strong><span>查看执行进展，核对任务结果</span><small>打开全部执行记录 →</small></router-link>
       <router-link to="/management"><strong><el-icon aria-hidden="true"><Money /></el-icon>查看业务成果</strong><span>查看登记的收益和业务改善记录</span><small>打开业务价值 →</small></router-link>
     </nav>
     <div v-show="workbenchTab === 'queue'" class="workbench-priority-strip">
@@ -153,7 +153,7 @@
     </div>
   </section>
 
-  <el-drawer v-model="detailVisible" title="运营事项证据" size="min(520px, 100vw)">
+  <el-drawer v-model="detailVisible" append-to-body :z-index="4000" title="运营事项证据" size="min(520px, 100vw)">
     <template v-if="selectedWorkItem">
       <div class="work-item-drawer-heading">
         <span class="severity-badge" :class="`severity-${selectedWorkItem.severity.toLowerCase()}`">{{ selectedWorkItem.severity }}</span>

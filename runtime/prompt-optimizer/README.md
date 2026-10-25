@@ -1,5 +1,11 @@
 # 受限提示词优化适配器
 
+2026-10-09新增离线候选合同原型：`candidate_frontier.py`、`frontier_demo.py`及独立回归。借鉴KISS AgentEvolver的谱系、受限变异和多目标前沿；只使用标准库，不导入KISS。详见[候选合同](../../docs/AGENT_EVOLUTION_CANDIDATES.md)。它尚未接入`server.py`或生产GEPA搜索，不改变已有候选封存、HOLDOUT、权限或预算；不能据此认定团队优化已实现。
+
+离线登记每次仅修改一个已冻结角色的提示词；原键复用、父代不可变、候选数/尝试次数/代数分别设限。仅同协议和批次的完整VALIDATION记录可比较，质量先过配置下限及基线门禁，再保留质量、总Token、整任务时延上的非支配候选；未知、缺失和未运行不补零。数据真实性由未来平台评测适配器负责，当前演示明确标注公开合成数据。进程内账本不等于平台持久意图或恢复保证。
+
+远程验证命令：`python -m unittest -v test_candidate_frontier test_adapter test_server`；公开零模型演示：`python frontier_demo.py`。只在PoC远程执行，不在本机安装依赖或运行验证。
+
 已部署有界组件，2026-10-05。合同：[PROMPT_OPTIMIZATION.md](../../docs/PROMPT_OPTIMIZATION.md)；方法依据：[华为交流报告映射](../../docs/research/agent-system-methods-20261002/huawei-report-methods.md)。
 
 `search(context, backend)` 实际使用固定 GEPA 0.1.4 包，或者确定性简单搜索；所有评价/反思交给受管 `Backend`。无供应商客户端、权重训练、生成代码、留出正文、自动采用、启动即重放任务。`server.py` 是内部单任务服务，配套后端持久协调器、根预算、单次 claim、评价/反思接口、候选封存、服务端留出及统一权限页面已部署。适用范围是固定运行程序的无工具单轮文本任务；主线的结构优化、身份续期及恢复加固继续保留。

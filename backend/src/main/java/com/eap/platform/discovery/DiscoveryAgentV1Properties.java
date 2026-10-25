@@ -44,7 +44,10 @@ public class DiscoveryAgentV1Properties {
     public double getRawContentSampleRate() { return rawContentSampleRate; }
     public void setRawContentSampleRate(double value) { rawContentSampleRate = value; }
     public int getRawContentRetentionDays() { return rawContentRetentionDays; }
-    public void setRawContentRetentionDays(int value) { rawContentRetentionDays = value; }
+    public void setRawContentRetentionDays(int value) {
+        if (value < 1 || value > 36500) throw new IllegalArgumentException("原文保留天数须在 1 至 36500 之间");
+        rawContentRetentionDays = value;
+    }
     public String getContentApprovalMode() { return contentApprovalMode; }
     public void setContentApprovalMode(String value) { contentApprovalMode = value == null ? "DUAL" : value; }
     public boolean isContentApprovalDisabled() { return "NONE".equalsIgnoreCase(contentApprovalMode.trim()); }

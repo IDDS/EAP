@@ -159,6 +159,7 @@ public class OpenAiCompatibleGatewayService {
         JsonNode observableRequest = canExposeGovernedContent(inputObservationDirective) ? forwardedRequest : null;
         captureContent(eventKey + "-input", eventKey, normalizedTrace, agentId, endpointKey, taskId,
                 model, ContentDirection.INPUT, request, observableRequest, inputObservationClassification, inputObservationDirective);
+        ensureApprovalContext(decision);
         if (decision.gatewayDirective() != GovernanceGatewayDirective.PROCEED
                 && decision.gatewayDirective() != GovernanceGatewayDirective.PROCEED_WITH_WARNING) {
             throw new GatewayException(HttpStatus.FORBIDDEN, "governance_" + decision.gatewayDirective().name().toLowerCase(), "治理网关已停止模型请求：" + decision.gatewayDirective());
@@ -194,6 +195,7 @@ public class OpenAiCompatibleGatewayService {
             JsonNode observableResponse = canExposeGovernedContent(outputObservationDirective) ? responseBody : null;
             captureContent(eventKey + "-output", eventKey, normalizedTrace, agentId, endpointKey, taskId,
                     model, ContentDirection.OUTPUT, originalResponseBody, observableResponse, outputObservationClassification, outputObservationDirective);
+            ensureApprovalContext(outputDecision);
             if (outputDecision.gatewayDirective() != GovernanceGatewayDirective.PROCEED
                     && outputDecision.gatewayDirective() != GovernanceGatewayDirective.PROCEED_WITH_WARNING) {
                 throw new GatewayException(HttpStatus.FORBIDDEN, "governance_output_" + outputDecision.gatewayDirective().name().toLowerCase(), "治理网关已停止模型输出：" + outputDecision.gatewayDirective());
@@ -208,6 +210,7 @@ public class OpenAiCompatibleGatewayService {
                     cachedTokens(responseBody), reasoningTokens(responseBody), elapsedMillis(startedAt), estimateCost(promptTokens, completionTokens), "USD",
                     toolCalls.size(), 0, null, properties.getUsagePoolKey(), Instant.now()
             ));
+            if(budget!=null)budget.recordTeamResponse(budgetTicket,responseBody);
             return ResponseEntity.status(response.getStatusCode())
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-EAP-Governance-Decision", decision.decisionKey())
@@ -372,8 +375,16 @@ public class OpenAiCompatibleGatewayService {
     }
 
     private void ensureProceed(GovernanceDataDtos.PreflightResponse decision, String subject) {
+        ensureApprovalContext(decision);
         if (decision.gatewayDirective() != GovernanceGatewayDirective.PROCEED && decision.gatewayDirective() != GovernanceGatewayDirective.PROCEED_WITH_WARNING) {
             throw new GatewayException(HttpStatus.FORBIDDEN, "governance_" + decision.gatewayDirective().name().toLowerCase(), "治理网关已停止" + subject + "：" + decision.gatewayDirective());
+        }
+    }
+
+    private void ensureApprovalContext(GovernanceDataDtos.PreflightResponse decision) {
+        if (decision.approvalStatus() == com.eap.platform.governance.GovernanceApprovalStatus.APPROVED
+                && !"CURRENT".equals(decision.approvalContextState())) {
+            throw new GatewayException(HttpStatus.FORBIDDEN, "governance_approval_context_changed", "审批依据已变更或未记录，请重新预检");
         }
     }
 

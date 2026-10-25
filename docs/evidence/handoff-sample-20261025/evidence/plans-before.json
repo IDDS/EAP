@@ -1,0 +1,68 @@
+{
+  "agent_teams": {
+    "columns": [
+      "id",
+      "code",
+      "name",
+      "objective",
+      "coordination_mode",
+      "workspace_policy",
+      "status",
+      "created_at",
+      "updated_at"
+    ],
+    "maxId": 9,
+    "rows": 9,
+    "sha256": "237a9d2c3a543b5e31924e0cfcd59dd02f26c56cddb19cc962c2570a0adfd46c"
+  },
+  "agent_team_members": {
+    "columns": [
+      "id",
+      "team_id",
+      "agent_id",
+      "role",
+      "responsibility",
+      "created_at",
+      "updated_at"
+    ],
+    "maxId": 19,
+    "rows": 19,
+    "sha256": "bf587268b20bb4e32dbf7cde77db274439f076f416d74994f89b7e2ed880b6df"
+  },
+  "agent_plans": {
+    "columns": [
+      "id",
+      "team_id",
+      "goal",
+      "context_summary",
+      "status",
+      "created_at",
+      "updated_at",
+      "execution_workflow_id",
+      "execution_run_key",
+      "execution_request_key",
+      "execution_fingerprint"
+    ],
+    "maxId": 10,
+    "rows": 10,
+    "sha256": "de80ced8e06b42e24caeee59bb841acbbb4365b979e6a78397607bfa1af41145"
+  },
+  "agent_plan_steps": {
+    "columns": [
+      "id",
+      "plan_id",
+      "step_order",
+      "title",
+      "required_capability",
+      "assigned_agent_id",
+      "status",
+      "created_at",
+      "updated_at",
+      "execution_backend",
+      "output_contract_json"
+    ],
+    "maxId": 23,
+    "rows": 23,
+    "sha256": "42c0b16bb9bba7539929ea0a12fc6d2852b0508a26861ea3f22bcb28e74cf62c"
+  }
+}

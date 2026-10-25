@@ -1,12 +1,14 @@
 <template>
   <section class="page-grid feedback-page">
-    <div class="toolbar"><div class="toolbar-title"><strong>反馈闭环</strong><span>关联真实智能体、任务和执行证据，记录改进建议与评审结论</span></div>
-      <div class="feedback-actions"><el-button :loading="loading" :disabled="busy" @click="load">刷新记录</el-button><el-button v-if="permissions.can('manageFeedback')" type="primary" :icon="Plus" :disabled="busy||loading" @click="openForm">新增反馈</el-button></div>
+    <div class="toolbar console-page-heading"><div class="toolbar-title"><h2>{{ location.experimentId?'对照实验记录':location.optimizationId?'优化任务记录':'反馈闭环' }}</h2><span>关联真实智能体、任务和执行证据，记录改进建议与评审结论</span></div>
+      <div v-if="!location.error&&!location.experimentId&&!location.optimizationId" class="feedback-actions"><el-button :loading="loading" :disabled="busy" @click="load">刷新记录</el-button><el-button v-if="permissions.can('manageFeedback')" type="primary" :icon="Plus" :disabled="busy||loading" @click="openForm">新增反馈</el-button></div>
     </div>
+    <el-alert v-if="location.error" :title="location.error" type="error" :closable="false" />
+    <p v-if="location.error || location.agentId || location.experimentId || location.optimizationId" class="feedback-note">链接用于定位记录，不表示候选已经采用。<router-link to="/learning">返回全部记录</router-link></p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="!permissions.can('viewContent')" title="当前权限可查看评分和关联信息；问题摘要及建议需正文查看权限。" type="info" :closable="false" />
-    <el-card shadow="never" class="panel">
-      <div class="feedback-filter"><el-select v-model="filterAgent" clearable filterable placeholder="全部智能体" aria-label="筛选智能体" @change="load"><el-option v-for="a in agents" :key="a.id" :label="a.name" :value="a.id" /></el-select><span>最近 100 条 · 采纳仅记录结论，配置变更须另行验证和发布</span></div>
+    <el-card v-if="!location.error&&!location.experimentId&&!location.optimizationId" shadow="never" class="panel">
+      <div class="feedback-filter"><el-select v-model="filterAgent" clearable filterable :disabled="busy || submitUnknown" placeholder="全部智能体" aria-label="筛选智能体" @change="changeFilter"><el-option v-for="a in agents" :key="a.id" :label="a.name" :value="a.id" /></el-select><span>最近 100 条 · 采纳仅记录结论，配置变更须另行验证和发布</span></div>
       <el-table :data="feedbacks" v-loading="loading" row-key="id" max-height="620">
         <el-table-column label="智能体 / 证据" min-width="210"><template #default="{row}"><strong>{{ agentName(row.agentId) }}</strong><div class="feedback-evidence"><span v-if="row.taskId">任务 #{{ row.taskId }}</span><span v-if="row.traceId" :title="row.traceId">Trace {{ row.traceId }}</span><span v-if="!row.taskId&&!row.traceId">未关联执行证据</span></div></template></el-table-column>
         <el-table-column label="反馈" width="120"><template #default="{row}">{{ types[row.feedbackType]||row.feedbackType }}</template></el-table-column>
@@ -16,10 +18,10 @@
         <el-table-column label="记录与评审人" min-width="170"><template #default="{row}"><small class="feedback-evidence" :title="row.requestedBy">记录：{{ row.requestedBy||'历史记录未留存' }}</small><small v-if="row.reviewedBy" class="feedback-evidence" :title="row.reviewedBy">评审：{{ row.reviewedBy }}</small><small>{{ formatTime(row.updatedAt) }}</small></template></el-table-column>
         <el-table-column v-if="canReview" label="评审" width="180" fixed="right"><template #default="{row}"><el-button v-if="row.status==='OPEN'" text :disabled="busy" @click="setStatus(row,'REVIEWING')">开始评审</el-button><el-button v-if="row.status==='REVIEWING'" text type="success" :disabled="busy" @click="setStatus(row,'ADOPTED')">采纳</el-button><el-button v-if="['OPEN','REVIEWING'].includes(row.status)" text :disabled="busy" @click="setStatus(row,'REJECTED')">不采纳</el-button></template></el-table-column>
       </el-table>
-      <el-empty v-if="!feedbacks.length&&!loading" description="尚无反馈，请关联智能体并填写实际观察" />
+      <el-empty v-if="!feedbacks.length&&!loading&&!error&&!location.error" description="当前范围内暂无反馈" />
     </el-card>
-    <AgentExperimentPanel />
-    <PromptOptimizationPanel />
+    <AgentExperimentPanel v-if="!location.error && !location.optimizationId" />
+    <PromptOptimizationPanel v-if="!location.error && !location.experimentId" />
     <el-dialog v-model="showForm" title="新增质量反馈" width="min(660px, calc(100vw - 28px))" :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy" :before-close="closeForm">
       <el-alert v-if="submitUnknown" title="提交结果尚未确认。可用原内容核对提交，平台会返回同一记录；请勿改写后重复提交。" type="warning" :closable="false" />
       <el-form label-position="top" @submit.prevent="submit">
@@ -36,6 +38,8 @@
 </template>
 <script setup lang="ts">
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
+import {useRoute,useRouter,onBeforeRouteUpdate,onBeforeRouteLeave} from 'vue-router'
+import {learningLocation} from '@/navigation/learningLinks'
 import {ElMessage} from 'element-plus'
 import {Plus} from '@element-plus/icons-vue'
 import {EapApi} from '@/api/eap'
@@ -44,7 +48,8 @@ import PromptOptimizationPanel from '@/components/PromptOptimizationPanel.vue'
 import {usePermissions} from '@/stores/permissions'
 import type {Agent,LearningFeedback,LearningFeedbackStatus} from '@/types/domain'
 const permissions=usePermissions(),feedbacks=ref<LearningFeedback[]>([]),agents=ref<Agent[]>([]),tasks=ref<{id:number;taskType:string;status:string}[]>([]),traces=ref<string[]>([])
-const loading=ref(false),busy=ref(false),evidenceLoading=ref(false),showForm=ref(false),submitUnknown=ref(false),error=ref(''),filterAgent=ref<number>()
+const route=useRoute(),router=useRouter(),location=computed(()=>learningLocation(route.query))
+const loading=ref(false),busy=ref(false),evidenceLoading=ref(false),showForm=ref(false),submitUnknown=ref(false),error=ref(''),filterAgent=ref<number|undefined>(location.value.agentId)
 const types:Record<string,string>={QUALITY:'回答质量',LATENCY:'执行耗时',COST:'调用成本',TOOL:'工具执行',KNOWLEDGE:'知识缺口',SAFETY:'安全与权限'}
 const statuses:Record<LearningFeedbackStatus,string>={OPEN:'待评审',REVIEWING:'评审中',ADOPTED:'已采纳',REJECTED:'不采纳'}
 const canReview=computed(()=>permissions.can('manageFeedback')&&permissions.can('viewContent'))
@@ -58,11 +63,27 @@ function formatTime(time:string){return new Date(time).toLocaleString('zh-CN',{h
 function current(run:number,user:unknown){return alive&&run===generation&&user===permissions.state.user&&permissions.can('viewConsole')}
 async function load(){
   if(busy.value||!permissions.can('viewConsole'))return
+  if(location.value.error||location.value.experimentId||location.value.optimizationId){feedbacks.value=[];agents.value=[];return}
   const run=++generation,user=permissions.state.user;loading.value=true;error.value=''
   try{const [rows,list]=await Promise.all([EapApi.listLearningFeedbacks(filterAgent.value),EapApi.listAgents()]);if(current(run,user)){feedbacks.value=rows;agents.value=list}}
   catch{if(current(run,user))error.value='反馈记录读取失败，请刷新重试。'}finally{if(current(run,user))loading.value=false}
 }
-function openForm(){if(!permissions.can('manageFeedback')||busy.value)return;if(!submitUnknown){draft.value=emptyDraft();draft.value.agentId=filterAgent.value;tasks.value=[];traces.value=[]}showForm.value=true;if(draft.value.agentId&&!submitUnknown)void loadEvidence()}
+async function changeFilter(){
+  if(busy.value||submitUnknown.value)return
+  const target=filterAgent.value
+  await router.push({path:'/learning',query:target?{agentId:String(target)}:{}})
+  filterAgent.value=location.value.agentId
+}
+function navigateContext(){
+  generation++;feedbacks.value=[];agents.value=[];loading.value=false;error.value=''
+  filterAgent.value=location.value.agentId
+  void load()
+}
+function canLeaveRecord(){if(busy.value||submitUnknown.value){ElMessage.warning('请先核对当前反馈提交，再切换记录。');return false}}
+onBeforeRouteUpdate(canLeaveRecord)
+onBeforeRouteLeave(canLeaveRecord)
+watch(()=>[route.query.agentId,route.query.experimentId,route.query.optimizationId],navigateContext,{flush:'sync'})
+function openForm(){if(!permissions.can('manageFeedback')||busy.value)return;if(!submitUnknown.value){draft.value=emptyDraft();draft.value.agentId=filterAgent.value;tasks.value=[];traces.value=[]}showForm.value=true;if(draft.value.agentId&&!submitUnknown.value)void loadEvidence()}
 function closeForm(done:()=>void){if(!busy.value)done()}
 async function loadEvidence(){
   const run=++evidenceGeneration,user=permissions.state.user,id=draft.value.agentId;draft.value.taskId=undefined;draft.value.traceId=undefined;tasks.value=[];traces.value=[]

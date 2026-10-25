@@ -43,7 +43,7 @@ class GrpcSubstrateClientEgressTests {
         }).build().start();
         channel = ManagedChannelBuilder.forAddress("127.0.0.1", server.getPort()).usePlaintext().build();
         var properties = new SubstrateProperties(); properties.setEnabled(true);
-        client = new GrpcSubstrateClient(properties); ReflectionTestUtils.setField(client, "channel", channel);
+        client = new GrpcSubstrateClient(properties, org.mockito.Mockito.mock(com.eap.platform.config.ProjectIsolation.class)); ReflectionTestUtils.setField(client, "channel", channel);
     }
     @AfterEach void close() throws Exception {
         client.close(); channel.awaitTermination(5, TimeUnit.SECONDS); server.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);

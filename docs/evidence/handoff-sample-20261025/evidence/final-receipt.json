@@ -1,0 +1,67 @@
+{
+  "passed": true,
+  "completedAt": "2026-10-25T14:05:04.024338+00:00",
+  "releaseId": "private-pilot-20261025-execution-links-r1",
+  "schema": 95,
+  "applicationImagesUnchanged": true,
+  "optionalSampleImage": "10.186.133.66:5001/eap-handoff-sample@sha256:c6e53ce1f97d109a0a2af46045928171b72245d2e42b5a2b21d33b90871bae09",
+  "defaultFrameworkImageUnchanged": true,
+  "goRace": {
+    "native": {
+      "topLevelTests": 62,
+      "includingSubtests": 139
+    },
+    "framework": {
+      "topLevelTests": 11,
+      "includingSubtests": 30
+    },
+    "handoff": {
+      "topLevelTests": 3,
+      "includingSubtests": 5
+    }
+  },
+  "goVet": true,
+  "pythonSdkTests": 80,
+  "pythonHandoffTests": 13,
+  "actualImageHandoffTests": 13,
+  "liveRoleBrowserCases": 8,
+  "syntheticBrowserCases": 0,
+  "agentIds": {
+    "source": 116,
+    "target": 117
+  },
+  "workflowId": 58,
+  "runKey": "wf-exec-87f83762-eadb-4f63-ac58-5a572c01f51c",
+  "taskStages": 6,
+  "codeExecutions": 1,
+  "sum": 42,
+  "modelCalls": 0,
+  "newEvents": 14,
+  "newLogicalRuns": 5,
+  "newToolClaims": 1,
+  "newCodeRegistrations": 2,
+  "confirmedLinks": 2,
+  "duplicateLinkReports": 4,
+  "finalInstances": "SUSPENDED",
+  "finalConnections": "REVOKED",
+  "finalAgents": "PAUSED",
+  "originalRecordsPreserved": true,
+  "totalExecutionEvents": 128,
+  "totalDeliveryReports": 8,
+  "canonicalInputs": 1036,
+  "changedFiles": 7,
+  "temporaryPodsRemoved": 4,
+  "temporaryConfigMapsRemoved": 2,
+  "temporaryRemaining": 0,
+  "backendFrontendMySqlRetested": false,
+  "kernelRetested": false,
+  "localApplicationTests": false,
+  "gitCommitOrPush": false,
+  "productionReady": false,
+  "limits": [
+    "Fixed public three-number sum only; not an arbitrary-code execution sandbox",
+    "Late reports are made by the owning runtime observer, after the Python child exits",
+    "Sample workflow outputs include the public code body; observation APIs store metadata only",
+    "No automatic arbitrary-framework instrumentation, general source archive, unknown-task replay, compensation or long-duration capacity proof"
+  ]
+}

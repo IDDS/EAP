@@ -15,4 +15,13 @@ public class AgentOpsSignalSyncState {
     Instant lastCompletedAt;
     @Column(name = "last_created_count", nullable = false)
     int lastCreatedCount;
+
+    @Column(name = "approval_cursor", nullable = false)
+    long approvalCursor;
+    @Column(name = "approval_upper_bound", nullable = false)
+    long approvalUpperBound;
+    @Column(name = "evaluation_cursor", nullable = false)
+    long evaluationCursor;
+    @Column(name = "evaluation_upper_bound", nullable = false)
+    long evaluationUpperBound;
 }

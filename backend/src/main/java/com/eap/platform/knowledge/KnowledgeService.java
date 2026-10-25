@@ -165,24 +165,30 @@ public class KnowledgeService {
     }
 
     private KnowledgeDtos.KnowledgeInteractionResponse toResponse(KnowledgeInteraction interaction) {
+        boolean otlp = interaction.interactionKey != null && interaction.interactionKey.startsWith("otlp-knowledge-");
         return new KnowledgeDtos.KnowledgeInteractionResponse(
                 interaction.id, interaction.interactionKey, interaction.traceId, interaction.agentId,
                 interaction.endpointKey, interaction.taskId, interaction.inputType, interaction.inputSourceCount,
-                interaction.inputTokenCount, interaction.inputSummary, fromJsonList(interaction.inputRefsJson),
+                interaction.inputTokenCount, otlp ? null : interaction.inputSummary, publicRefs(interaction.inputRefsJson, otlp),
                 interaction.outputType, interaction.outputSourceCount, interaction.outputTokenCount,
-                interaction.outputSummary, fromJsonList(interaction.outputRefsJson), interaction.status,
+                otlp ? null : interaction.outputSummary, publicRefs(interaction.outputRefsJson, otlp), interaction.status,
                 interaction.adopted, interaction.reused, interaction.qualityScore, interaction.processStepCount,
                 interaction.processTokenCount, interaction.processLatencyMs, interaction.startedAt,
                 interaction.completedAt, interaction.createdAt,
-                stepRepository.findByInteractionIdOrderByStepOrderAsc(interaction.id).stream().map(this::toStepResponse).toList()
+                stepRepository.findByInteractionIdOrderByStepOrderAsc(interaction.id).stream().map(step -> toStepResponse(step, otlp)).toList()
         );
     }
 
-    private KnowledgeDtos.KnowledgeStepResponse toStepResponse(KnowledgeTraceStep step) {
+    private KnowledgeDtos.KnowledgeStepResponse toStepResponse(KnowledgeTraceStep step, boolean otlp) {
         return new KnowledgeDtos.KnowledgeStepResponse(
                 step.id, step.stepOrder, step.stepType, step.name, step.status, step.sourceCount,
-                step.inputTokens, step.outputTokens, step.latencyMs, fromJsonList(step.refsJson), step.observedAt
+                step.inputTokens, step.outputTokens, step.latencyMs, publicRefs(step.refsJson, otlp), step.observedAt
         );
+    }
+
+    private List<String> publicRefs(String value, boolean otlp) {
+        var refs = fromJsonList(value);
+        return otlp ? refs.stream().filter(java.util.Objects::nonNull).map(com.eap.platform.observability.TraceMetadata::reference).toList() : refs;
     }
 
     private List<String> fromJsonList(String value) {

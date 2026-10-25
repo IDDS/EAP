@@ -1,0 +1,18 @@
+{
+  "tests": 13,
+  "failures": 1,
+  "errors": 8,
+  "skipped": 0,
+  "failedCases": [
+    "test_handoff_worker.HandoffTests.test_actual_child_processes_exit_before_link_confirmation",
+    "test_handoff_worker.HandoffTests.test_changed_binding_task_arguments_and_trace_rejected",
+    "test_handoff_worker.HandoffTests.test_completed_business_replay_returns_original_without_execution_or_new_ids",
+    "test_handoff_worker.HandoffTests.test_foreign_source_and_altered_link_rejected_before_send",
+    "test_handoff_worker.HandoffTests.test_framework_handoff_tracks_exact_bytes_different_streams_and_nested_executor",
+    "test_handoff_worker.HandoffTests.test_invalid_receipt_cannot_grant_execution",
+    "test_handoff_worker.HandoffTests.test_lost_link_reply_resends_original_intent_without_business",
+    "test_handoff_worker.HandoffTests.test_no_credentials_or_exception_text_persisted",
+    "test_handoff_worker.HandoffTests.test_resend_requires_original_outbox"
+  ],
+  "passed": false
+}

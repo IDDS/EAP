@@ -1,0 +1,12 @@
+{
+  "status": "MainPID=3697680\nNRestarts=0\nControlGroup=/system.slice/eap-ebpf-observer.service\nActiveState=active\n",
+  "enabled": "enabled",
+  "files": {
+    "/usr/local/lib/eap-discovery-agent/eap_ebpf_observer.py": "00fefa515c9f47e93173a18df47fbe24dd806e53726c9a351ec88dffc635f324",
+    "/usr/local/lib/eap-discovery-agent/eap-connect.bt": "bd5fcacf6b13191835efe176044e49e97f7ed913a6c2bd937361eae1f1a390ad",
+    "/usr/local/lib/eap-discovery-agent/launch.py": "951bc1acf397ceaa15155ee1cc3ed379f6408d35738010465f0b302eafd489ff",
+    "/etc/systemd/system/eap-ebpf-observer.service": "8506651773c815f602011ab0ee55e65bfa8b96ad6fed9f79de3fb7dd4048db04",
+    "/etc/eap-discovery-agent/ebpf.json": "d7b833eb6a0905a395d48d5e5d849a229b3259777eea25fe623b65861e9b49ea"
+  },
+  "secretUid": "ce67e850-5aa6-482b-a899-0d4713a077ab"
+}

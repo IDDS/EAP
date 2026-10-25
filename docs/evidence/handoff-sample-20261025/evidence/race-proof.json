@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "suites": {
+    "native": {
+      "topLevelTests": 62,
+      "includingSubtests": 139
+    },
+    "framework": {
+      "topLevelTests": 11,
+      "includingSubtests": 30
+    },
+    "handoff": {
+      "topLevelTests": 3,
+      "includingSubtests": 5
+    }
+  }
+}

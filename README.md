@@ -1,452 +1,358 @@
-# Enterprise Agent Platform（EAP）
+<div align="center">
 
-Enterprise Agent Platform（EAP）是面向企业智能体的管理控制平面，覆盖智能体生命周期、运行观测、治理策略、伦理安全和审计追踪。
+# EAP · Enterprise Agent Platform
 
-当前主控制台已完成 AgentOps 第一阶段改造：以正式 Agent 为唯一主实体，提供行动优先工作台、五轴状态、证据分级、统一 Work Item、P0-P3 SLA、全局时间/组织上下文及生产演示数据隔离。2026-09-08 本地第三轮完善新增首页读写分离、六类历史分页、不可变校准历史与默认关闭的真实工作流执行，验证记录见 [`docs/SYSTEM_IMPROVEMENTS_ROUND3_2026-09-08.md`](docs/SYSTEM_IMPROVEMENTS_ROUND3_2026-09-08.md)。系统逻辑和验收边界见 [`docs/AGENTOPS_PHASE1.md`](docs/AGENTOPS_PHASE1.md)。
+**企业智能体控制平面**
 
-当前版本已加入 gensee-crate 风格的多智能体运行安全控制能力：
+统一管理智能体资产、多智能体协作、运行实例、调用观测与安全治理。
 
-- 安全会话：记录多智能体协作目标和根智能体。
-- 运行事件：接收工具调用、数据访问、制品写入、智能体委托等事件。
-- 策略决策：输出 `ALLOW`、`ASK`、`DENY` 三态决策。
-- fail-closed：生产、特权、密钥、敏感数据等风险默认拦截。
-- 溯源审计：保存事件、决策、控制动作和制品 URI。
-- Sidecar 预留：可通过 `EAP_GENSEE_SIDECAR_ENABLED` 和 `EAP_GENSEE_SIDECAR_URL` 切换到真实 gensee sidecar 委托模式。
+[产品概览](#产品概览) · [核心能力](#核心能力) · [核心技术](#核心技术) · [多智能体任务](#多智能体任务) · [部署与接入](#部署与接入) · [集成范围](#集成范围)
 
-同时参考 AgentMesh 和 AgentScope 补充了多智能体团队编排能力：
+</div>
 
-- Team：定义多 Agent 团队、协作模式和工作区策略。
-- Member：登记 Agent 在团队中的角色和责任。
-- Plan：围绕目标创建任务计划。
-- Step：按 required capability 拆分步骤，并分配到具体 Agent。
-- 与注册发现衔接：步骤声明能力后，可进一步通过 Agent Discovery 自动选择候选 Agent。
-- 与安全网关衔接：步骤执行前应提交安全事件，进入 `ALLOW/ASK/DENY` 决策链路。
+[![EAP 详细架构：访问与身份、九组控制平面能力、EAP/Kagent/AX 运行适配、Substrate 实例、外部依赖、五类发现与观测入口，以及六步多智能体任务链路。](docs/images/eap-system-architecture-detailed.png)](docs/images/eap-system-architecture-detailed.png)
 
-当前前端已提供拖拽式智能体工作流构建器：
+实线表示控制与调用，虚线表示发现与遥测。[查看架构原图](docs/images/eap-system-architecture-detailed.png) · [查看简版总览](docs/images/eap-system-overview.png)
 
-- 左侧智能体/系统节点面板：支持把 Agent、开始、决策、制品、结束节点拖入画布。
-- 中间画布：支持节点拖动定位、点击节点建立连线。
-- 右侧属性面板：维护节点名称、类型、能力声明和 JSON 配置。
-- 后端持久化：工作流、节点、边统一落库，运行时仍经过安全网关决策。
-- 安全预演：工作流按受支持的分支条件检查节点策略并提交安全审计，返回 `executionMode=SAFETY_PREVIEW`、`agentsInvoked=false`；不会把策略通过当作 Agent 执行完成。另提供默认关闭的真实工作流执行，使用 EAP 自有 `EAP_HTTP_TASK_V1` 协议、执行快照和匹配任务标识的终态证据；尚未接入真实业务 Runtime，接入与边界见 [`docs/WORKFLOW_EXECUTION.md`](docs/WORKFLOW_EXECUTION.md)。独立 Agent 控制命令保留原 HTTP Runtime 适配器。
+## 产品概览
 
-当前已将自主发现从 EAP 主程序拆分为独立 Discovery Agent：
+EAP（Enterprise Agent Platform）面向需要统一管理多个智能体、运行框架和工具服务的企业团队。它将 **Agent 资产、Team / Plan / Workflow、运行实例、任务结果、模型调用、预算与审计证据**关联起来，为智能体应用提供持续运行和管理的基础。
 
-- 每台目标机器安装 Go 探针，执行进程、Docker、端口、项目清单、Skill、Plugin、MCP 元数据和主机网络快照发现；EAP 只负责策略、分析、审批和目录管理。
-- 探针通过一次性安装令牌注册，仅主动向 EAP 发起心跳和幂等上报，无需 EAP 反向登录目标机器。
-- 离线批次使用 AES-GCM 加密并按策略限定保留时间/容量；心跳、增量扫描和 FULL 快照支持抖动、退避、幂等和离线判定。
-- 发现结果进入候选资产与身份图谱，可人工复核后纳入正式 Agent 目录；同一工作负载的旧新指纹可归并到稳定身份。
-- 发现通道与业务内容通道使用不同的机器凭证和状态目录。内容透明代理默认采用平台管理员与数据责任人双重审批；当前版本也可显式配置为 `NONE` 免审核模式，并保留手工停用和审计事件。
-- EAP 本机扫描默认关闭，仅保留为开发/兼容能力；生产应使用独立探针。
+当智能体进入业务流程，团队需要管理的不只是提示词和模型，还包括能力归属、运行版本、任务交接、访问权限、资源消耗和异常处置。EAP 围绕这些对象建立统一的工作流程：
 
-协议级发现已经接入候选资产层：
+**登记或发现 Agent → 配置运行环境与身份 → 组织团队和计划 → 执行权限与预算准入 → 派发任务并校验交接 → 查看结果、调用与消耗 → 处置异常并收尾实例。**
 
-- A2A：探测标准 `/.well-known/agent-card.json`，兼容旧版 `/.well-known/agent.json`，登记 Agent Card 中的名称、版本、能力、技能、流式能力和认证声明。
-- MCP：支持官方 Registry 的 `/v0.1/servers`，以及 `server.json` / `/.well-known/mcp/*.json` 元数据，登记包、远程传输和仓库等证据；不会安装、启动或执行 MCP 包中的命令。
-- `AUTO` 会按顺序尝试 A2A、MCP Server Metadata 和 MCP Registry；所有响应都有大小限制、超时和禁止重定向控制。
-- 手动接口为 `POST /api/discovery/protocol/probe`，请求体：`{"targetUrl":"https://agent.example.com","discoveryType":"AUTO"}`。也可以通过 `EAP_DISCOVERY_PROTOCOL_TARGETS` 配置定时探测目标。
-- 出于 SSRF 防护，私有、回环、链路本地和云元数据地址默认拒绝；仅在受控内网部署时显式设置 `EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=true`。
+平台面向三类工作角色：
 
-该层解决“已知地址的协议自描述发现”。主机侧现已提供跨平台 Host Observer 协议、`PROCESS_NETWORK_SCAN` 便携采集器和 Linux 原生 eBPF connect-event 适配器；Kubernetes Watch/Admission 与跨源身份图谱也已接入。Windows ETW/WFP、macOS EndpointSecurity/NetworkExtension 内核事件适配器仍属于后续发行能力。
+| 使用者 | 在 EAP 中关注的工作 |
+| --- | --- |
+| 智能体开发者与应用团队 | 管理能力和版本，组合团队任务，配置结果契约，对照提示词与执行效果 |
+| 平台与运维团队 | 部署和管理实例，查看调度与任务状态，关联调用证据，处理未确认结果及资源回收 |
+| 治理与安全团队 | 设置策略和预算，管理敏感内容访问，处理审批与安全事件，追踪操作责任 |
 
-## 技术栈
+**当前交付形态为有实施支持的企业私有化试点。** 控制台安装、运行系统接入、模型和业务工具配置可按环境分阶段推进；每项目独立部署与数据库绑定可作为项目边界；生产环境的原生权限、网络、容量、HA、TLS 与灾备需要结合目标环境单独规划。
 
-- 后端：Java 21 LTS、Spring Boot 3.5、Spring Data JPA、Spring Security、Flyway、MySQL。
-- 前端：Vue 3、TypeScript、Vite、Pinia、Element Plus、Axios。
-- 数据库：MySQL 8.4。
- - 安全集成：gensee-crate compatible safety gateway。
+### 适用场景
 
-### 生产认证与权限
+- **多团队智能体资产管理**：把分散的 Agent、能力声明、部署版本和运行实例纳入目录，建立可持续维护的资产关系。
+- **多智能体任务协作**：将一个目标拆成有成员分工、执行顺序和输出要求的步骤，保存各步骤的原始结果及交接关系。
+- **模型与工具调用治理**：集中处理模型接入、使用额度、受控工具权限和调用记录，减少运行程序各自维护凭据与策略的负担。
+- **混合框架运行管理**：在适配范围内统一呈现原生 Runner、Kagent ADK 和异步任务的运行状态与相关记录。
+- **既有智能体接入与观测**：结合资产发现、应用遥测、MCP 宿主观测和网络证据，逐步补齐运行关系与调用信息。
 
-本地开发默认使用 `EAP_SECURITY_MODE=DEVELOPMENT`，保持演示环境免登录。生产环境必须切换到 JWT Resource Server：
+具体业务中的检索、报表、运维或审批工具，需要按照各自的数据权限和执行合同进行接入；平台中的通用管理能力不代表任意业务系统已经完成适配。
 
-```bash
-EAP_SECURITY_MODE=JWT
-EAP_SECURITY_ISSUER_URI='https://idp.example.com/realms/eap'
-EAP_SECURITY_AUDIENCE='eap-api'
-EAP_SECURITY_ROLES_CLAIM='roles'
-EAP_SECURITY_ALLOWED_ORIGINS='https://eap.example.com'
+## 核心能力
+
+### 智能体目录与生命周期
+
+EAP 将“智能体定义”“部署版本”和“实际运行实例”分别管理，使业务能力与一次具体运行保持清晰关联。
+
+在目录中可以登记 Agent 的名称、负责人、所属部门、风险等级与能力声明；部署时选择环境已启用的配置式 Runner、镜像或源码入口。实例建立后，平台关联其路由、实际身份、部署版本和状态，支持相应的运行操作。
+
+发现组件可以补充外部进程、服务和候选资产信息。候选资产进入目录后，仍需确认归属、连接方式与权限；发现记录本身不等于执行授权。
+
+### 团队、计划与工作流
+
+EAP 使用三个对象描述协作：
+
+| 对象 | 作用 | 典型内容 |
+| --- | --- | --- |
+| Team | 确定参与者与协作关系 | 成员、角色、职责、团队目标 |
+| Plan | 将目标拆解为可分配步骤 | 顺序、任务说明、所需能力、执行成员、结果契约 |
+| Workflow | 描述执行节点与依赖关系 | 运行后端、输入来源、节点配置、执行路径 |
+
+操作者可以为计划步骤分配团队成员，并定义每一步需要的输出。计划提交后，EAP 生成执行快照，保存成员分工、步骤配置和结果契约；后续修改当前配置，不会替换已经提交的原执行配置。
+
+工作流执行将原结果与步骤状态保留下来，并按配置处理结果交接。在支持结果契约的节点上，上一输出通过结构校验后，才能成为下游的有效输入。
+
+新工作流和团队计划支持[停止后续调度](docs/WORKFLOW_STOP.md)：排队中直接停止，运行中保留当前步骤的原回执后停止下一步。停止请求持久化、可按原键查询；外部效果和预算记录保留，未知结果继续等待核对。它不保证立即中断运行进程，也不会自动重试或补偿业务。
+
+### 任务工作台与运行调度
+
+任务工作台汇集计划、工作流、独立 AX 任务和当前用户的聊天任务，使不同入口产生的执行记录能够按统一方式查询。
+
+任务详情围绕一次原执行呈现：所属 Agent、实例、步骤、原始配置、输出摘要、结构校验、预算和异常原因。调度页面补充任务阶段、等待情况与画像信息；运行监控页面提供 Substrate 实例状态及平台关联。
+
+EAP 保留执行完成、结构合格和业务正确之间的区别。HTTP 返回成功、模型返回文本、JSON 符合结构，是不同层面的结果；最终业务正确性仍需由任务规则、专门核验步骤或人工确认。
+
+### 模型网关与预算账本
+
+模型请求通过网关统一接入，上游模型凭据由网关侧管理。平台记录调用归属、输入与输出 Token、耗时、终态和相关任务信息，供成本分析与执行追踪使用。
+
+预算采用 **调用前预占、收到明确结果后结算** 的方式，并支持以下范围和单位：
+
+| 维度 | 当前支持 |
+| --- | --- |
+| 预算范围 | 平台、Agent、任务、实验 |
+| 计量单位 | 模型调用次数、输出 Token、受控工具额度 |
+| 账本信息 | 已用量、预占量、上限、修改版本与原调用归属 |
+| 不确定结果 | 保留相关占用与原记录，等待按原意图核对 |
+
+预算准入与账本更新使用数据库事务和并发控制，避免多个调用同时把同一份剩余额度当作可用额度。这里的额度控制针对已接入的调用链路，不等于包含所有供应商费用的金额硬上限。
+
+### 身份、策略与审计
+
+企业登录使用 OIDC / JWT，浏览器采用 Authorization Code + PKCE。平台权限统一定义在后端 `PlatformPermission`，接口拦截与 `/api/platform/me` 读取同一份能力规则；前端按返回的能力显示操作入口。
+
+[项目独立部署](docs/PROJECT_ISOLATION.md)使用独立数据库、OIDC audience/client、凭据和运行空间。数据库绑定固定项目，JWT 必须携带精确的项目声明；原生控制、AX 和源码构建在访问目标前检查项目范围。控制台从 `/me` 显示项目归属。此方案不提供同库行级多租户，共用集群的管理员仍处于共同信任边界。
+
+运行实例使用单独的身份绑定与配送机制。平台关联 Agent、实例标识、实际 Actor UID、身份版本和有效期，支持验证、续期及撤销，使运行身份与具体实例关联。
+
+治理能力包括策略配置、`ALLOW / ASK / DENY` 决策、受控工具授权、审批、安全响应与操作审计。任务元数据和敏感内容分别控制访问，能够查看任务状态并不意味着自动获得原始输出。
+
+### 发现、工具与 MCP 观测
+
+EAP 将不同来源的证据汇入同一观测体系：
+
+| 观测来源 | 提供的信息 | 使用条件 |
+| --- | --- | --- |
+| Discovery Agent | 资产候选、进程、连接与服务线索 | 部署主机探针并配置采集范围 |
+| Host Observer | 宿主和运行时相关证据 | 可信宿主、身份及观测配置 |
+| 应用遥测 | Trace、调用事件和任务关联 | 应用或适配器提供相应遥测 |
+| MCP 宿主观测 | stdio / HTTP 协议中的工具调用元数据与结果状态 | 支持的协议、宿主接入及关联信息 |
+| eBPF 网络证据 | Linux 主机连接事件、进程与网络关系 | 满足内核、权限和探针运行条件 |
+
+这些来源回答的问题不同。网络证据帮助定位“哪个进程连接了哪个服务”，协议证据帮助识别工具调用，应用证据补充任务上下文。EAP 按可获得的任务、实例与调用标识关联它们，并保留证据覆盖范围。
+
+MCP 观测组件以元数据为主，避免把工具参数、结果正文或 HTTP 敏感头默认导出。仅有加密网络连接信息时，不能据此推断完整的工具名称、参数或业务语义；缺少关联信息时，也不能假定已经得到完整调用链。
+
+### 评测、提示词优化与反馈
+
+平台提供数据集、结果标注、提示词对照实验、有界候选优化和团队演化结果入口。使用者可以把候选配置的表现、调用消耗与留出集结果放在一起比较，再决定是否采用。
+
+这些能力适合形成持续改善的工作流程：收集执行问题，建立数据集，提出候选方案，对照结果与成本，保留决策依据。具体任务上的收益依赖数据、评价标准和业务环境，不预设所有优化都会产生稳定提升。
+
+## 核心技术
+
+跨实例 subagent 委派与动态代码交接可以通过[双方确认关联协议](docs/EXECUTION_LINKS.md)接入：两端使用各自实例身份报告同一关联，控制台区分待确认和双方已确认，并支持查看另一方执行。[可选交接样例](runtime/handoff-sample/README.md)由 EAP 调度 LangGraph 生成固定程序、AutoGen 短进程执行，进程退出后仍能补齐原关联。观测记录保存摘要、大小与语言；样例通过受业务内容权限保护的工作流输出传递公开程序正文。关联不授予执行权限，默认模板及其他框架仍需显式适配。
+
+### 控制平面、执行平面与观测平面
+
+EAP 将平台管理、任务运行和证据采集分开组织：
+
+| 层次 | 主要组件 | 职责 |
+| --- | --- | --- |
+| 访问层 | Vue 控制台、REST API、企业 IdP | 人员访问、任务管理与身份认证 |
+| 控制平面 | Spring Boot API、MySQL、Flyway | 资产、计划、权限、预算、执行状态与审计 |
+| 执行平面 | EAP Runner、Kagent ADK 适配、AX Runner | 在各自协议范围内执行任务并返回原回执 |
+| 运行底座 | Substrate / Kubernetes | 管理实例创建、唤醒、挂起与运行资源 |
+| 观测平面 | OTLP 接入、MCP Observer、Host Observer、Discovery Agent、eBPF 适配 | 汇集应用、协议和宿主证据 |
+| 外部资源 | 模型服务、工具、MCP 服务、业务系统 | 提供按合同接入的外部能力 |
+
+这样可以让同一套平台管理规则覆盖多种执行入口，同时明确每种适配器的支持范围。模型请求经网关和预算准入，业务工具遵守各自的权限与效果合同，观测组件负责证据采集与关联。
+
+主要技术栈：**Java 21 / Spring Boot 3.5、Vue 3 / TypeScript / Vite / Element Plus、MySQL 8.4 / Flyway、Go Runner 与发现探针、Python 观测与优化组件**。
+
+### 执行快照与持久状态
+
+任务提交时，EAP 保存执行配置和原请求标识；在支持的运行路径中，派发前记录目标实例及部署关联，包括 Actor UID、部署版本、固定镜像摘要和捕获时间。
+
+任务详情读取原快照与原回执，使历史记录能够说明“这次任务实际使用了什么配置”。原执行未记录到的部署关系会明确显示为未记录，不用当前版本猜测补齐。
+
+部分具备持久恢复合同的路径使用执行责任标识和 epoch 校验更新进度，限制过期工作进程继续写入。外部调用和平台数据库并非一个原子事务，因此平台仍区分明确终态与未知结果，不把进程重启或超时当作外部操作未发生的证明。
+
+### 实例身份绑定与安全配送
+
+身份配送将实际实例 UID、操作编号、随机挑战、身份版本和过期时间共同纳入核对。当前协议使用 Ed25519 对配送消息签名，并使用运行端临时 RSA 公钥进行 OAEP 加密配送；运行端核对签名、挑战和目标实例，再返回确认。
+
+这套机制用于降低身份投递到错误实例、沿用过期连接或接受不匹配配送消息的风险。模型上游凭据保留在网关侧，运行程序通过受控的平台链路访问模型。平台身份协议与生产网络的 TLS、访问控制和密钥管理需要配合使用。
+
+### 结构化结果合同
+
+EAP 的 `EAP_JSON_V1` 合同支持限定范围的 JSON 类型、字段和交接约束。合同随执行冻结，平台保存合同摘要、校验状态及原输出。
+
+例如，一个步骤要求输出数值字段 `sum`，就可以拒绝只有说明文字、字段缺失或类型不符的结果。合同只定义结构：`{"sum":4}` 与 `{"sum":3}` 都可能满足同一结构，具体值仍需要业务规则判断。
+
+### 不确定结果与受控恢复
+
+EAP 明确区分几类运行状态：
+
+| 状态类别 | 含义与处理方向 |
+| --- | --- |
+| 排队 / 运行中 | 查看阶段、实例和原任务进度 |
+| 明确完成 / 明确失败 | 根据原回执处理结果、账本与资源 |
+| 策略阻止 / 等待审批 | 查看策略依据和对应审批流程 |
+| `EXECUTION_UNKNOWN` | 外部效果可能已发生，先核对原任务与原效果 |
+
+对于已定义持久查询合同的受控工具，可以查询原操作效果。平台可停止新工作流的后续调度；正在执行的通用业务工具如何立即中断、自动续跑或补偿，仍需要逐项适配。
+
+执行观测将客户端已确认、待确认与服务端已接收的事件数分别展示，并保留报告时间和身份状态。回执丢失时，已接收事件仍可能处于客户端待确认状态；控制台帮助核对原记录，避免因观测缺口重复执行业务。这里展示的是最近一次报告。新版固定框架模板支持原 UID/身份代际绑定的有界后台补发，最多六轮且重启不重置；它只补原事件和报告，不重执行业务。普通 SDK 和旧日志不会自动参加补发。详见[投递状态](docs/EXECUTION_DELIVERY_STATUS.md)与[后台补发机制](docs/EXECUTION_BACKGROUND_DELIVERY.md)。
+
+实例回收也遵守占用保护。已有 UNKNOWN 占用可能阻止自动挂起，并使计划停止下游执行。应保留原记录，核对实际实例后通过 EAP 进行明确处置。
+
+## 多智能体任务
+
+下面用一个“计算 → 核验”的合成任务说明完整使用方式。两个 Agent 的创建、部署、计划提交、运行查询和实例收尾都经 EAP 完成。
+
+### 1. 准备两个 Agent
+
+在智能体目录分别登记计算 Agent 与核验 Agent，设置负责人、激活状态与所需能力。为每个 Agent 配置一次模型调用额度和明确的输出 Token 上限，采用当前环境已启用的运行适配器。
+
+部署时确定模型、提示词、运行规格与实例身份。原生 Runner 和 Kagent ADK 的可用性以环境能力及适配范围为准；保存原部署请求编号，状态不明时查询原请求。
+
+### 2. 建立团队与计划
+
+创建 Team，加入两个成员并指定职责；创建一个顺序计划：
+
+| 步骤 | 成员职责 | 输入要求 | 输出要求 |
+| --- | --- | --- | --- |
+| 计算 | 计算 Agent | 计算 `1 + 2` | `{"sum":3}` |
+| 核验 | 核验 Agent | 读取上一结果并判断 `sum` 是否为 3 | `{"verified":true}` 或 `{"verified":false}` |
+
+每个步骤分配具体成员，设置运行后端和所需能力。上一结果通过 `eapPreviousResults` 交给后续步骤。
+
+### 3. 配置结果契约
+
+计算步骤可使用以下合同：
+
+```json
+{
+  "version": "EAP_JSON_V1",
+  "source": "JSON_TEXT",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "sum": { "type": "number" }
+    },
+    "required": ["sum"],
+    "additionalProperties": false
+  }
+}
 ```
 
-JWT 中配置的角色 Claim（支持 `realm_access.roles` 等点分嵌套路径）、`scope` 或 `scp` 会以大小写无关方式映射为 EAP 角色：`VIEWER`、`OPERATOR`、`GOVERNANCE_ADMIN`、`PLATFORM_ADMIN`。采集器和 OTLP 不使用用户 JWT，而使用各自的 `X-EAP-*-Token` 机器凭证；JWT 模式下未配置机器凭证的上报请求会被拒绝。浏览器 Token 只保存在当前标签页的 `sessionStorage` 中，不会写入前端构建产物或持久化到服务器。
+核验步骤将字段改为 `verified`、类型改为 `boolean`。业务上的成功条件是 `sum = 3` 且 `verified = true`，应与结构通过分别查看。
 
-## 目录
+### 4. 提交、跟踪与收尾
 
-```text
-backend/   Spring Boot 后端
-frontend/  Vue 管理端
-discovery-agent/  独立主机发现探针与内容代理
-docs/      产品与技术设计
-需求/      原始需求材料
-```
+确认预算、输入和实例收尾方式后，提交一次计划并保存执行编号。EAP 冻结配置，完成准入、派发、结果接收与交接。
 
-跨会话项目进展、验证基线、已知限制和下一步优先级统一记录在 [`docs/PROJECT_MEMORY.md`](docs/PROJECT_MEMORY.md)。
+在任务详情查看各步骤状态、原输出、结构校验、实例绑定和调用记录，再核对额度结算。根据环境配置自动挂起实例，或在任务结束且归属明确后通过 EAP 显式挂起、撤销连接。
 
-## 本地启动
+> 遇到 UNKNOWN，先查询原执行和原外部效果。不要换一个请求编号再次提交来确认原任务是否成功。
 
-启动数据库：
+详细操作见[运行接入指南](docs/GETTING_STARTED.md)和[双 Agent 样例](examples/arithmetic-plan/README.md)。
 
-```bash
-docker compose up -d mysql
-```
+## 部署与接入
 
-### Docker Compose 一体化部署
+### 选择使用路径
 
-仓库根目录的 Compose 文件现在包含 MySQL、EAP 后端、OTLP gRPC 和 Nginx 前端，适合单机验收或小规模内网部署：
+| 目标 | 入口 | 环境形态 |
+| --- | --- | --- |
+| 了解控制台和管理对象 | 开发预览 | 内存数据库、开发认证与合成数据 |
+| 建立企业登录的管理环境 | [JWT 首次安装](deploy/delivery/install/README.md) | 独立 MySQL、企业 IdP 与控制平面 |
+| 执行真实 Agent 任务 | [运行系统接入](docs/GETTING_STARTED.md) | 运行底座、镜像、模型网关、实例身份与预算 |
+| 维护已有环境 | [交付工具](deploy/delivery/README.md) | 固定版本检查、源码校验、镜像构建、升级计划与只读运维诊断 |
 
-```bash
-docker compose up -d --build
-docker compose ps
-```
+所有依赖安装、构建和部署均在远程开发服务器或授权集群执行。本仓库提供源码和交付工具，发布清单中的镜像需要在目标环境准备并核验；示例仓库地址不代表公共镜像下载服务。
 
-访问 `http://localhost:5173`，后端健康检查为 `http://localhost:8080/actuator/health`，OTLP gRPC 入口为 `localhost:4317`。首次部署会执行全部 Flyway 迁移；MySQL 数据保存在 `eap_mysql_data` 卷中。生产环境至少应通过 `.env` 覆盖 `EAP_DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`EAP_SECURITY_MODE=JWT` 及 OIDC 参数，并设置观测、发现和治理机器令牌；不要把示例密码用于正式环境。
+### 开发预览
 
-Compose 默认保持开发模式认证、关闭主动 Runtime 控制投递和 `HASH_ONLY` 内容观测。启用控制投递前，先注册 Runtime endpoint，再显式设置 `EAP_CONTROL_DISPATCH_ENABLED=true`，私网 endpoint 还需要经过运维审批后设置 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。
-
-启动后端：
+在远程开发服务器准备 Java 21、Maven、Node.js 22 与 npm。从仓库根目录分别打开两个终端：
 
 ```bash
-cd backend
-mvn spring-boot:run
-```
-
-如果本机暂时没有 MySQL 或 Docker，可以使用本地内存数据库启动：
-
-```bash
+# 终端 1：启动后端，使用内存数据库
 cd backend
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-启动前端：
-
 ```bash
+# 终端 2：启动控制台
 cd frontend
-npm install
-npm run dev
+npm ci
+npm run dev -- --host 127.0.0.1
 ```
 
-访问：
+通过 SSH 端口转发访问 `http://localhost:5173`，后端健康入口为 `http://localhost:8080/actuator/health`。开发模式不要求登录，内存数据库退出后数据不保留，不应暴露到公网。
 
-- 前端：http://localhost:5173
-- 后端健康检查：http://localhost:8080/actuator/health
-- API 文档：http://localhost:8080/swagger-ui
+开发预览展示平台界面与管理流程。真实任务执行仍需配置运行系统、模型和身份；需要持久化开发数据时，配置 `EAP_DB_URL` 及凭据，并停用内存数据库 profile。
 
-## 关键接口
+### 企业控制平面安装
 
-- `GET /api/agentops/dashboard?hours=24`：行动工作台、证据指标、优先事项和关注 Agent。
-- `GET /api/agentops/agents`：按生命周期、运行健康、观测覆盖和风险态势分页筛选正式 Agent。
-- `GET /api/agentops/agents/{id}`：单 Agent 五轴聚合状态。
-- `GET /api/agentops/work-items`：统一运营事项队列。
-- `GET /api/agentops/work-items/{id}/events`：事项事件历史。
-- `POST /api/agentops/work-items/{id}/transition`：认领、处理、解决和关闭事项。
+首次安装需要准备：
 
-- `GET /api/tasks`：运行任务列表。
-- `GET /api/learning-feedbacks`：自适应学习反馈。
-- `GET /api/safety/summary`：多智能体安全摘要。
-- `POST /api/safety/sessions`：创建安全会话。
-- `POST /api/safety/events/evaluate`：提交运行事件并获得安全决策。
-- `GET /api/orchestration/teams`：团队列表。
-- `POST /api/orchestration/teams`：创建团队。
-- `GET /api/orchestration/teams/{teamId}/members`：团队成员。
-- `POST /api/orchestration/plans`：创建任务计划。
-- `GET /api/orchestration/plans/{planId}`：计划详情与步骤。
-- `POST /api/orchestration/plans/{planId}/steps`：添加计划步骤。
-- `GET /api/workflows`：工作流定义列表。
-- `POST /api/workflows`：创建工作流。
-- `GET /api/workflows/{workflowId}`：工作流详情，包含节点和连线。
-- `POST /api/workflows/{workflowId}/nodes`：新增或更新画布节点。
-- `POST /api/workflows/{workflowId}/edges`：新增节点连线。
-- `POST /api/workflows/{workflowId}/runs`：安全预演，返回检查状态和安全决策；可传 `context: {"severity":"high","approved":false}`。条件支持 `always`（兜底）、`never`、`approved` 和 `severity` 与 `low/medium/high/critical` 的 `>=/<=/==/>/<` 比较；未知条件、缺失必要上下文或多个匹配分支会被拒绝。预演上下文不授予治理审批。
-- `GET /api/discovery/summary`：自主发现摘要。
-- `GET /api/discovery/agents`：候选 Agent 资产清单。
-- `GET /api/discovery/runs`：最近发现扫描记录。
-- `GET /api/discovery/endpoints`：已注册的端点采集器清单。
-- `GET /api/discovery/identity-links`：跨来源稳定身份键、关联方式、置信度和来源类型。
-- `POST /api/discovery/scans`：开发兼容用的 EAP 本地扫描（生产默认关闭）。
-- `POST /api/discovery/agents/{id}/status`：更新候选资产的复核/纳管状态。
-- `GET /api/discovery/v1/admin/agents`：查看独立发现探针、心跳、扫描、离线队列和内容授权状态。
-- `POST /api/discovery/v1/admin/enrollment-tokens`：创建限时、限次的探针安装令牌。
-- `POST /api/discovery/v1/agent/enroll`、`heartbeat`、`observations`：探针注册、心跳和幂等批次上报。
-- `POST /api/discovery/v1/agent/host-observations`：使用每机器发现凭证上报 Host Observer 进程—网络观测，由服务端绑定端点身份。
-- `POST /api/discovery/v1/agent/content`：使用独立内容凭证接收已启用的代理观测；模型响应中的 `usage` 会归一化为被动模型遥测，不重复计费。
-- `POST /api/discovery/endpoints/register`：注册或更新端点采集器。
-- `POST /api/discovery/endpoints/observations`：批量上报端点发现观察结果。
-- `POST /api/discovery/protocol/probe`：从 A2A Agent Card、MCP Registry 或 MCP Server 元数据自动发现并登记候选资产。
-- `POST /api/discovery/connectors/kubernetes/watch`：接收 Kubernetes Watch 的 `ADDED/MODIFIED/DELETED` 事件，提取 Pod/Deployment 容器、镜像、框架标签、端口和安全上下文。
-- `POST /api/discovery/connectors/kubernetes/admission`：接收 Kubernetes AdmissionReview 的 `request.object`，在工作负载落地前记录 Agent/MCP 候选及特权、hostNetwork 等风险。
-- `POST /api/discovery/connectors/host/observations`：接收 `EBPF`、`ETW`、`WFP`、`ENDPOINT_SECURITY`、`NETWORK_EXTENSION` 或 `PROCESS_NETWORK_SCAN` 统一格式的主机观测。
-- `POST /api/discovery/connectors/ebpf/observations`：接收主机 eBPF 网络探针归一化的进程—远端服务流，识别模型供应商、模型、MCP 和 Agent 运行时。
-- `GET /api/control/commands`：查看控制命令 outbox、投递实例、ACK/失败状态和 HTTP 状态。
-- `POST /api/control/commands`：提交 `PAUSE`、`RESUME`、`RELOAD_POLICY`、`UPDATE_CONFIG`、`RUN_HEALTH_CHECK` 或 `SET_RATE_LIMIT` 控制命令。
-- `POST /api/control/commands/{commandKey}/retry`：对未 ACK 的控制命令执行受限重试（默认最多 3 次）。
-- `GET /api/telemetry/physical-summary?hours=24`：物理界面 Token、费用、延迟、成功率和运行状况汇总。
-- `GET /api/telemetry/model-invocations?limit=100`：最近模型调用遥测事件。
-- `POST /api/telemetry/model-invocations`：上报一次模型调用元数据；生产环境使用 `X-EAP-Telemetry-Token`。
-- `POST /api/telemetry/provider-usage-snapshots`：导入共享模型凭证的供应商 Token/账单时间窗；只提交非保密的 `usagePoolKey` 别名，不提交 API Key。
-- `GET /api/telemetry/usage-reconciliation?hours=24`：对账供应商总量与 Agent 调用级遥测，返回已归因、未分配、超额归因和未标池调用。
-- `GET /api/observability/status`：查看深度内容观测是否启用、采集模式和输入/输出数量。
-- `GET /api/observability/content?limit=100`：查看与模型调用 trace 关联的输入/输出观测。
-- `POST /api/observability/content`：由受控代理、SDK 插件或外部探针上报内容观测；生产环境使用 `X-EAP-Observability-Token`。
-- `POST /api/observability/otlp/v1/traces`：接收 OTLP/HTTP JSON Trace，自动识别 GenAI Span、登记工作负载端点并归一化模型调用与内容观测。
-- `GET /api/observability/otlp/spans?limit=100`：查看模型、工具、MCP、RAG、A2A 和 Agent 深度 Span 摘要。
-- `GET /api/observability/tool-invocations?limit=100`：按 Agent、端点、Runtime、Trace、工具类型、状态和时间范围查看工具调用明细及输入/输出观测关联。
+| 依赖 | 准备内容 |
+| --- | --- |
+| Kubernetes | 专用命名空间、明确的 Namespace UID、镜像访问与运行资源 |
+| MySQL | 独立空数据库、迁移权限、持久化与恢复安排 |
+| 企业 IdP | OIDC 公共客户端、PKCE S256、issuer、audience、角色映射 |
+| 控制台入口 | 浏览器可访问的 origin、`/auth/callback` 回调及目标环境的 HTTPS |
+| 凭据 | Secret 或凭据系统中的数据库、运行与模型配置，仅向安装配置填写引用 |
 
-控制面默认只写入 outbox，不会主动访问运行时。启用 HTTP Runtime 适配器前，运行实例通过 `/api/agents/{agentId}/runtime-instances` 注册在线 endpoint，然后设置：
+按[配置示例](deploy/delivery/install/config.example.json)准备非敏感参数，再执行：
 
-```bash
-EAP_CONTROL_DISPATCH_ENABLED=true
-EAP_CONTROL_DISPATCH_PATH=/eap/control
-EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=false
+| 安装步骤 | 作用 |
+| --- | --- |
+| `bootstrap.py render` | 固定配置与资源，生成安装包及摘要 |
+| `bootstrap.py preflight` | 检查目标身份、引用、对象冲突与服务端 dry-run |
+| `bootstrap.py install` | 检查独立数据库为空，再创建控制台资源并保存回执 |
+| `bootstrap.py status` | 查询原安装对象的状态 |
+
+独立项目安装可使用 [EAP_INSTALL_V2 示例](deploy/delivery/install/project.example.json)，并在 IdP 配置相应的 `eap_project` 声明。
+
+完整参数与操作顺序见[安装说明](deploy/delivery/install/README.md)。安装器不自动准备 MySQL、IdP、Substrate、Ingress 或 TLS；发生部分失败时，保留原回执并查询实际资源。
+
+**仓库不提供通用初始账号和密码。** 用户由目标环境的 IdP 管理员创建并分配能力对应的角色，凭据不写入 README、示例或提交。
+
+### 接入运行系统
+
+完成控制平面安装后，再按环境接入 Substrate 路由、工作空间、固定运行镜像、模型网关、实例身份配送和预算。可通过 `GET /api/agents/substrate/capabilities` 查看当前环境启用的运行能力。
+
+接入企业工具时，需要定义输入、权限、幂等标识、效果查询、结果与失败语义。平台应能够识别原操作是否完成，再决定后续处置方式；发现或登记一个服务不自动开放其执行权限。
+
+## 控制台工作区
+
+控制台围绕日常操作组织页面，主要入口包括：
+
+| 工作区 | 关注内容 |
+| --- | --- |
+| 运营工作台与运行指挥大屏 | 平台运行概况与主要工作入口 |
+| 智能体目录、详情与发现接入 | 资产、能力、版本、实例及候选资源 |
+| Agent 团队与工作流自动化 | 团队分工、计划、工作流配置及提交 |
+| 任务工作台、任务运行与 AX 任务 | 原执行记录、状态、输出与下一步处置 |
+| 调度与画像、Substrate 运行监控 | 任务阶段、运行实例及资源关系 |
+| 运行与观测、证据覆盖与定位 | 调用关联、观测来源与证据覆盖 |
+| 成本与价值 | 模型使用、额度与消耗归属 |
+| 评估与可靠性、自适应学习、团队优化结果 | 数据集、反馈、实验与候选结果 |
+| 策略与审批、安全响应、责任与伦理、审计日志 | 治理规则、审批、事件与操作责任 |
+
+页面操作由当前用户的能力控制，敏感内容权限与运行操作权限分开管理。
+
+## 集成范围
+
+| 主题 | 当前实现范围 | 接入时需注意 |
+| --- | --- | --- |
+| 原生 Runner | EAP 管理的任务、显式会话、实例身份和模型调用 | 依赖已启用的运行系统、网关及权限配置 |
+| Kagent ADK | 部分运行适配、文本轮次与 `CALCULATE_SUM_V1` 受控工具 | 完整 Kagent 平台、通用多轮工具循环、MCP 执行、子智能体及持久审批恢复不在当前范围 |
+| AX Runner | 受支持的异步任务与独立生命周期 | 按 AX 的任务和资源合同管理 |
+| MCP | 元数据发现、服务清单、可信宿主 stdio / HTTP 观测 | 观测接入与工具执行授权是不同流程 |
+| eBPF | Linux 主机连接事件与网络关系证据 | 不能单独还原加密流量中的工具参数和业务语义 |
+| 结果合同 | 限定 JSON 类型、字段和交接约束 | 不自动证明事实准确性或业务正确性 |
+| 恢复与回收 | 原意图、原回执、UNKNOWN 保留、受控工具效果查询与工作流停止后续调度 | 即时中断、通用自动恢复/补偿和历史占用处置需单独设计 |
+| 企业运行 | 统一能力权限、每项目独立部署/数据库绑定与私有化试点交付 | 同库多租户未提供；项目原生权限/网络、生产 HA / TLS、容量与整体灾备须在目标环境建设 |
+
+## 仓库结构与文档
+
+```text
+backend/           Spring Boot API、权限、编排、调度、治理与 Flyway 迁移
+frontend/          Vue 控制台、页面和交互组件
+runtime/
+  agent-runner/    原生任务运行程序与框架适配代码
+  kagent-runner/   Kagent 依赖与第三方声明
+  ax-runner/       异步任务运行程序
+  mcp-observer/    stdio / HTTP MCP 观测
+  prompt-optimizer/ 提示词优化组件
+discovery-agent/   Go 主机发现探针、内容代理与网络观测适配
+examples/          接入和多智能体样例
+scripts/           辅助采集与运维工具
+deploy/delivery/   发布合同、首次安装、版本检查与镜像构建
+docs/              接入、架构图片与专题说明
 ```
 
-适配器选择同一 Agent 心跳未过期、负载最低的 `ONLINE` 实例，发送 `X-EAP-Control-Command-Key` 和 `Idempotency-Key` 供 Runtime 幂等处理；2xx 记录 `ACKED`（收到请求，不代表任务完成），连接、协议或 HTTP 错误记录 `FAILED`。心跳默认有效 180 秒，可通过 `EAP_RUNTIME_HEARTBEAT_TTL_SECONDS` 配置；发现和控制即时排除过期实例，后台默认每 30 秒持久化离线状态。私网、回环和 `.local` endpoint 默认被 SSRF 防护阻断，内网部署必须由运维显式开启 `EAP_CONTROL_DISPATCH_ALLOW_PRIVATE_NETWORKS=true`。Runtime 只需实现 `POST /eap/control`，无需嵌入 EAP SDK。
-- `GET /api/knowledge/summary?hours=24`：知识输入、过程、输出、采用率和复用率汇总。
-- `GET /api/knowledge/interactions?limit=100`：知识交互及过程步骤明细。
-- `POST /api/knowledge/interactions`：上报一次知识交互和过程步骤；生产环境使用 `X-EAP-Knowledge-Token`。
-- `POST /api/knowledge/interactions/{id}/outcome`：补充知识采用、复用和质量结果。
-- `GET /api/management/summary?hours=24`：管理界面投入、确认业务价值、净收益、ROI、任务成功率以及 Agent 级指标。
-- `GET /api/management/value-events?limit=100`：查看已登记的业务价值事件。
-- `POST /api/management/value-events`：登记由业务方确认的价值事件；可附带 `metricName`、`metricUnit`、`baselineValue`、`currentValue` 和 `improvementDirection` 记录使用前后效率/业务指标。`sourceType/sourceSystem/sourceRecordKey/confidence` 用于业务系统幂等导入与可信度标注；`agentContributions` 可按权重把同一业务结果归因给多个智能体。生产环境使用 `X-EAP-Management-Token`。
-- `GET /api/governance/data-summary?hours=24`：治理数据进入模型、公司保密信息、阻断/脱敏和按 Agent/端点汇总。
-- `GET /api/governance/data-events?limit=100`：查看治理分类事件和策略动作。
-- `POST /api/governance/data-events`：由模型网关、DLP 或 Agent Runtime 上报治理元数据；生产环境使用 `X-EAP-Governance-Token`。
-- `POST /api/governance/preflight`：模型请求发送前的实时治理预检，返回网关必须执行的 `gatewayDirective`。
-- `GET /api/governance/preflight-decisions?limit=100`：查看最近预检、命中策略和决策依据。
-- `POST /api/governance/preflight-decisions/{decisionKey}/approve`：审批通过待审批模型请求，记录审批人和原因。
-- `POST /api/governance/preflight-decisions/{decisionKey}/reject`：拒绝待审批模型请求并转为阻断。
-- `GET /api/governance/enforcement-status`：查看强制执行、保密信息 fail-closed 和累计决策状态。
-- `GET /api/gateway/status`：查看 OpenAI-compatible 治理模型网关是否启用及配置就绪状态。
-- `POST /api/gateway/v1/chat/completions`：统一模型调用入口；执行输入预检、上游调用、输出预检及遥测回传。
-- `GET /api/gateway/v1/models`：通过治理网关查看上游 OpenAI-compatible 模型列表。
-
-中央发现策略配置示例：
-
-```bash
-EAP_DISCOVERY_ENABLED=false
-EAP_DISCOVERY_AGENT_HEARTBEAT_SECONDS=60
-EAP_DISCOVERY_AGENT_SCAN_SECONDS=300
-EAP_DISCOVERY_AGENT_FULL_SNAPSHOT_SECONDS=300
-EAP_DISCOVERY_AGENT_QUEUE_DAYS=7
-EAP_DISCOVERY_AGENT_QUEUE_MAX_BYTES=104857600
-EAP_DISCOVERY_AGENT_REQUIRE_HTTPS=true
-```
-
-协议发现配置示例：
-
-```bash
-EAP_DISCOVERY_PROTOCOL_ENABLED=true
-EAP_DISCOVERY_PROTOCOL_TARGETS=https://agents.example.com,https://registry.example.com
-EAP_DISCOVERY_PROTOCOL_INTERVAL_MS=300000
-EAP_DISCOVERY_PROTOCOL_ALLOW_PRIVATE_NETWORKS=false
-```
-
-Kubernetes Watch/Admission 与外部 Host Observer 连接器使用同一个 `EAP_DISCOVERY_INGESTION_TOKEN`，请求头为 `X-EAP-Discovery-Token`。独立 Discovery Agent 优先调用 `/api/discovery/v1/agent/host-observations`，使用每机器凭证且不允许客户端伪造端点身份。连接器只接收元数据和网络流摘要：Kubernetes 环境变量只保存变量名，不保存值；主机观测只保存进程、地址、端口、TLS SNI、模型/供应商和字节数，不保存 Prompt、响应正文、Token usage 或密钥。
-
-跨来源关联优先使用采集器提供的稳定 `eap.ai/identity`（Kubernetes label/annotation）或 Host Observer `identityKey`；精确身份键只由显式身份和主机构成，不受不同来源的展示名称/产品推断影响。未提供时，EAP 根据 Agent URL、工作负载 UID、可执行路径、远端服务和规范化产品特征生成哈希身份键。`EXACT` 关联会合并到同一候选资产，`HEURISTIC` 关联保留为可复核的身份图谱边。
-
-```bash
-EAP_DISCOVERY_KUBERNETES_ENABLED=true
-EAP_DISCOVERY_KUBERNETES_MAX_PAYLOAD_BYTES=1048576
-EAP_DISCOVERY_KUBERNETES_MAX_CONTAINERS=256
-EAP_DISCOVERY_EBPF_ENABLED=true
-EAP_DISCOVERY_EBPF_MAX_FLOWS=1000
-EAP_DISCOVERY_HOST_OBSERVER_ENABLED=true
-EAP_DISCOVERY_HOST_OBSERVER_MAX_OBSERVATIONS=1000
-```
-
-部署时可使用 Kubernetes Informer/Watch、Admission Webhook、外部 Tetragon/eBPF Collector 或平台原生网络事件采集器；EAP 端不需要修改 Agent 代码。Discovery Agent 1.4.0 在 Linux BTF + `bpftrace` 可用时启用 `eap-ebpf-observer.service`，挂载 `sys_enter_connect` tracepoint，按批次上报 `EBPF` 进程—连接元数据；不满足条件或服务启动失败时保留 `PROCESS_NETWORK_SCAN`。Linux 快照使用 `ss`、`/proc` 和只读 Docker 元数据，macOS 使用 `lsof`，Windows 使用 `netstat`/`tasklist`。Admission 连接器当前是“观察型”接收器，不会自动修改或阻断 Kubernetes 请求。
-
-实现依据：A2A 官方 Agent Card 发现规范为 [`/.well-known/agent-card.json`](https://a2a-protocol.org/latest/topics/agent-discovery/)，MCP 官方 Registry API 使用 [`/v0.1/servers`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml)。
-
-独立 Discovery Agent 与中央汇聚：
-
-- 在控制台“注册发现 → 发现探针”创建一次性安装令牌，在目标 Linux 机器执行页面生成的安装命令。
-- 安装包在 EAP `/downloads/` 下提供 Linux amd64/arm64 二进制、systemd 单元和安装/卸载脚本。
-- 注册后探针换取专属发现凭证与独立内容凭证；令牌不会持久保留在配置中。
-- 旧 `/api/discovery/endpoints/*` 和外部连接器接口保留给 Microsoft Defender、Kubernetes、eBPF 和兼容采集器；新安装优先使用 `/api/discovery/v1/agent/*`。
-
-示例配置：
-
-```bash
-EAP_DISCOVERY_INGESTION_TOKEN='change-me-in-production'
-```
-
-模型遥测上报凭证：
-
-```bash
-EAP_TELEMETRY_INGESTION_TOKEN='change-me-in-production'
-```
-
-模型遥测表只保存调用元数据：供应商、模型、输入/输出 Token、缓存/推理 Token、延迟、费用、工具/MCP 数量和结果状态。EAP 网关、OTLP、遥测 API 和 `eap-content-proxy` 响应 `usage` 都会进入同一张幂等事件表；Content Proxy 兼容 OpenAI/Anthropic/Gemini 常见字段和包含最终 `usage` 事件的 SSE 响应。提示词和输出由独立的深度内容观测模块按 `OFF`、`HASH_ONLY` 或 `REDACTED` 策略处理，避免把正文与普通运营指标混存。
-
-多个智能体共享同一个供应商 API Key 时，调用级事件应携带相同的非保密 `usagePoolKey`，例如 `shared-openai-production`。供应商 Usage/Billing 适配器按不重叠时间窗向 `provider-usage-snapshots` 导入总量；EAP 不会把差额平均分摊，而是在物理界面明确显示“未分配 Token/费用”。同一池出现已归因量大于供应商总量时会标记为超额归因，便于发现重复上报、窗口错位或币种配置错误。模型网关可设置 `EAP_GATEWAY_USAGE_POOL_KEY`，OTLP 可使用 `eap.usage.pool_key`，Content Proxy 可在配置中设置 `content_proxy.usage_pool_key`。
-
-腾讯云 HelloBoss 的实例配置位于 `deploy/tencent/content-proxy-helloboss.json`：Agent 专属收集器只监听 Boss Agent Docker bridge 的宿主机地址 `172.18.0.1:8687`，目录 Agent ID 为 4，用量池别名为 `shared-deepseek-production`。该文件不包含真实 API Key。腾讯云当前版本通过 `EAP_DISCOVERY_AGENT_CONTENT_APPROVAL_MODE=NONE` 显式启用免审核模式；中央策略仍需允许自动挂接，且管理员可随时停用内容采集。
-
-自动注入未显式指定 `--collector-url` 时，会根据目标容器的 Docker 网络网关选择内容代理地址，避免 Linux 环境中 `host.docker.internal` 指向错误网桥导致采集失败；显式配置的地址优先级更高。
-
-Discovery Agent 1.2.1 起提供 LiteLLM 无代码自动挂接，当前部署版本为 1.4.0：通过只读 Python `sitecustomize` 和 LiteLLM 官方 `CustomLogger` 回调采集 Prompt、Response 与 usage，不再要求改写 DeepSeek Base URL，也不读取或复制供应商 API Key。除手工 dry-run/`--apply` 外，还可在 `auto_attach` 中声明受管目标；root 级一次性协调器由 systemd timer 每分钟读取中央策略，授权生效后自动挂接，常驻发现进程仍保持低权限。挂接具备版本与归因配置幂等检测，只有首次挂接或配置变化才重建目标 Compose 服务。
-
-知识交互上报凭证：
-
-```bash
-EAP_KNOWLEDGE_INGESTION_TOKEN='change-me-in-production'
-```
-
-知识交互只保存输入/输出脱敏摘要、知识引用标识和过程步骤元数据；服务端会对明显的 API Key、Token、Secret、Password 形式进行脱敏。
-
-管理价值上报凭证：
-
-```bash
-EAP_MANAGEMENT_INGESTION_TOKEN='change-me-in-production'
-```
-
-ROI 只使用模型遥测中的真实费用和管理价值事件中的确认金额计算：`ROI = (确认业务价值 - 模型投入) / 模型投入`。没有确认价值事件时，接口返回 `hasValidatedValue=false`，前端显示“—”，不会用估算或模拟收益填充。若上报业务指标基线与当前值，EAP 按改善方向计算确认改进率：高值更好为 `(当前值-基线值)/|基线值|`，低值更好为 `(基线值-当前值)/|基线值|`。管理界面同时显示效率提升、业务提升、平均改进率和按 Agent 的“扩大投入/优先优化/补充确认/持续观察”信号；这些信号是运营提示，不替代业务方确认。
-
-多智能体价值归因要求 `agentContributions[].contributionWeight` 合计为 `1.0`。EAP 按权重分配确认金额到各智能体，但不会拆分或重复计算企业级总价值；每条归因可保留业务工单、CRM 记录或 Trace 标识作为证据。业务系统导入应使用稳定的 `sourceSystem + sourceRecordKey`，重复上报会返回已有事件而不会重复计入价值。
-
-管理界面的“业务连接器”可定时读取 CRM、ERP、工单或研发系统的 JSON API，并把外部记录映射成管理价值事件。连接器支持记录数组、唯一编号、金额、业务时间、说明、基线/当前值和 Agent/端点字段路径；设置 `incrementalParameter` 后，会把上次成功同步的时间以 ISO-8601 参数传给上游。同步失败不会推进增量游标，已经成功写入的记录通过 `sourceSystem + sourceRecordKey` 自动跳过。
-
-连接器凭据不会保存到数据库。配置中只填写后端容器内的环境变量名，例如 `EAP_BUSINESS_CONNECTOR_TOKEN_1`；Docker Compose 预留了三个凭据槽位：
-
-```bash
-EAP_BUSINESS_CONNECTOR_TOKEN_1='crm-access-token'
-EAP_BUSINESS_CONNECTOR_TOKEN_2='erp-access-token'
-EAP_BUSINESS_CONNECTOR_TOKEN_3='ticketing-access-token'
-```
-
-默认禁止连接回环、链路本地、云元数据和企业私网地址。确需访问内网业务系统时，应在受控网络中显式设置 `EAP_MANAGEMENT_CONNECTOR_ALLOW_PRIVATE_NETWORKS=true`。云实例元数据地址即使开启私网访问也始终禁止。
-
-治理数据上报凭证：
-
-```bash
-EAP_GOVERNANCE_INGESTION_TOKEN='change-me-in-production'
-EAP_GOVERNANCE_APPROVAL_TOKEN='separate-approval-key-in-production'
-```
-
-治理事件只允许上报 Agent/端点归因、数据方向、数据类别、敏感级别、内部/保密标记、Token/字节数和策略动作；接口没有提示词、输出正文或文件内容字段。生产环境应在模型网关或 DLP 层完成分类后上报，并通过 `BLOCK`、`REDACT` 或 `APPROVAL_REQUIRED` 记录处置结果。
-
-实时强制治理默认启用，`SECRET` 和 `RESTRICTED` 即使没有策略命中也会 fail-closed。可显式配置：
-
-```bash
-EAP_GOVERNANCE_ENFORCEMENT_ENABLED=true
-EAP_GOVERNANCE_FAIL_CLOSED_ON_SECRET=true
-```
-
-模型网关必须在调用供应商模型前调用 `/api/governance/preflight`，并遵守返回指令：`PROCEED` 可继续、`PROCEED_WITH_WARNING` 可继续并告警、`REDACT_AND_RECHECK` 必须脱敏后重新预检、`REQUEST_APPROVAL` 必须等待审批、`BLOCK` 必须停止请求。预检接口仍然不接收正文，敏感内容检测由部署在数据路径上的 DLP/分类器完成。
-
-在强制模式下，模型调用遥测还必须携带 `governanceDecisionKey`。后端会校验决策未过期（默认 300 秒）、Agent/端点归属、Provider 和 Model 是否与预检一致；阻断、待审批、待脱敏或不存在的决策会拒绝模型调用遥测，防止绕过预检直接调用模型。可调整有效期：
-
-```bash
-EAP_TELEMETRY_REQUIRE_GOVERNANCE_PREFLIGHT=true
-EAP_TELEMETRY_GOVERNANCE_DECISION_TTL_SECONDS=300
-```
-
-## OpenAI-compatible 治理模型网关
-
-生产 Agent 可以把 Chat Completions Base URL 指向 EAP，而不是直接访问模型供应商。网关默认关闭；只有显式配置上游后才会转发：
-
-```bash
-EAP_GATEWAY_ENABLED=true
-EAP_GATEWAY_UPSTREAM_BASE_URL=https://api.openai.com
-EAP_GATEWAY_UPSTREAM_API_KEY='upstream-provider-key'
-EAP_GATEWAY_INGESTION_TOKEN='agent-facing-gateway-key'
-EAP_GATEWAY_PROVIDER=openai
-EAP_GATEWAY_AUTO_ATTRIBUTION_ENABLED=true
-EAP_GATEWAY_MAX_RESPONSE_BYTES=4194304
-EAP_GATEWAY_INPUT_COST_PER_1K_TOKENS=0
-EAP_GATEWAY_OUTPUT_COST_PER_1K_TOKENS=0
-```
-
-客户端访问凭证默认 fail-closed：未设置 `EAP_GATEWAY_INGESTION_TOKEN` 时网关即使有上游地址也不会接收调用。本地隔离环境如确实需要无鉴权调试，必须显式设置 `EAP_GATEWAY_ALLOW_UNAUTHENTICATED=true`，生产环境不得使用。
-
-调用示例：
-
-```bash
-curl http://localhost:8080/api/gateway/v1/chat/completions \
-  -H 'Authorization: Bearer agent-facing-gateway-key' \
-  -H 'Content-Type: application/json' \
-  -H 'X-EAP-Agent-Id: 1' \
-  -d '{"model":"your-model","messages":[{"role":"user","content":"生成本周摘要"}]}'
-```
-
-也可以使用 `X-EAP-Gateway-Token` 传递网关凭证。显式携带 `X-EAP-Agent-Id` 或已注册的 `X-EAP-Endpoint-Key` 可以获得最精确归属；未携带时，默认按来源网络地址生成 `auto-network-*` 端点归属，后续可与自主发现的主机、容器或 Pod 资产自动合并。可选 `X-EAP-Task-Id` 和 `X-EAP-Trace-Id` 用于业务归因；没有 Trace ID 时由 EAP 自动生成。DLP/分类器可通过以下请求头提交高可信标签：
-
-- `X-EAP-Data-Category`
-- `X-EAP-Sensitivity: PUBLIC|INTERNAL|CONFIDENTIAL|SECRET|RESTRICTED`
-- `X-EAP-Internal-Data: true|false`
-- `X-EAP-Company-Secret: true|false`
-- `X-EAP-Detected-Types: PII,CREDENTIAL,SOURCE_CODE`
-
-网关对输入和输出分别执行治理预检；`BLOCK` 和 `REQUEST_APPROVAL` 不会转发，`REDACT_AND_RECHECK` 会先做基础凭证、邮箱和手机号脱敏后重新预检。`stream=true` 使用“完整缓冲上游 SSE → 输出治理 → 原样返回 SSE”的安全模式，并受 `EAP_GATEWAY_MAX_RESPONSE_BYTES` 限制；这会增加首字节延迟，但不会把未经治理的增量输出直接暴露给调用方。响应头包含输入、输出治理决策 Key 和 Trace ID。是否保存内容由下述深度观测模式单独控制。
-
-## 深度内容观测
-
-EAP 网关会自动把输入、输出和模型调用事件绑定到同一个 `eventKey`、Trace ID、Agent/端点、Provider 和 Model。独立探针也可通过 `/api/observability/content` 上报同样的数据模型。
-
-```bash
-EAP_OBSERVABILITY_ENABLED=true
-EAP_OBSERVABILITY_CAPTURE_MODE=HASH_ONLY
-EAP_OBSERVABILITY_MAX_CONTENT_BYTES=65536
-EAP_OBSERVABILITY_INGESTION_TOKEN='change-me-in-production'
-```
-
-- `OFF`：完全关闭正文观测。
-- `HASH_ONLY`：安全默认值，只保存 SHA-256、字节数、Token 估算、敏感级别、治理动作和 trace 关联，不保存正文。
-- `REDACTED`：只保存经过治理网关或 DLP 脱敏后的安全版本；原始内容只在内存中用于计算哈希，不落库。被 `BLOCK` 或 `REQUEST_APPROVAL` 拒绝且没有安全版本的正文也不会落库。
-
-物理界面的“深度内容观测”面板会显示 INPUT/OUTPUT、模型、trace、治理动作和可用的脱敏内容。生产环境应对读取接口增加组织级 RBAC、审计和保留期策略，并优先使用 `HASH_ONLY`。
-
-当前版本可通过统一网关做到业务代码低侵入，并已支持无请求头时的网络来源自动归属。产品目标是由主机探针、Kubernetes DaemonSet/Service Mesh 或企业模型出口代理完成一次性透明接入，使单个智能体无需修改代码、Endpoint 或 Trace 配置。HTTPS 正文观测必须在企业受控 TLS 终止点或受信运行时完成；普通 eBPF/网络抓包只能可靠获得连接元数据，不能绕过加密读取 Prompt/Output。
-
-### OTLP / OpenTelemetry 被动接入
-
-EAP 支持 OTLP/HTTP JSON 的 `resourceSpans`，兼容当前 OpenTelemetry GenAI 属性 `gen_ai.provider.name`、`gen_ai.request.model`、`gen_ai.response.model`、`gen_ai.usage.input_tokens`、`gen_ai.usage.output_tokens`、`gen_ai.input.messages`、`gen_ai.output.messages`，并兼容旧版 `gen_ai.system` 与常见 OpenLLMetry `llm.*` 属性。
-
-可将企业 OpenTelemetry Collector 的 `otlphttp` traces exporter 基础地址指向（Collector 会自动追加 `/v1/traces`）：
-
-```yaml
-exporters:
-  otlphttp/eap:
-    endpoint: http://eap.example.com:8080/api/observability/otlp
-    headers:
-      X-EAP-Observability-Token: ${env:EAP_OBSERVABILITY_INGESTION_TOKEN}
-```
-
-直接发送 OTLP/HTTP JSON 时，完整入口为 `http://eap.example.com:8080/api/observability/otlp/v1/traces`。
-
-同一入口同时接受 OTLP/HTTP Protobuf（`Content-Type: application/x-protobuf`），并默认启动标准 OTLP TraceService gRPC 端口 `4317`。gRPC 客户端通过 metadata `x-eap-observability-token` 传递采集凭证：
-
-```bash
-EAP_OTLP_GRPC_ENABLED=true
-EAP_OTLP_GRPC_PORT=4317
-EAP_OTLP_GRPC_MAX_INBOUND_MESSAGE_BYTES=4194304
-```
-
-EAP 不仅记录 GenAI 模型 Span，还会被动分类并持久化 `MODEL`、`TOOL`、`MCP`、`RAG`、`A2A`、`AGENT` Span，保存父子 Span 关系、工具名、MCP Server、RAG 来源、耗时、状态和脱敏属性摘要。工具参数、MCP 请求、RAG 查询/文档和 A2A 消息会复用深度观测模式处理；正文不会进入普通 Span 属性表。控制台或审计系统可通过 `GET /api/observability/otlp/spans?limit=100` 查看最近深度 Span。
-
-当 OTLP Trace 中出现 RAG 检索 Span 时，EAP 会自动生成一条知识交互：检索引用来自 `rag.documents` / `retrieval.documents`，输入来自 `rag.query` / `retrieval.query`；若同一 Trace 后续存在模型 Span，则将知识采用标记为推断采用，并保留 `OTLP_TRACE` 过程证据。显式提供 `rag.adopted`、`rag.reused` 时优先使用显式结果。知识采用率和复用率会自动进入知识、管理摘要；业务 ROI 仍只使用业务方确认的价值事件，不用模型自行臆测金额。
-
-如配置了 `EAP_OBSERVABILITY_INGESTION_TOKEN`，Collector 需要增加请求头 `X-EAP-Observability-Token`。EAP 会根据 `service.instance.id`、`k8s.pod.uid`、`container.id`、`host.id` 等资源属性自动生成稳定端点，不要求应用提供 EAP Agent ID。OTLP 观察到的调用会标记为 `OTLP / 被动发现` 和 `governanceCovered=false`，避免把“已经发生但未经过治理网关”的流量误报为已治理。
-
-审批重试流程：收到 `REQUEST_APPROVAL` 后，客户端保存响应头或响应体中的输入决策 Key；治理控制台或审批系统调用 `.../{decisionKey}/approve`（生产环境另带 `X-EAP-Governance-Approval-Token`），然后客户端使用完全相同的请求正文、Agent/端点归属、Provider/Model，并增加 `X-EAP-Governance-Decision-Key: {decisionKey}` 重试。EAP 会校验审批状态和 SHA-256 请求指纹，正文、模型或归属任一变化都会要求重新预检；普通 `PROCEED` 决策不能冒充审批凭证。审批默认受遥测治理决策 TTL 约束，过期后必须重新预检。
-
-构建独立 Discovery Agent：
-
-```bash
-cd discovery-agent
-make test
-make package
-```
-
-上线前可使用 `eap-discovery-agent scan --config /etc/eap-discovery-agent/config.json --dry-run` 检查资产观察结果，并使用 `sudo eap-discovery-agent observe-host --config /etc/eap-discovery-agent/config.json --dry-run` 检查主机网络观察结果。Linux 可用 `sudo systemctl status eap-ebpf-observer.service` 查看原生 eBPF 状态，适配器失败时 `eap-host-observer.timer` 仍每分钟执行 root-only 快照。探针不执行 MCP 配置命令，不上传凭证值；业务正文只能经单独的 `eap-content-proxy` 采集，审批模式由中央配置决定。更多命令见 [`discovery-agent/README.md`](discovery-agent/README.md)。
-
-Linux 主机安装 Docker 后，采集器还会只读调用 `docker ps` / `docker inspect`，根据显式 Agent 标签、容器/镜像签名、Compose 项目与服务角色、LLM 凭证环境变量名称识别 Agent 工作负载。只会上报环境变量名称，不会上报值；数据库、前端、代理和 EAP 自身容器会被排除。建议为自研 Agent 增加 `eap.agent=true`、`eap.agent.product`、`eap.agent.vendor` 标签以获得稳定的高置信度识别。可通过 `EAP_DISCOVERY_DOCKER_ENABLED=false` 关闭 Docker 发现。
-
-原 Python 0.3.0 systemd timer 仅作为兼容方案保留，新部署不应与 Go Discovery Agent 同时启用，否则会产生重复端点和证据。
-
-采集器和后端扫描器现在还会发现本地 Agent Skill（`skills/**/SKILL.md`）与 Codex/Claude 插件（`.codex-plugin/plugin.json`、`.claude-plugin/plugin.json`），并将其作为独立的 `AGENT_SKILL` / `AGENT_PLUGIN` 资产记录。宿主特征覆盖 Codex、Claude Code、Cursor、Windsurf、Kiro、OpenCode、Amp、Amazon Q Developer、Antigravity、OpenClaw、Cline、Roo Code、Gemini CLI、GitHub Copilot，以及 Mastra、LangGraph、CrewAI、AutoGen、Semantic Kernel、OpenAI Agents SDK 等框架。Windows 采集器使用 PowerShell CIM 读取进程元数据；任何平台都不会执行 MCP 命令或上传技能正文。
-
-供应链静态信号包括提示注入、工具投毒、工具影子、恶意载荷、凭证引用和凭证-外联毒性流；命中文件只上传信号布尔值，不上传正文。Microsoft Defender 的 AgentsInfo/Exposure Graph 导出可通过 `POST /api/discovery/connectors/microsoft-defender/ingest` 导入，适配器会统一归并设备、账户、进程、MCP、暴露图和风险字段。该适配器不要求 EAP 直接持有 Microsoft 凭据，生产环境应由受控同步任务调用并配置 `EAP_DISCOVERY_INGESTION_TOKEN`。
-
-如果需要使用 Snyk Agent Scan 的完整 MCP 工具描述分析，应在隔离沙箱中运行其 CLI，再将脱敏 JSON 结果接入 EAP；Snyk 文档明确提示扫描 stdio MCP 配置可能执行配置中的命令，因此 EAP 内置扫描保持被动读取模式，不会隐式执行第三方 MCP。
+- [运行接入指南](docs/GETTING_STARTED.md)：从企业控制台到一次多智能体执行。
+- [双 Agent 样例](examples/arithmetic-plan/README.md)：计算与核验的团队计划。
+- [交付工具](deploy/delivery/README.md)：首次安装、维护和升级的入口。
+- [运维诊断](docs/OPERATIONS_DIAGNOSTICS.md)：汇总应用、Pod、卷和节点磁盘证据，生成诊断包及保留计划。
+- [安装配置示例](deploy/delivery/install/config.example.json)：目标环境所需的非敏感参数。
+- [应用镜像构建](deploy/delivery/images/README.md)：固定基础镜像和应用产物的构建方式。
+- [系统架构图说明](docs/images/README.md)：简版、详细版与生成来源。

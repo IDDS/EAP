@@ -8,9 +8,11 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class GrpcAxClient implements AxClient {
  private final AxProperties properties;
+ private final com.eap.platform.config.ProjectIsolation project;
  private ManagedChannel channel;
- public GrpcAxClient(AxProperties p){properties=p;}
+ public GrpcAxClient(AxProperties p, com.eap.platform.config.ProjectIsolation project){properties=p;this.project=project;}
  private synchronized AXGrpc.AXBlockingStub stub(){
+  project.requireRuntimeScope(properties.getAtespace());
   if(!properties.ready()) throw new IllegalStateException("AX 未启用或缺少固定镜像");
   if(channel==null) channel=ManagedChannelBuilder.forTarget(properties.getTarget()).usePlaintext().build();
   return AXGrpc.newBlockingStub(channel).withDeadlineAfter(10,TimeUnit.SECONDS);

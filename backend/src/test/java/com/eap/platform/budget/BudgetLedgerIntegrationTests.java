@@ -45,7 +45,7 @@ class BudgetLedgerIntegrationTests {
         RequestContextHolder.resetRequestAttributes();
         for(String table:List.of("budget_limit_changes","budget_settlements","budget_reservation_items","budget_reservations","budget_accounts"))db.update("delete from "+table);
         agent=newAgent();other=newAgent();
-        when(governance.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(1L,"budget-pass",agent,GovernanceDataAction.ALLOW,GovernanceGatewayDirective.PROCEED,true,0,List.of(),List.of(),"test","test","test",GovernanceApprovalStatus.NOT_REQUIRED,null,null,null,null,Instant.now()));
+        when(governance.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(1L,"budget-pass",agent,GovernanceDataAction.ALLOW,GovernanceGatewayDirective.PROCEED,true,0,List.of(),List.of(),"test","test","test",GovernanceApprovalStatus.NOT_REQUIRED,null,null,null,null,Instant.now(),"NOT_APPLICABLE"));
         when(upstream.chatCompletions(any())).thenReturn(ResponseEntity.ok(output(2)));
     }
     @AfterEach void done(){RequestContextHolder.resetRequestAttributes();}
@@ -118,7 +118,7 @@ class BudgetLedgerIntegrationTests {
     @Test void workflowTaskHeaderIsBoundToPersistedDispatchIntent() {
         db.update("insert into workflow_definitions(code,name,status,created_at,updated_at) values(?,'Budget workflow','ACTIVE',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)","budget-workflow-"+agent);
         long wf=db.queryForObject("select max(id) from workflow_definitions",Long.class);
-        db.update("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at) values(?,'budget-run','RUNNING','public task','test','{}',?,CURRENT_TIMESTAMP)",wf,"[{\"taskKey\":\"budget-run:0\",\"agentId\":"+agent+"}]");
+        db.update("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at,started_at) values(?,'budget-run','RUNNING','public task','test','{}',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",wf,"[{\"status\":\"DISPATCHING\",\"taskKey\":\"budget-run:0\",\"agentId\":"+agent+"}]");
         var req=new MockHttpServletRequest();req.addHeader("X-EAP-Task-Key","budget-run:0");RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(req));
         var t=reserve("workflow-shared");ledger.complete(t,output(2));assertThat(account("TASK","budget-run:0","MODEL_CALLS").usedAmount()).isEqualByComparingTo("1");
         assertThatThrownBy(()->ledger.admitModel(request(),other,null,null,"trace","forged-workflow")).isInstanceOf(GatewayException.class);
@@ -264,4 +264,50 @@ class BudgetLedgerIntegrationTests {
         assertThat(ledger.dashboard().reservations()).hasSize(1);
     }
 
+    private long dispatchableWorkflow(String key) {
+        long wf=db.queryForObject("select min(id) from workflow_definitions",Long.class);
+        String steps="[{\"sequence\":0,\"taskKey\":\""+key+":0\",\"agentId\":"+agent+",\"runtimeInstanceKey\":\"synthetic-instance\",\"status\":\"DISPATCHING\"}]";
+        db.update("insert into workflow_executions(workflow_id,run_key,status,objective,requester,snapshot_json,steps_json,created_at,started_at,recovery_version,owner_epoch,owner_id) values(?,?,'RUNNING','synthetic','test','{}',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,1,7,'original-owner')",wf,key,steps);
+        long id=db.queryForObject("select id from workflow_executions where run_key=?",Long.class,key);
+        db.update("insert into workflow_phase_observations values (?,7,'original-owner',0,'TASK_WAIT','RUNNING',?,null)",id,System.currentTimeMillis());
+        var request=new MockHttpServletRequest();request.addHeader("X-EAP-Task-Key",key+":0");RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+        return id;
+    }
+
+    @ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={"stopped","expired","missing-start","owner","epoch","phase","step"})
+    void lostWorkflowResponsibilityRejectsBeforeProviderAndBudget(String change) {
+        long id=dispatchableWorkflow("fence-"+UUID.randomUUID());
+        switch(change) {
+            case "stopped" -> db.update("update workflow_executions set status='EXECUTION_UNKNOWN' where id=?",id);
+            case "expired" -> db.update("update workflow_executions set started_at=? where id=?",java.sql.Timestamp.from(Instant.now().minusSeconds(901)),id);
+            case "missing-start" -> db.update("update workflow_executions set started_at=null where id=?",id);
+            case "owner" -> db.update("update workflow_executions set owner_id='different-owner' where id=?",id);
+            case "epoch" -> db.update("update workflow_executions set owner_epoch=8 where id=?",id);
+            case "phase" -> db.update("update workflow_phase_observations set state='UNKNOWN' where execution_id=?",id);
+            case "step" -> db.update("update workflow_executions set steps_json=replace(steps_json,'DISPATCHING','SUCCEEDED') where id=?",id);
+        }
+        assertThatThrownBy(()->gateway.chatCompletions(request(),agent,null,null,"synthetic-trace",GatewayDtos.ClassificationHints.empty()))
+                .isInstanceOf(GatewayException.class).satisfies(e->assertThat(((GatewayException)e).getCode()).isEqualTo("workflow_not_running"));
+        verify(upstream,never()).chatCompletions(any());assertThat(ledger.dashboard().reservations()).isEmpty();
+    }
+
+    @Test void activeWorkflowAdmitsOnceAndLateCallKeepsOriginalReservation() {
+        long id=dispatchableWorkflow("fence-"+UUID.randomUUID());
+        var ticket=reserve("original");ledger.unconfirmed(ticket,"SYNTHETIC_DISCONNECT");
+        db.update("update workflow_executions set status='EXECUTION_UNKNOWN',owner_epoch=8,owner_id=null where id=?",id);
+        assertThatThrownBy(()->reserve("retry")).isInstanceOf(GatewayException.class);
+        assertThat(ledger.dashboard().reservations()).hasSize(1);
+        assertThat(ledger.dashboard().reservations().getFirst().state()).isEqualTo("UNKNOWN");
+        assertThat(account("PLATFORM","default","MODEL_CALLS").usedAmount()).isEqualByComparingTo("1");
+        assertThat(account("PLATFORM","default","OUTPUT_TOKENS").reservedAmount()).isEqualByComparingTo("4");
+    }
+
+    @Test void workflowFenceStillAppliesWhenBudgetFeatureIsDisabled() {
+        long id=dispatchableWorkflow("fence-"+UUID.randomUUID());
+        db.update("update workflow_executions set status='EXECUTION_UNKNOWN' where id=?",id);
+        var replica=new BudgetLedger(db,json,agents,manager);replica.enabled=false;
+        assertThatThrownBy(()->replica.admitModel(request(),agent,null,null,"trace","disabled"))
+                .isInstanceOf(GatewayException.class).satisfies(e->assertThat(((GatewayException)e).getCode()).isEqualTo("workflow_not_running"));
+        assertThat(ledger.dashboard().reservations()).isEmpty();
+    }
 }

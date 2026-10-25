@@ -30,12 +30,16 @@ import static org.mockito.Mockito.*;
 @ActiveProfiles("test")
 class WorkflowExecutionIntegrationTests {
     static HttpServer server;
+    static final AtomicReference<String> modelReason = new AtomicReference<>("");
     static final AtomicReference<String> reply = new AtomicReference<>("SUCCEEDED");
     static final AtomicReference<JsonNode> received = new AtomicReference<>();
     static final AtomicReference<JsonNode> output = new AtomicReference<>();
+    static final AtomicReference<String> rawResponse = new AtomicReference<>();
     static final AtomicInteger delayMs = new AtomicInteger();
     static final AtomicInteger requests = new AtomicInteger();
     static final ObjectMapper json = new ObjectMapper();
+    @Autowired ObjectMapper applicationJson;
+    @Autowired RuntimeWorkService work;
     @Autowired WorkflowService workflows;
     @Autowired WorkflowExecutionService executions;
     @Autowired WorkflowExecutionRepository repository;
@@ -68,9 +72,11 @@ class WorkflowExecutionIntegrationTests {
             Map<String, Object> response = new java.util.LinkedHashMap<>();
             response.put("taskKey", state.equals("WRONG_KEY") ? "wrong" : request.path("taskKey").asText());
             response.put("status", state);
+            response.put("reasonCode", modelReason.get());
             if (request.path("context").has("eapTool")) response.put("tool", Map.of("state", "SUCCEEDED", "executed", true, "receiptConfirmed", true));
             if (output.get() != null) response.put("output", output.get());
-            byte[] body = json.writeValueAsBytes(response);
+            byte[] body = rawResponse.get() == null ? json.writeValueAsBytes(response)
+                    : rawResponse.get().replace("TASK_KEY", request.path("taskKey").asText()).getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body); exchange.close();
@@ -85,7 +91,7 @@ class WorkflowExecutionIntegrationTests {
 
     @BeforeEach
     void setup() {
-        allReceived.clear(); requests.set(0); delayMs.set(0); reply.set("SUCCEEDED"); output.set(null);
+        rawResponse.set(null); modelReason.set(""); allReceived.clear(); requests.set(0); delayMs.set(0); reply.set("SUCCEEDED"); output.set(null);
         allow(SafetyDecision.ALLOW);
         Agent agent = new Agent(); agent.setCode("WF-" + UUID.randomUUID()); agent.setName("Workflow test");
         agent.setOwnerDepartment("test"); agent.setOwnerUser("test"); agent.setCategory("test");
@@ -133,7 +139,7 @@ class WorkflowExecutionIntegrationTests {
     }
 
     @Test
-    void executesSnapshotAndOnlyMatchingTerminalReceiptMeansSuccess() {
+    void executesSnapshotAndOnlyMatchingTerminalReceiptMeansSuccess() throws Exception {
         workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "task", "AGENT", agentId, null, 0, 0, "{\"mode\":\"audit\"}"));
         var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("actual task"), "operator");
         node("task", "END", null); // A later definition write does not replace the submitted path.
@@ -143,10 +149,14 @@ class WorkflowExecutionIntegrationTests {
         assertThat(result.executionMode()).isEqualTo("EAP_HTTP_TASK_V1");
         assertThat(result.steps()).extracting(WorkflowExecutionService.Step::status)
                 .containsExactly("CHECK_PASSED", "SUCCEEDED", "CHECK_PASSED");
+        assertThat(result.steps().get(1).runtimeBinding().instanceKey()).isEqualTo(result.steps().get(1).runtimeInstanceKey());
+        assertThat(result.steps().get(1).runtimeBinding().deploymentKey()).isNull();
+        assertThat(result.steps().get(1).runtimeBinding().capturedAt()).isBeforeOrEqualTo(result.completedAt());
         assertThat(requests.get()).isEqualTo(1);
         assertThat(received.get().path("taskKey").asText()).isEqualTo(result.steps().get(1).taskKey());
         assertThat(received.get().path("objective").asText()).isEqualTo("actual task");
-        assertThat(received.get().path("configJson").asText()).isEqualTo("{\"mode\":\"audit\"}");
+        assertThat(json.readTree(received.get().path("configJson").asText()))
+                .isEqualTo(json.readTree("{\"mode\":\"audit\"}"));
         verify(safety).evaluate(argThat(event -> event.target().equals("http://127.0.0.1:" + server.getAddress().getPort() + "/tasks")));
         assertThat(result.completedAt()).isNotNull();
         var profile=scheduling.report().runs().stream().filter(r->r.runKey().equals(queued.runKey())).findFirst().orElseThrow();
@@ -164,6 +174,7 @@ class WorkflowExecutionIntegrationTests {
             var result = executions.get(workflowId, queued.runKey());
             assertThat(result.status()).isEqualTo("EXECUTION_UNKNOWN");
             assertThat(result.steps()).hasSize(2); // END must not run after an unknown task.
+            assertThat(result.steps().get(1).runtimeBinding()).isNotNull();
         }
         assertThat(requests.get()).isEqualTo(2); // No automatic retry.
     }
@@ -293,6 +304,22 @@ class WorkflowExecutionIntegrationTests {
     }
 
     @Test
+    void truncatedModelResultStopsDependentTaskAndPersistsReason() {
+        reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_TRUNCATED");
+        output.set(json.getNodeFactory().textNode("PRIVATE_PARTIAL"));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("truncation regression"), "operator");
+        executions.processNext();
+        var result = executions.get(workflowId, queued.runKey());
+        assertThat(result.status()).isEqualTo("FAILED");
+        assertThat(result.steps()).anyMatch(step -> step.reason() != null && step.reason().contains("MODEL_OUTPUT_TRUNCATED"));
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(executions.outputs(workflowId, queued.runKey())).isEmpty();
+        executions.processNext();
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
     void absentOutputStopsDependentTaskButUnboundTasksRemainCompatible() {
         downstream("{\"inputFrom\":[\"task\"]}");
         var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("missing output"), "operator");
@@ -355,7 +382,8 @@ class WorkflowExecutionIntegrationTests {
             var result = executions.get(workflowId, queued.runKey());
             assertThat(result.status()).isEqualTo("SUCCEEDED");
             assertThat(requests.get()).isEqualTo(2);
-            assertThat(result.steps().get(1).reason()).contains("已休眠");
+            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("CONFIRMED");
+            assertThat(result.steps().get(1).runtimeBinding()).isNotNull();
             var order = inOrder(substrateClient);
             order.verify(substrateClient).resume(any());
             order.verify(substrateClient).suspend(any());
@@ -378,6 +406,155 @@ class WorkflowExecutionIntegrationTests {
             assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
             assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
             assertThat(requests.get()).isEqualTo(1);
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void reclaimsKnownFailedTaskWithoutReplacingBusinessReasonOrDispatchingNext() {
+        configureSubstrateTask(); downstream("{}"); reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_TRUNCATED");
+        when(substrateClient.suspend(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("SUSPENDED"));
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("failed reclaim"), "operator");
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED"); assertThat(result.reason()).contains("MODEL_OUTPUT_TRUNCATED");
+            assertThat(result.steps().get(1).status()).isEqualTo("FAILED");
+            assertThat(result.steps().get(1).reason()).isEqualTo(result.reason());
+            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("CONFIRMED");
+            assertThat(requests.get()).isEqualTo(1); verify(substrateClient).suspend(any());
+            assertThat(db.queryForObject("select state from workflow_phase_observations where execution_id=(select id from workflow_executions where run_key=?) and phase_kind='RECLAIM'", String.class, queued.runKey())).isEqualTo("CONFIRMED");
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void failedReclaimKeepsOriginalFailureAndFencesNewDispatch() {
+        configureSubstrateTask(); reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_EMPTY");
+        when(substrateClient.suspend(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("RUNNING"));
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("failed reclaim unknown"), "operator");
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED"); assertThat(result.reason()).contains("MODEL_OUTPUT_EMPTY");
+            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("UNCONFIRMED");
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("do not race late pause"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("回收状态未确认");
+            assertThat(requests.get()).isEqualTo(1); verify(substrateClient, times(1)).resume(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void sharedActorWithChatOrUnknownExperimentIsNotSuspended() {
+        configureSubstrateTask(); reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_EMPTY");
+        String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
+        try (var other = work.start(endpoint, "CHAT")) {
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("busy reclaim"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("占用");
+            other.complete(false);
+            assertThatThrownBy(() -> executions.submit(workflowId, new WorkflowDtos.RunRequest("unknown stays busy"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("占用");
+            assertThat(requests.get()).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void occupancyAppearingAfterQueueRejectsDispatchWithoutChangingUnknownOrReplayingIdempotencyKey() {
+        configureSubstrateTask();
+        String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
+        var request = new WorkflowDtos.RunRequest("late occupancy", Map.of(), "late-" + UUID.randomUUID());
+        try {
+            var queued = executions.submit(workflowId, request, "operator");
+            try (var other = work.start(endpoint, "EXPERIMENT")) { other.complete(false); }
+            assertThat(executions.submit(workflowId, request, "operator").runKey()).isEqualTo(queued.runKey());
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("未派发此任务");
+            assertThat(requests.get()).isZero(); verify(substrateClient, never()).resume(any());
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and state='UNKNOWN'", Long.class, endpoint.substring(12))).isEqualTo(1);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and work_kind='WORKFLOW'", Long.class, endpoint.substring(12))).isZero();
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void occupancyAppearingDuringTaskStillPreventsReclaimAndNextDispatch() {
+        configureSubstrateTask(); downstream("{}");
+        String endpoint = runtimes.findByAgentId(agentId).getFirst().getEndpoint();
+        when(substrateClient.resume(any())).thenAnswer(invocation -> {
+            try (var other = work.start(endpoint, "CHAT")) { other.complete(false); }
+            return new com.eap.platform.substrate.SubstrateClient.ActorState("RUNNING");
+        });
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("concurrent occupancy"), "operator");
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
+            assertThat(result.steps().get(1).reclaimStatus()).isEqualTo("SKIPPED_BUSY");
+            assertThat(requests.get()).isEqualTo(1); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftRejectsQueuedReclaimWhenExistingBindingChangesToHttp() {
+        configureSubstrateTask(); downstream("{}");
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        String actor = runtime.getEndpoint().substring(12);
+        var request = new WorkflowDtos.RunRequest("reclaim protocol drift", Map.of(), "drift-" + UUID.randomUUID());
+        try {
+            var queued = executions.submit(workflowId, request, "operator");
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("不支持", "未派发");
+            assertThat(result.steps()).extracting(step -> step.nodeKey()).containsExactly("start", "task");
+            assertThat(result.steps().get(1).status()).isEqualTo("FAILED");
+            assertThat(result.steps().get(1).runtimeInstanceKey()).isEqualTo(runtime.getInstanceKey());
+            assertThat(result.steps().get(1).runtimeBinding()).isNotNull();
+            assertThat(result.steps().get(1).httpStatus()).isNull();
+            assertThat(requests.get()).isZero();
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=?", Long.class, actor)).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+            assertThat(executions.submit(workflowId, request, "operator").runKey()).isEqualTo(queued.runKey());
+            assertThat(requests.get()).isZero();
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftRejectsQueuedReclaimWhenNewHttpInstanceReplacesUnavailableActor() {
+        configureSubstrateTask();
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("reclaim fallback drift"), "operator");
+            db.update("update agent_runtime_instances set status='OFFLINE' where instance_key=?", runtime.getInstanceKey());
+            String replacement = "http-replacement-" + UUID.randomUUID();
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(replacement,
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED");
+            assertThat(result.reason()).contains("不支持", "未派发");
+            assertThat(result.steps().get(1).runtimeInstanceKey()).isEqualTo(replacement);
+            assertThat(requests.get()).isZero();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void runtimeDriftAllowsOrdinaryTaskWithoutAutomaticReclaim() {
+        configureSubstrateTask(); node("task", "AGENT", agentId);
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("ordinary protocol drift"), "operator");
+            registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/tasks", "EAP_HTTP_TASK_V1", false));
+            executions.processNext(); var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("SUCCEEDED");
+            assertThat(requests.get()).isEqualTo(1);
+            assertThat(result.steps().get(1).reclaimStatus()).isNull();
+            verify(substrateClient, never()).resume(any()); verify(substrateClient, never()).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test void negativeKnownFailureMustReclaim() {
+        configureSubstrateTask(); reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_EMPTY");
+        when(substrateClient.suspend(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("SUSPENDED"));
+        try {
+            var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("negative known failure"), "operator");
+            executions.processNext();
+            assertThat(executions.get(workflowId, queued.runKey()).status()).isEqualTo("FAILED");
+            assertThat(requests.get()).isEqualTo(1);
+            verify(substrateClient).suspend(any());
         } finally { substrateProperties.setEnabled(false); }
     }
 
@@ -439,10 +616,106 @@ class WorkflowExecutionIntegrationTests {
         assertThat(requests.get()).isZero();
     }
 
+    @Test
+    void structuredTextUsesFrozenContractAndHandsOffParsedJsonWithMatchingDigest() throws Exception {
+        String config = WorkflowOutputContractTests.config("JSON_TEXT", WorkflowOutputContractTests.SCHEMA);
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "task", "AGENT", agentId, null, 0, 0, config));
+        output.set(json.getNodeFactory().textNode("{\"summary\":\"private-handoff\"}"));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        String frozenConfig = workflows.detail(workflowId).nodes().stream().filter(n -> n.nodeKey().equals("task")).findFirst().orElseThrow().configJson();
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("validated handoff"), "operator");
+        // Changing the current node cannot change the already submitted contract.
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "task", "AGENT", agentId, null, 0, 0,
+                config.replace("summary", "changed")));
+        executions.processNext();
+        var result = executions.get(workflowId, queued.runKey());
+        assertThat(result.status()).isEqualTo("SUCCEEDED"); assertThat(requests.get()).isEqualTo(2);
+        var validation = result.steps().get(1).resultValidation();
+        assertThat(validation.status()).isEqualTo("PASSED");
+        assertThat(validation.contractSha256()).isEqualTo(WorkflowOutputContract.read(frozenConfig,"AGENT",agentId).sha256());
+        var handed = allReceived.get(1).path("context").path("eapPreviousResults").path("task");
+        assertThat(handed.path("output").isObject()).isTrue();
+        assertThat(handed.path("output").path("summary").asText()).isEqualTo("private-handoff");
+        assertThat(handed.path("outputSha256").asText()).isEqualTo(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(handed.path("output")))));
+        assertThat(handed.path("originalOutputSha256").asText()).isEqualTo(result.steps().get(1).outputSha256());
+        assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
+        assertThat(applicationJson.writeValueAsString(result)).doesNotContain("private-handoff", "summary");
+        assertThat(executions.get(workflowId,queued.runKey()).steps().get(1).resultValidation()).isEqualTo(validation);
+    }
+
+    @Test
+    void rejectedOutputStopsDownstreamWithoutRewritingSuccessfulReceiptOrRetrying() throws Exception {
+        workflows.upsertNode(workflowId,new WorkflowDtos.NodeRequest("task","task","AGENT",agentId,null,0,0,
+                WorkflowOutputContractTests.config("OUTPUT",WorkflowOutputContractTests.SCHEMA)));
+        output.set(json.readTree("{\"summary\":42}")); downstream("{}");
+        var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("reject result",Map.of(),"contract-once"),"operator");
+        executions.processNext(); executions.processNext();
+        var result=executions.get(workflowId,queued.runKey());
+        assertThat(result.status()).isEqualTo("FAILED"); assertThat(requests.get()).isEqualTo(1);
+        assertThat(result.steps()).hasSize(2);
+        assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
+        assertThat(result.steps().get(1).resultValidation().code()).isEqualTo("TYPE_MISMATCH");
+        assertThat(executions.outputs(workflowId,queued.runKey()).get("task")).isEqualTo(output.get());
+        assertThat(executions.submit(workflowId,new WorkflowDtos.RunRequest("reject result",Map.of(),"contract-once"),"operator").runKey()).isEqualTo(queued.runKey());
+        assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void invalidStructuredResultStillConfirmsResourceReleaseBeforeFinishing() throws Exception {
+        configureSubstrateTask(); downstream("{}"); output.set(json.readTree("{\"summary\":42}"));
+        String config=WorkflowOutputContractTests.config("OUTPUT",WorkflowOutputContractTests.SCHEMA);
+        workflows.upsertNode(workflowId,new WorkflowDtos.NodeRequest("task","task","AGENT",agentId,null,0,0,
+                config.replaceFirst("\\{","{\"suspendAfterTask\":true,")));
+        when(substrateClient.suspend(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorState("SUSPENDED"));
+        try {
+            var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("reject and reclaim"),"operator");
+            executions.processNext(); var result=executions.get(workflowId,queued.runKey());
+            assertThat(result.status()).isEqualTo("FAILED"); assertThat(requests.get()).isEqualTo(1);
+            var step=result.steps().get(1);
+            assertThat(step.status()).isEqualTo("SUCCEEDED"); assertThat(step.resultValidation().status()).isEqualTo("REJECTED");
+            assertThat(step.reclaimStatus()).isEqualTo("CONFIRMED"); assertThat(step.runtimeBinding()).isNotNull();
+            verify(substrateClient).suspend(any());
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
+    void contractsDoNotTurnUnknownOrFailedTasksIntoValidationFailures() throws Exception {
+        workflows.upsertNode(workflowId,new WorkflowDtos.NodeRequest("task","task","AGENT",agentId,null,0,0,
+                WorkflowOutputContractTests.config("OUTPUT",WorkflowOutputContractTests.SCHEMA)));
+        downstream("{}"); output.set(json.readTree("{\"summary\":\"ok\"}"));
+        for(String state:new String[]{"WRONG_KEY","FAILED"}) {
+            reply.set(state); var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("receipt first"),"operator");
+            executions.processNext(); var result=executions.get(workflowId,queued.runKey());
+            assertThat(result.status()).isEqualTo(state.equals("WRONG_KEY")?"EXECUTION_UNKNOWN":"FAILED");
+            assertThat(result.steps().get(1).resultValidation().status()).isEqualTo("NOT_EVALUATED");
+            assertThat(executions.outputs(workflowId,queued.runKey())).isEmpty();
+        }
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
+    @Test
+    void invalidSavedContractIsRejectedBeforeEnrollmentOrDispatch() {
+        db.update("update workflow_nodes set config_json=? where workflow_id=? and node_key='task'",
+                WorkflowOutputContractTests.config("OUTPUT",WorkflowOutputContractTests.SCHEMA).replace("EAP_JSON_V1","UNSUPPORTED"),workflowId);
+        assertThatThrownBy(()->executions.submit(workflowId,new WorkflowDtos.RunRequest("invalid contract"),"operator")).isInstanceOf(BusinessException.class);
+        assertThat(executions.list(workflowId)).isEmpty(); assertThat(requests.get()).isZero();
+    }
+
+    @Test
+    void ambiguousRuntimeEnvelopesRemainUnknownAndNeverFeedDownstream() {
+        downstream("{}");
+        for(String raw:new String[]{"{\"taskKey\":\"TASK_KEY\",\"status\":\"SUCCEEDED\",\"output\":{},\"output\":{}}",
+                "{\"taskKey\":\"TASK_KEY\",\"status\":\"SUCCEEDED\"} {}"}) {
+            rawResponse.set(raw); var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("ambiguous receipt"),"operator");
+            executions.processNext(); assertThat(executions.get(workflowId,queued.runKey()).status()).isEqualTo("EXECUTION_UNKNOWN");
+        }
+        assertThat(requests.get()).isEqualTo(2);
+    }
+
     private void configureSubstrateTask() {
         var runtime = runtimes.findByAgentId(agentId).getFirst();
         registry.registerRuntime(agentId, new AgentRegistryDtos.RuntimeInstanceRequest(runtime.getInstanceKey(),
-                "substrate://test/actor", "SUBSTRATE", false));
+                "substrate://test/actor-" + agentId, "SUBSTRATE", false));
         substrateProperties.setEnabled(true);
         substrateProperties.setRouterUrl("http://127.0.0.1:" + server.getAddress().getPort());
         substrateProperties.setTaskPath("/tasks");

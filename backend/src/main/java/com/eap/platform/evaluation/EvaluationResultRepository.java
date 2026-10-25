@@ -16,4 +16,14 @@ public interface EvaluationResultRepository extends JpaRepository<EvaluationResu
     List<EvaluationResult> findTop500ByTraceIdOrderByEvaluatedAtDesc(String traceId);
 
     List<EvaluationResult> findByEvaluatedAtGreaterThanEqualOrderByEvaluatedAtDesc(Instant evaluatedAt);
+
+    @org.springframework.data.jpa.repository.Query("select coalesce(max(r.id), 0) from EvaluationResult r")
+    long signalUpperBound();
+
+    @org.springframework.data.jpa.repository.Query("""
+            select r from EvaluationResult r where r.status = :status and r.passed = false
+            and r.id > :cursor and r.id <= :upperBound order by r.id
+            """)
+    List<EvaluationResult> scanSignals(EvaluationStatus status, long cursor, long upperBound,
+                                       org.springframework.data.domain.Pageable page);
 }

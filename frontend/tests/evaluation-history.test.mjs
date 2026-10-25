@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
+import {evaluationHelpers,evaluationState} from './evaluation-test-support.mjs'
 
 function functionsFrom(names, state) {
+  names=[...names,...evaluationHelpers]
+  state={...evaluationState(),...state}
   const script = readFileSync(new URL('../src/views/EvaluationView.vue', import.meta.url), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
   const ast = ts.createSourceFile('EvaluationView.vue', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const source = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n')

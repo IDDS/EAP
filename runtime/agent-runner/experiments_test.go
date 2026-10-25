@@ -33,7 +33,7 @@ func experimentFixture(t *testing.T, status int) (*runner, *atomic.Int32, func()
 		}
 		writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "new output"}, "finish_reason": "stop"}}, "usage": map[string]int{"prompt_tokens": 7, "completion_tokens": 3}})
 	}))
-	r := &runner{experimentDir: t.TempDir(), gateway: server.URL, gwToken: "gateway-test", taskToken: "task-test", agentID: "7", model: "test-model", system: "baseline", maxTokens: 1024, history: []message{{Role: "user", Content: "private old history"}}, client: server.Client()}
+	r := &runner{experimentDir: t.TempDir(), gateway: server.URL, gwToken: "gateway-test", taskToken: "task-test", agentID: "7", model: "test-model", system: "baseline", maxTokens: 1024, client: server.Client()}
 	return r, calls, server.Close
 }
 func experimentCall(r *runner, in experimentInput, token string) *httptest.ResponseRecorder {
@@ -63,7 +63,7 @@ func TestExperimentsAreIsolatedAndConcurrentReplaysSpendOnce(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if calls.Load() != 1 || len(r.history) != 1 || r.history[0].Content != "private old history" {
+	if calls.Load() != 1 {
 		t.Fatal("duplicate model spend or history mutation")
 	}
 	in.Input = "different"
@@ -167,6 +167,10 @@ func TestControlledTaskToolsDoNotLeakIntoIndependentExperiments(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var calls atomic.Int32
 			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path == "/api/runtime-access/v1/traces" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
 				calls.Add(1)
 				if req.URL.Path != "/api/runtime-access/v1/chat/completions" || req.Header.Get("X-EAP-Runtime-Key") != "space/owned" || req.Header.Get("X-EAP-Runtime-Token") != "runtime-test" || req.Header.Get("X-EAP-Gateway-Token") != "" {
 					t.Error("experiment did not use its instance identity")
@@ -189,7 +193,7 @@ func TestControlledTaskToolsDoNotLeakIntoIndependentExperiments(t *testing.T) {
 				writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": msg, "finish_reason": finish}}})
 			}))
 			defer gateway.Close()
-			r := &runner{experimentDir: t.TempDir(), toolDir: t.TempDir(), toolsEnabled: true, runtimeKey: "space/owned", runtimeToken: "runtime-test", agentID: "7", model: "test-model", system: "baseline", maxTokens: 1024, history: []message{{Role: "user", Content: "private old history"}}, client: gateway.Client(), gateway: gateway.URL}
+			r := &runner{experimentDir: t.TempDir(), toolDir: t.TempDir(), toolsEnabled: true, runtimeKey: "space/owned", runtimeToken: "runtime-test", agentID: "7", model: "test-model", system: "baseline", maxTokens: 1024, client: gateway.Client(), gateway: gateway.URL}
 			profileReq := httptest.NewRequest("GET", "/eap/experiments/profile", nil)
 			profileReq.Header.Set("Authorization", "Bearer runtime-test")
 			profile := httptest.NewRecorder()
@@ -214,7 +218,7 @@ func TestControlledTaskToolsDoNotLeakIntoIndependentExperiments(t *testing.T) {
 				}
 			}
 			files, _ := filepath.Glob(filepath.Join(r.toolDir, "*.json"))
-			if calls.Load() != 1 || len(files) != 0 || len(r.history) != 1 || r.history[0].Content != "private old history" {
+			if calls.Load() != 1 || len(files) != 0 {
 				t.Fatal("duplicate spend, tool execution or history mutation")
 			}
 		})

@@ -1,0 +1,57 @@
+{
+  "backend": {
+    "deploymentUid": "843a07b2-2b4b-4d9f-bbd1-fffc3db49ff3",
+    "image": "10.186.133.66:5001/eap-backend@sha256:f93d311d41828341a70a919812f983f675aada0e5e3cf4a028c1d2d12642b88c",
+    "specSha256": "4cff75e620c4d067e0964243748b9c12f12e3cfcb1887e75f4fbc5307d4acc1c",
+    "pods": [
+      {
+        "name": "backend-67fd587597-qn2ps",
+        "uid": "aab615f3-27f3-481b-8637-1e608e1b5395",
+        "phase": "Running",
+        "containers": [
+          {
+            "ready": true,
+            "restarts": 0,
+            "imageID": "10.186.133.66:5001/eap-backend@sha256:f93d311d41828341a70a919812f983f675aada0e5e3cf4a028c1d2d12642b88c"
+          }
+        ]
+      }
+    ]
+  },
+  "frontend": {
+    "deploymentUid": "c4afbd9f-2e82-447e-bf53-196966aa1079",
+    "image": "10.186.133.66:5001/eap-frontend@sha256:6b096481c862f9af3770492be7a011ab856762ba2d95344504d142144aeac33f",
+    "specSha256": "b493a2fd95afe11f0d12e0c8aeb2063ef887f3836a5b5355985c3c8704d8d1cf",
+    "pods": [
+      {
+        "name": "frontend-b485c78b8-x29px",
+        "uid": "221547ad-8349-4254-abfd-11b1627ddf82",
+        "phase": "Running",
+        "containers": [
+          {
+            "ready": true,
+            "restarts": 0,
+            "imageID": "10.186.133.66:5001/eap-frontend@sha256:6b096481c862f9af3770492be7a011ab856762ba2d95344504d142144aeac33f"
+          }
+        ]
+      }
+    ]
+  },
+  "health": "UP",
+  "nodes": {
+    "ate-node1": {
+      "NetworkUnavailable": "False",
+      "MemoryPressure": "False",
+      "DiskPressure": "False",
+      "PIDPressure": "False",
+      "Ready": "True"
+    },
+    "ate-node2": {
+      "NetworkUnavailable": "False",
+      "MemoryPressure": "False",
+      "DiskPressure": "False",
+      "PIDPressure": "False",
+      "Ready": "True"
+    }
+  }
+}

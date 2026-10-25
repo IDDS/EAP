@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "producerId": "4c71a8f9-488b-47d0-a411-43e447e49daa",
+  "framework": "autogen-core",
+  "frameworkVersion": "0.7.5",
+  "events": [
+    {
+      "definitionKey": "coordinator",
+      "eventId": "b6ded4d9-8767-4399-8d24-2a44b74672a5",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.251223+00:00",
+      "processId": 3870888,
+      "runId": "9fe9fa98-052c-404c-81df-297105701640",
+      "sequence": 1,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "bb82b29f-9636-43db-91ba-c4a1dde9c44d",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.254865+00:00",
+      "parentRunId": "9fe9fa98-052c-404c-81df-297105701640",
+      "processId": 3870888,
+      "runId": "d36dab73-8522-4e62-8051-f740e51f8402",
+      "sequence": 2,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "1509025d-1ee0-4439-9e84-bfb59f826b22",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.259034+00:00",
+      "parentRunId": "9fe9fa98-052c-404c-81df-297105701640",
+      "processId": 3870888,
+      "runId": "a60a4549-4d95-45b6-bc55-d8cd947d5f7e",
+      "sequence": 3,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "6085dc69-db15-4839-9f4e-4ab1b2641dbc",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.261918+00:00",
+      "parentRunId": "d36dab73-8522-4e62-8051-f740e51f8402",
+      "processId": 3870888,
+      "runId": "67a4d0ec-36bd-4e9e-ae43-5c1b2c6ddd09",
+      "sequence": 4,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "calculate",
+      "eventId": "09c4b87c-3943-4c51-ac58-68580a866b8b",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.264219+00:00",
+      "processId": 3870888,
+      "runId": "67a4d0ec-36bd-4e9e-ae43-5c1b2c6ddd09",
+      "sequence": 5,
+      "toolCallId": "8855f554-ffeb-4136-a873-4af317106df3",
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "1031c0af-002e-426e-a2ff-761ea802b379",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.266521+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "67a4d0ec-36bd-4e9e-ae43-5c1b2c6ddd09",
+      "sequence": 6,
+      "toolCallId": "8855f554-ffeb-4136-a873-4af317106df3",
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "f8ebc5a4-5342-435e-aa05-b5dc34495965",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.268831+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "67a4d0ec-36bd-4e9e-ae43-5c1b2c6ddd09",
+      "sequence": 7,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "worker",
+      "eventId": "88984597-171b-414a-9f79-c8a113cfcb69",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.271414+00:00",
+      "parentRunId": "a60a4549-4d95-45b6-bc55-d8cd947d5f7e",
+      "processId": 3870888,
+      "runId": "d26ccca6-a15c-4463-bfe4-8db5cb43858c",
+      "sequence": 8,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "definitionKey": "calculate",
+      "eventId": "dfb269e4-c506-44ad-a0df-2bf135d05e28",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T04:19:21.274708+00:00",
+      "processId": 3870888,
+      "runId": "d26ccca6-a15c-4463-bfe4-8db5cb43858c",
+      "sequence": 9,
+      "toolCallId": "f9fca989-beee-4bfa-ae39-8688c02a814b",
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "052705a1-1e8a-407d-abc1-77c2c6b7a73b",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.277330+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "d26ccca6-a15c-4463-bfe4-8db5cb43858c",
+      "sequence": 10,
+      "toolCallId": "f9fca989-beee-4bfa-ae39-8688c02a814b",
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "44d8b3e9-3211-46b1-9b9e-e530edee060e",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.279572+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "d26ccca6-a15c-4463-bfe4-8db5cb43858c",
+      "sequence": 11,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "d5c8a09e-0789-4d34-a349-49b0d6d20066",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.281990+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "d36dab73-8522-4e62-8051-f740e51f8402",
+      "sequence": 12,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "0ce5a782-5d81-4925-be0c-63c608f80fb0",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.284533+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "a60a4549-4d95-45b6-bc55-d8cd947d5f7e",
+      "sequence": 13,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    },
+    {
+      "eventId": "0a8e0337-18a4-4b6c-b3e2-be02d36b5870",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T04:19:21.288621+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3870888,
+      "runId": "9fe9fa98-052c-404c-81df-297105701640",
+      "sequence": 14,
+      "traceId": "93af57101b454dd590623ebf914b1185"
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "producerId": "11269340-8aa4-4099-b12c-b0ad40a5246f",
+  "framework": "eap-native",
+  "frameworkVersion": "0.1.0",
+  "events": [
+    {
+      "definitionKey": "coordinator",
+      "eventId": "e7a5f48a-24b7-42ae-ab27-a7b6bcbe25bc",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T02:37:35.228207+00:00",
+      "processId": 3760573,
+      "runId": "1c48cd21-f1da-4dad-85f5-ff8774aae0ae",
+      "sequence": 1,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "definitionKey": "coder",
+      "eventId": "a337f67c-4e94-4321-bd1f-75a189cef427",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T02:37:35.230921+00:00",
+      "parentRunId": "1c48cd21-f1da-4dad-85f5-ff8774aae0ae",
+      "processId": 3760573,
+      "runId": "943a1d85-f586-43bb-91a9-71dee1ad8bb0",
+      "sequence": 2,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "definitionKey": "reviewer",
+      "eventId": "5de01c8f-4fb9-47cf-88b0-ac7565f05a04",
+      "kind": "RUN_STARTED",
+      "occurredAt": "2026-10-24T02:37:35.233506+00:00",
+      "parentRunId": "1c48cd21-f1da-4dad-85f5-ff8774aae0ae",
+      "processId": 3760573,
+      "runId": "0e780313-3738-47b1-b9b3-8b8c220519c0",
+      "sequence": 3,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "artifactDigest": "6fbccce8d95e44b141ddc9b8497b39d63790b8d5777b7b641f658a393aa6791e",
+      "eventId": "c1f935b4-e6db-48c1-9ebb-ed2ff4160887",
+      "kind": "ARTIFACT_REGISTERED",
+      "language": "PYTHON",
+      "occurredAt": "2026-10-24T02:37:35.236555+00:00",
+      "processId": 3760573,
+      "runId": "943a1d85-f586-43bb-91a9-71dee1ad8bb0",
+      "sequence": 4,
+      "sizeBytes": 15,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "artifactDigest": "6fbccce8d95e44b141ddc9b8497b39d63790b8d5777b7b641f658a393aa6791e",
+      "definitionKey": "generated-calculate",
+      "eventId": "2b57dab1-34ec-4587-ad8f-696d6858b9ff",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T02:37:35.239082+00:00",
+      "processId": 3760573,
+      "runId": "943a1d85-f586-43bb-91a9-71dee1ad8bb0",
+      "sequence": 5,
+      "toolCallId": "54282dde-52df-4f19-baa9-22629aa09834",
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "eventId": "4853ddda-e017-4443-b4cf-721385c8e9f0",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T02:37:35.241530+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3760573,
+      "runId": "943a1d85-f586-43bb-91a9-71dee1ad8bb0",
+      "sequence": 6,
+      "toolCallId": "54282dde-52df-4f19-baa9-22629aa09834",
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "eventId": "d5593ae9-20b5-4261-ba82-d65932799b95",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T02:37:35.244542+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3760573,
+      "runId": "943a1d85-f586-43bb-91a9-71dee1ad8bb0",
+      "sequence": 7,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "definitionKey": "local-sum",
+      "eventId": "a95e07aa-67e2-4250-ad2a-8bb69d90e03b",
+      "kind": "TOOL_STARTED",
+      "occurredAt": "2026-10-24T02:37:35.247108+00:00",
+      "processId": 3760573,
+      "runId": "0e780313-3738-47b1-b9b3-8b8c220519c0",
+      "sequence": 8,
+      "toolCallId": "4ab811fd-5b70-43ca-96f3-ba203f06e25a",
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "eventId": "af9fc931-0653-4607-b8d8-01285d9201ef",
+      "kind": "TOOL_FINISHED",
+      "occurredAt": "2026-10-24T02:37:35.250579+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3760573,
+      "runId": "0e780313-3738-47b1-b9b3-8b8c220519c0",
+      "sequence": 9,
+      "toolCallId": "4ab811fd-5b70-43ca-96f3-ba203f06e25a",
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "eventId": "a665b650-e3a8-4b76-be8c-41f2a3cefc9a",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T02:37:35.253129+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3760573,
+      "runId": "0e780313-3738-47b1-b9b3-8b8c220519c0",
+      "sequence": 10,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    },
+    {
+      "eventId": "b03ac59d-4990-428c-abf4-f6dcdb5591c7",
+      "kind": "RUN_FINISHED",
+      "occurredAt": "2026-10-24T02:37:35.255918+00:00",
+      "outcome": "SUCCEEDED",
+      "processId": 3760573,
+      "runId": "1c48cd21-f1da-4dad-85f5-ff8774aae0ae",
+      "sequence": 11,
+      "traceId": "f5a1c913b71f4ac9bf28ab86f80f2caa"
+    }
+  ]
+}

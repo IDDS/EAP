@@ -120,4 +120,17 @@ class KnowledgeServiceTests {
         interaction.createdAt = Instant.now();
         return interaction;
     }
+    @Test
+    void legacyOtlpKnowledgeDoesNotExposeBodyThroughSummariesOrReferences() throws Exception {
+        var item = new KnowledgeInteraction(); item.id = 987L; item.interactionKey = "otlp-knowledge-legacy";
+        item.inputSummary = "PRIVATE_QUERY"; item.outputSummary = "PRIVATE_DOCUMENT";
+        item.inputRefsJson = "[\"PRIVATE_REFERENCE\"]"; item.outputRefsJson = item.inputRefsJson;
+        var step = new KnowledgeTraceStep(); step.stepOrder = 0; step.refsJson = item.inputRefsJson;
+        when(interactionRepository.findById(987L)).thenReturn(Optional.of(item));
+        when(stepRepository.findByInteractionIdOrderByStepOrderAsc(987L)).thenReturn(List.of(step));
+        var response = service.get(987L);
+        assertThat(new ObjectMapper().writeValueAsString(response)).doesNotContain("PRIVATE");
+        assertThat(item.inputSummary).isEqualTo("PRIVATE_QUERY");
+    }
+
 }

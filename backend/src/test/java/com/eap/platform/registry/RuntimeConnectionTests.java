@@ -46,6 +46,22 @@ class RuntimeConnectionTests {
     }
     @AfterEach void close(){service.close();}
     RuntimeConnectionService.Credential issue(){return service.issue(key,UUID.randomUUID().toString(),"operator-subject");}
+    @Test void inspectionCredentialCannotTriggerAutomaticDeliveryOrRenewal(){
+        var credential=issue();saved.verifiedAt=Instant.now();
+        var delivery=mock(RuntimeCredentialDeliveryService.class);service.delivery=delivery;
+        assertThat(service.inspectionToken(runtime)).isEqualTo(credential.token());verifyNoInteractions(delivery);
+        saved.expiresAt=Instant.now().minusSeconds(1);
+        assertThatThrownBy(()->service.inspectionToken(runtime)).isInstanceOf(BusinessException.class);verifyNoInteractions(delivery);
+        verify(client,never()).resume(any());
+    }
+    @Test void inspectionRequiresVerifiedInstalledIdentityAndNoPendingDelivery(){
+        issue();assertThatThrownBy(()->service.inspectionToken(runtime)).isInstanceOf(BusinessException.class);
+        saved.verifiedAt=Instant.now();saved.deliveryOperation="pending-fixture";
+        assertThatThrownBy(()->service.inspectionToken(runtime)).isInstanceOf(BusinessException.class);
+        saved.deliveryOperation=null;
+        when(client.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-agents","external","replacement",runtime.importedActorTemplate,"RUNNING"));
+        assertThatThrownBy(()->service.inspectionToken(runtime)).isInstanceOf(ConflictException.class);
+    }
     @Test void credentialIsScopedNotPersistedAndReplayDoesNotRotate(){
         String request=UUID.randomUUID().toString();var first=service.issue(key,request,"operator-subject");
         assertThat(service.issue(key,request,"operator-subject").token()).isEqualTo(first.token());

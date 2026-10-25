@@ -21,7 +21,7 @@ func TestTaskWaitsForAuthenticatedSpanBeforeTerminalReceipt(t *testing.T) {
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/api/gateway/v1/chat/completions" {
 			modelTrace = req.Header.Get("X-EAP-Trace-Id")
-			writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "handoff-result"}}}})
+			writeJSON(w, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": "handoff-result"}}}})
 			return
 		}
 		if req.Header.Get("X-EAP-Observability-Token") != "observation-test-token" {
@@ -80,7 +80,7 @@ func TestSpanFailureDoesNotRetryOrDiscardSuccessfulTask(t *testing.T) {
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path == "/api/gateway/v1/chat/completions" {
 			models.Add(1)
-			writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "completed"}}}})
+			writeJSON(w, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": "completed"}}}})
 		} else {
 			exports.Add(1)
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -156,7 +156,7 @@ func TestScopedModelAndTelemetryNeverSendPlatformCredentials(t *testing.T) {
 		}
 		if req.URL.Path == "/api/runtime-access/v1/chat/completions" {
 			models.Add(1)
-			writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "scoped-result"}}}})
+			writeJSON(w, map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": "scoped-result"}}}})
 		} else if req.URL.Path == "/api/runtime-access/v1/traces" {
 			spans.Add(1)
 			w.WriteHeader(http.StatusOK)

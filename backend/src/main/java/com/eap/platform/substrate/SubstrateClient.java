@@ -16,6 +16,14 @@ public interface SubstrateClient {
     record ActorInventory(String atespace, String name, String uid, String template, String state) {}
     record ActorPage(List<ActorInventory> actors, String nextPageToken) {}
 
+    /** Bounded read-only location snapshot; never wakes an Actor or returns IPs/credentials. */
+    default ActorLocation locate(SubstrateActorRef actor) {
+        throw new SubstrateException("UNIMPLEMENTED", "实例位置查询未实现");
+    }
+    record WorkerPlacement(String workerName, String workerUid, String namespace, String pool,
+                           String podName, String podUid, String nodeName) {}
+    record ActorLocation(ActorInventory actor, long actorVersion, WorkerPlacement placement) {}
+
     ActorState suspend(SubstrateActorRef actor);
 
     /** Returns only after every container wakeup probe has succeeded. */

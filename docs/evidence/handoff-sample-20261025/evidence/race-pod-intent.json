@@ -1,0 +1,107 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "eap-handoff-race-20261025-r1",
+    "namespace": "eap"
+  },
+  "spec": {
+    "nodeName": "ate-node1",
+    "restartPolicy": "Never",
+    "automountServiceAccountToken": false,
+    "activeDeadlineSeconds": 1200,
+    "containers": [
+      {
+        "name": "verify",
+        "image": "docker.m.daocloud.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+        "command": [
+          "sh",
+          "/contract/race.sh"
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "256Mi"
+          },
+          "limits": {
+            "cpu": "2",
+            "memory": "2Gi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "src",
+            "mountPath": "/src",
+            "readOnly": true
+          },
+          {
+            "name": "out",
+            "mountPath": "/out",
+            "readOnly": false
+          },
+          {
+            "name": "contract",
+            "mountPath": "/contract",
+            "readOnly": true
+          },
+          {
+            "name": "go",
+            "mountPath": "/usr/local/go",
+            "readOnly": true
+          },
+          {
+            "name": "work",
+            "mountPath": "/work",
+            "readOnly": false
+          },
+          {
+            "name": "cache",
+            "mountPath": "/cache",
+            "readOnly": false
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "src",
+        "hostPath": {
+          "path": "/root/eap-handoff-sample-20261025-r1/source",
+          "type": "Directory"
+        }
+      },
+      {
+        "name": "out",
+        "hostPath": {
+          "path": "/root/eap-handoff-sample-20261025-r1/race-out",
+          "type": "Directory"
+        }
+      },
+      {
+        "name": "contract",
+        "hostPath": {
+          "path": "/root/eap-handoff-sample-20261025-r1/contract",
+          "type": "Directory"
+        }
+      },
+      {
+        "name": "go",
+        "hostPath": {
+          "path": "/usr/local/go",
+          "type": "Directory"
+        }
+      },
+      {
+        "name": "cache",
+        "hostPath": {
+          "path": "/root/eap-kagent-adk-cache",
+          "type": "Directory"
+        }
+      },
+      {
+        "name": "work",
+        "emptyDir": {}
+      }
+    ]
+  }
+}

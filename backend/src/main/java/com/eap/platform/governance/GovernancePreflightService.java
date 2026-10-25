@@ -63,7 +63,9 @@ public class GovernancePreflightService {
             return response(existing);
         }
 
-        List<PolicyMatch> matches = policyRepository.findByEnabledTrue().stream()
+        List<GovernancePolicy> enabledPolicies = policyRepository.findByEnabledTrue();
+        String policyContext = GovernanceApprovalContext.digest(objectMapper, properties, enabledPolicies);
+        List<PolicyMatch> matches = enabledPolicies.stream()
                 .filter(policy -> scopeMatches(policy, request))
                 .map(policy -> matchPolicy(policy, request))
                 .filter(PolicyMatch::matched)
@@ -107,6 +109,7 @@ public class GovernancePreflightService {
         decision.provider = blankToNull(request.provider());
         decision.modelName = blankToNull(request.modelName());
         decision.requestFingerprint = evaluatedFingerprint;
+        decision.policyContextDigest = policyContext;
         decision.decidedAt = Instant.now();
         GovernancePreflightDecision saved = decisionRepository.save(decision);
         recordAudit(saved, request);
@@ -128,15 +131,18 @@ public class GovernancePreflightService {
             sub.select(event.get("id")).where(terms.toArray(jakarta.persistence.criteria.Predicate[]::new));
             return cb.exists(sub);
         });
-        return com.eap.platform.common.HistoryPage.from(decisionRepository.findAll(spec,pageable).map(this::response));
+        String context = currentPolicyContext();
+        return com.eap.platform.common.HistoryPage.from(decisionRepository.findAll(spec,pageable).map(decision -> response(decision, context)));
     }
 
     @Transactional(readOnly = true)
     public List<GovernanceDataDtos.PreflightResponse> list(int limit) {
-        return decisionRepository.findTop500ByOrderByDecidedAtDesc().stream().limit(limit).map(this::response).toList();
+        String context = currentPolicyContext();
+        return decisionRepository.findTop500ByOrderByDecidedAtDesc().stream().limit(limit).map(decision -> response(decision, context)).toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW,
+            isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public GovernanceDataDtos.PreflightResponse reusableDecision(
             String decisionKey, Long agentId, String endpointKey, String provider, String modelName, String requestFingerprint
     ) {
@@ -159,6 +165,7 @@ public class GovernancePreflightService {
         if (decision.getApprovalStatus() != GovernanceApprovalStatus.APPROVED || !decision.isRequestAllowed()) {
             throw new com.eap.platform.common.BusinessException("该决策不是已批准的模型调用凭证");
         }
+        requireCurrentApprovalContext(decision);
         return response(decision);
     }
 
@@ -193,6 +200,7 @@ public class GovernancePreflightService {
                 || decision.getApprovalStatus() != GovernanceApprovalStatus.PENDING) {
             throw new com.eap.platform.common.BusinessException("当前决策不处于待审批状态");
         }
+        requireCurrentApprovalContext(decision);
         decision.approvalStatus = GovernanceApprovalStatus.APPROVED;
         decision.requestAllowed = true;
         decision.gatewayDirective = GovernanceGatewayDirective.PROCEED_WITH_WARNING;
@@ -354,17 +362,44 @@ public class GovernancePreflightService {
     private GovernanceDataDtos.MatchedPolicy matchedPolicy(PolicyMatch match) {
         GovernancePolicy policy = match.policy();
         return new GovernanceDataDtos.MatchedPolicy(
-                policy.getId(), policy.getName(), policy.getPolicyType(), policy.getEnforcementMode(), match.reasonCode()
+                policy.getId(), policy.getName(), policy.getPolicyType(), policy.getEnforcementMode(), match.reasonCode(), policy.getRevision()
         );
     }
 
     private GovernanceDataDtos.PreflightResponse response(GovernancePreflightDecision decision) {
+        return response(decision, approvalContextRelevant(decision) && decision.policyContextDigest != null ? currentPolicyContext() : null);
+    }
+
+    private String currentPolicyContext() {
+        return GovernanceApprovalContext.digest(objectMapper, properties, policyRepository.findByEnabledTrue());
+    }
+
+    private boolean approvalContextRelevant(GovernancePreflightDecision decision) {
+        return decision.getApprovalStatus() == GovernanceApprovalStatus.PENDING
+                || decision.getApprovalStatus() == GovernanceApprovalStatus.APPROVED;
+    }
+
+    private String approvalContextState(GovernancePreflightDecision decision, String current) {
+        if (!approvalContextRelevant(decision)) return "NOT_APPLICABLE";
+        if (decision.policyContextDigest == null || !decision.policyContextDigest.matches("[a-f0-9]{64}")) return "UNRECORDED";
+        return decision.policyContextDigest.equals(current) ? "CURRENT" : "CHANGED";
+    }
+
+    private void requireCurrentApprovalContext(GovernancePreflightDecision decision) {
+        String state = approvalContextState(decision, currentPolicyContext());
+        if (!"CURRENT".equals(state)) throw new com.eap.platform.common.ConflictException(
+                "UNRECORDED".equals(state) ? "审批未记录策略依据，请使用新的决策标识重新预检"
+                        : "审批依据的治理策略已变更，请使用新的决策标识重新预检");
+    }
+
+    private GovernanceDataDtos.PreflightResponse response(GovernancePreflightDecision decision, String current) {
         return new GovernanceDataDtos.PreflightResponse(
                 decision.id, decision.decisionKey, decision.dataEventId, decision.action, decision.gatewayDirective,
                 Boolean.TRUE.equals(decision.requestAllowed), decision.matchedPolicyCount,
                 readPolicies(decision.matchedPoliciesJson), readReasons(decision.reasonCodesJson),
                 decision.classifier, decision.provider, decision.modelName, decision.getApprovalStatus(),
-                decision.approvedBy, decision.approvalReason, decision.approvedAt, decision.requestFingerprint, decision.decidedAt
+                decision.approvedBy, decision.approvalReason, decision.approvedAt, decision.requestFingerprint, decision.decidedAt,
+                approvalContextState(decision, current)
         );
     }
 

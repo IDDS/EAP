@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "preservedRows": {
+    "execution_delivery_reports": 6,
+    "agent_execution_events": 114,
+    "workflow_executions": 80,
+    "tool_invocation_events": 106,
+    "budget_accounts": 272,
+    "budget_reservations": 200,
+    "model_invocation_events": 205,
+    "runtime_work_claims": 40,
+    "runtime_work_actors": 34,
+    "eap_chat_submissions": 0,
+    "observation_operations": 103,
+    "observation_operation_events": 229,
+    "observation_runtime_placements": 24,
+    "agents": 115,
+    "agent_work_items": 129
+  },
+  "counts": {
+    "agent_execution_events": 128,
+    "execution_delivery_reports": 8,
+    "execution_links": 2,
+    "model_invocation_events": 205,
+    "tool_invocation_events": 107
+  },
+  "deltas": {
+    "agent_execution_events": 14,
+    "execution_delivery_reports": 2,
+    "execution_links": 2,
+    "model_invocation_events": 0,
+    "tool_invocation_events": 1
+  },
+  "oldUnknownAndPlansUnchanged": true,
+  "platformToolClaimIncrementAllowed": 1
+}

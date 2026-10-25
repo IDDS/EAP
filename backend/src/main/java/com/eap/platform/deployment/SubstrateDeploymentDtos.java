@@ -2,6 +2,10 @@ package com.eap.platform.deployment;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import java.time.Instant;
 import java.util.List;
@@ -13,7 +17,7 @@ public final class SubstrateDeploymentDtos {
 
     /**
      * @param sourceType RUNNER (configuration-only agent on the platform runner image), IMAGE (existing image)
-     *                   or SOURCE (built in-cluster from a public Git repository)
+     *                   SOURCE (built in-cluster from a public Git repository), or TEMPLATE (fixed framework sample)
      * @param size       SMALL, MEDIUM or LARGE
      */
     public record DeployRequest(
@@ -32,8 +36,33 @@ public final class SubstrateDeploymentDtos {
             @Size(max = 512) String gitUrl,
             @Size(max = 200) String gitRef,
             @Size(max = 200) String contextPath,
-            @Size(max = 200) String dockerfile
+            @Size(max = 200) String dockerfile,
+            @Min(1) @Max(8192) Integer maxTokens,
+            @Size(max = 32) String thinkingMode,
+            @Size(max = 32) String runnerFramework,
+            @Size(max = 32) String runnerToolMode
     ) {
+        public DeployRequest(String sourceType, String image, List<String> command, Integer port, String readinessPath,
+                             Map<String, String> env, String systemPrompt, String model, String sandboxClass, String size,
+                             List<String> egressHosts, String requestKey, String gitUrl, String gitRef,
+                             String contextPath, String dockerfile, Integer maxTokens, String thinkingMode, String runnerFramework) {
+            this(sourceType, image, command, port, readinessPath, env, systemPrompt, model, sandboxClass, size,
+                    egressHosts, requestKey, gitUrl, gitRef, contextPath, dockerfile, maxTokens, thinkingMode, runnerFramework, null);
+        }
+        public DeployRequest(String sourceType, String image, List<String> command, Integer port, String readinessPath,
+                             Map<String, String> env, String systemPrompt, String model, String sandboxClass, String size,
+                             List<String> egressHosts, String requestKey, String gitUrl, String gitRef,
+                             String contextPath, String dockerfile, Integer maxTokens, String thinkingMode) {
+            this(sourceType, image, command, port, readinessPath, env, systemPrompt, model, sandboxClass, size,
+                    egressHosts, requestKey, gitUrl, gitRef, contextPath, dockerfile, maxTokens, thinkingMode, null);
+        }
+        public DeployRequest(String sourceType, String image, List<String> command, Integer port, String readinessPath,
+                             Map<String, String> env, String systemPrompt, String model, String sandboxClass, String size,
+                             List<String> egressHosts, String requestKey, String gitUrl, String gitRef,
+                             String contextPath, String dockerfile) {
+            this(sourceType, image, command, port, readinessPath, env, systemPrompt, model, sandboxClass, size,
+                    egressHosts, requestKey, gitUrl, gitRef, contextPath, dockerfile, null, null);
+        }
         public DeployRequest(String sourceType, String image, List<String> command, Integer port, String readinessPath,
                              Map<String, String> env, String systemPrompt, String model, String sandboxClass, String size,
                              List<String> egressHosts, String requestKey) {
@@ -45,10 +74,18 @@ public final class SubstrateDeploymentDtos {
     public record Step(String step, String status, String detail, Instant at) {
     }
 
+    /** Metadata only: querying a submission never starts or resumes deployment work. */
+    public record DeploymentReceipt(String requestKey, Long agentId, String deploymentKey, Integer version,
+                                    String status, String instanceKey) {
+    }
+
     public record DeploymentResponse(String deploymentKey, Long agentId, Integer version, String sourceType, String status,
                                      String imageRef, String templateName, String instanceKey, String reason,
                                      String requestedBy, List<Step> steps, Map<String, Object> config,
                                      Instant createdAt, Instant updatedAt) {
+    }
+
+    public record DeploymentContent(String deploymentKey, Long agentId, Integer version, String systemPrompt) {
     }
 
     public record InstanceResponse(String instanceKey, String name, Integer version, String state, String eapStatus, String detail) {
@@ -56,13 +93,22 @@ public final class SubstrateDeploymentDtos {
 
     public record CreateInstanceRequest(@NotBlank @Size(max=36) String requestKey) {}
 
-    public record ChatRequest(@NotBlank @Size(max = 4000) String message) {
+    public record ChatMessage(@NotBlank @Pattern(regexp = "user|assistant") String role,
+                              @NotBlank @Size(max = 65536) String content) {}
+
+    public record ChatRequest(@NotBlank @Pattern(regexp = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}") String requestKey,
+                              @NotBlank @Size(max = 4000) String message,
+                              @Size(max = 40) List<@NotNull @jakarta.validation.Valid ChatMessage> history) {
+        public ChatRequest { if (history == null) history = List.of(); }
     }
 
     public record ChatResponse(String reply, Integer turns, String instanceKey) {
     }
 
+    public record FrameworkSampleCapability(String key, String label, String frameworkVersion, boolean available, String reason) {}
+
     public record CapabilityResponse(boolean enabled, boolean runnerAvailable, boolean gatewayConfigured,
-                                     String atespace, String gatewayHost, List<String> sizes, boolean sourceBuildAvailable, boolean instanceIdentityAvailable) {
+                                     String atespace, String gatewayHost, List<String> sizes, boolean sourceBuildAvailable, boolean instanceIdentityAvailable,
+                                     boolean kagentRunnerAvailable, List<FrameworkSampleCapability> frameworkSamples) {
     }
 }

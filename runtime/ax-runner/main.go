@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -136,10 +137,13 @@ func (r *runner) ask(user, traceID string) (string, error) {
 // Its name and attributes deliberately avoid gen_ai.* model keys: the gateway already records the model call,
 // and EAP would count a model-shaped span a second time.
 func (r *runner) span(traceID, name string, start time.Time, failure error, extra map[string]string) {
+	r.spanAt(traceID, name, start, time.Now(), failure, extra)
+}
+
+func (r *runner) spanAt(traceID, name string, start, end time.Time, failure error, extra map[string]string) {
 	if r.gateway == "" {
 		return
 	}
-	end := time.Now()
 	attrs := []map[string]any{
 		{"key": "eap.agent.id", "value": map[string]any{"stringValue": r.agentID}},
 		{"key": "agent.runtime", "value": map[string]any{"stringValue": "ax"}},
@@ -150,7 +154,7 @@ func (r *runner) span(traceID, name string, start time.Time, failure error, extr
 	}
 	status := map[string]any{"code": 1}
 	if failure != nil {
-		status = map[string]any{"code": 2, "message": failure.Error()}
+		status = map[string]any{"code": 2}
 	}
 	payload := map[string]any{"resourceSpans": []any{map[string]any{
 		"resource": map[string]any{"attributes": []any{
@@ -188,12 +192,19 @@ func (r *runner) span(traceID, name string, start time.Time, failure error, extr
 		} else if token := os.Getenv("EAP_OBSERVABILITY_TOKEN"); token != "" {
 			req.Header.Set("X-EAP-Observability-Token", token)
 		}
-		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		client := http.Client{}
+		if r.client != nil {
+			client = *r.client
+		}
+		client.Timeout = 2 * time.Second
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("otlp export failed: %v", err)
+			log.Print("otlp export failed")
 			return
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		if resp.StatusCode != http.StatusOK {
 			log.Printf("otlp export HTTP %d", resp.StatusCode)
 		}
@@ -220,6 +231,7 @@ type axRunner struct {
 	running  bool
 }
 type axInput struct {
+	TraceID   string `json:"traceId,omitempty"`
 	TaskKey   string `json:"taskKey"`
 	Objective string `json:"objective"`
 	Mode      string `json:"mode"`
@@ -275,6 +287,10 @@ func (a *axRunner) start(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "invalid task", 400)
 		return
 	}
+	if in.TraceID != "" && (!regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(in.TraceID) || in.TraceID == "00000000000000000000000000000000") {
+		http.Error(w, "invalid trace", 400)
+		return
+	}
 	canonical, _ := json.Marshal(in)
 	sum := sha256.Sum256(canonical)
 	fingerprint := hex.EncodeToString(sum[:])
@@ -316,7 +332,11 @@ func (a *axRunner) start(w http.ResponseWriter, q *http.Request) {
 	w.WriteHeader(202)
 }
 func (a *axRunner) execute(in axInput) {
-	receipt := axReceipt{TaskKey: a.key, Status: "SUCCEEDED", ExitCode: 0, TraceID: randomHex(16)}
+	trace := in.TraceID
+	if trace == "" {
+		trace = randomHex(16)
+	}
+	receipt := axReceipt{TaskKey: a.key, Status: "SUCCEEDED", ExitCode: 0, TraceID: trace}
 	start := time.Now()
 	var failure error
 	switch in.Mode {

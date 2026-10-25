@@ -79,6 +79,8 @@ public class WorkflowService {
     public WorkflowDtos.NodeResponse upsertNode(Long workflowId, WorkflowDtos.NodeRequest request) {
         validateConfig(request.configJson());
         WorkflowToolConfig.read(request.configJson(), request.nodeType(), request.agentId());
+        WorkflowOutputContract.read(request.configJson(), request.nodeType(), request.agentId());
+        WorkflowObservationContract.expectedModels(request.configJson(), request.nodeType(), request.agentId());
         lockWorkflow(workflowId);
         validateNodeType(request.nodeType());
         if (request.agentId() != null && !agentRepository.existsById(request.agentId())) {

@@ -1,22 +1,16 @@
 <template>
-  <section class="page-grid">
+  <section class="page-grid registry-page">
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">发现 · 身份 · 运行时</span>
-        <strong>注册与自主发现</strong>
+        <h2>注册与自主发现</h2>
         <span>发现企业智能体、技能、插件和运行实例，统一复核身份与风险</span>
       </div>
       <el-button type="primary" :icon="Refresh" :loading="autonomousLoading" @click="loadAutonomousDiscovery">刷新发现数据</el-button>
     </div>
 
-    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="注册发现分区">
-      <el-tag :class="{ 'is-active': activeSection === 'discovery' }" :effect="activeSection === 'discovery' ? 'dark' : 'plain'" @click="activeSection = 'discovery'">发现总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'probes' }" :effect="activeSection === 'probes' ? 'dark' : 'plain'" @click="activeSection = 'probes'">发现探针</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'identity' }" :effect="activeSection === 'identity' ? 'dark' : 'plain'" @click="activeSection = 'identity'">身份关联</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'assets' }" :effect="activeSection === 'assets' ? 'dark' : 'plain'" @click="activeSection = 'assets'">资产清单</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'runtime' }" :effect="activeSection === 'runtime' ? 'dark' : 'plain'" @click="activeSection = 'runtime'">运行时注册</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'environment' }" :effect="activeSection === 'environment' ? 'dark' : 'plain'" @click="activeSection = 'environment'">运行环境发现</el-tag>
-    </div>
+    <SectionNavigation v-model="activeSection" label="注册发现分区" :items="sectionItems" />
+
 
     <RuntimeInventoryPanel v-if="activeSection === 'environment'" />
     <div v-show="activeSection === 'discovery'" class="registry-section-stack">
@@ -42,13 +36,13 @@
         </div>
       </template>
       <div class="protocol-probe-row">
-        <el-input v-model="protocolForm.targetUrl" placeholder="https://agent.example.com 或 MCP Registry 地址" />
-        <el-select v-model="protocolForm.discoveryType" class="protocol-type-select">
+        <div class="protocol-address-field"><label for="protocol-url">发现地址</label><el-input id="protocol-url" v-model="protocolForm.targetUrl" aria-label="发现地址" placeholder="https://agent.example.com 或 MCP Registry 地址" /></div>
+        <div class="protocol-kind-field"><label for="protocol-type">发现协议</label><el-select id="protocol-type" v-model="protocolForm.discoveryType" aria-label="发现协议" class="protocol-type-select">
           <el-option label="自动探测" value="AUTO" />
           <el-option label="A2A Agent Card" value="A2A" />
           <el-option label="MCP Registry" value="MCP_REGISTRY" />
           <el-option label="MCP server.json" value="MCP_SERVER_JSON" />
-        </el-select>
+        </el-select></div>
         <el-button type="primary" :loading="protocolLoading" @click="probeProtocol">探测并登记</el-button>
       </div>
       <el-alert
@@ -118,14 +112,12 @@
         </el-table-column>
       </el-table>
       <div v-if="visibleDiscoveryEndpoints.length" class="pagination-row">
-        <el-pagination
+        <PageControls
           v-model:current-page="endpointPage"
           v-model:page-size="endpointPageSize"
           :page-sizes="pageSizes"
           :total="visibleDiscoveryEndpoints.length"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          small
+          show-total show-jumper
         />
       </div>
     </el-card>
@@ -250,14 +242,12 @@
         </el-table-column>
       </el-table>
       <div v-if="identityLinks.length" class="pagination-row">
-        <el-pagination
+        <PageControls
           v-model:current-page="identityPage"
           v-model:page-size="identityPageSize"
           :page-sizes="pageSizes"
           :total="identityLinks.length"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          small
+          show-total show-jumper
         />
       </div>
     </el-card>
@@ -342,14 +332,12 @@
         </el-table-column>
       </el-table>
       <div v-if="discoveredAssets.length" class="pagination-row">
-        <el-pagination
+        <PageControls
           v-model:current-page="assetPage"
           v-model:page-size="assetPageSize"
           :page-sizes="pageSizes"
           :total="discoveredAssets.length"
-          layout="total, sizes, prev, pager, next, jumper"
-          background
-          small
+          show-total show-jumper
         />
       </div>
     </el-card>
@@ -509,6 +497,8 @@
 </template>
 
 <script setup lang="ts">
+import PageControls from '@/components/common/PageControls.vue'
+import SectionNavigation from '@/components/common/SectionNavigation.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
@@ -558,6 +548,14 @@ const identityPage = ref(1)
 const identityPageSize = ref(20)
 const assetPage = ref(1)
 const assetPageSize = ref(20)
+const sectionItems = [
+  { value: 'discovery', label: '发现总览' },
+  { value: 'probes', label: '发现探针' },
+  { value: 'identity', label: '身份关联' },
+  { value: 'assets', label: '资产清单' },
+  { value: 'runtime', label: '运行时注册' },
+  { value: 'environment', label: '运行环境发现' },
+] as const
 const activeSection = ref<'discovery' | 'probes' | 'identity' | 'assets' | 'runtime' | 'environment'>('discovery')
 const onlineProbeCount = computed(() => probeAgents.value.filter(item => item.status === 'ONLINE').length)
 const contentEnabledProbeCount = computed(() => probeAgents.value.filter(item => item.contentCaptureEnabled).length)

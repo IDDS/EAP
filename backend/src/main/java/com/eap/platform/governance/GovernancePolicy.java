@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -19,6 +20,10 @@ public class GovernancePolicy {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Version
+    @Column(nullable = false)
+    private long revision;
 
     @Column(nullable = false, length = 128)
     private String name;
@@ -64,6 +69,8 @@ public class GovernancePolicy {
     public Long getId() {
         return id;
     }
+
+    public long getRevision() { return revision; }
 
     public String getName() {
         return name;

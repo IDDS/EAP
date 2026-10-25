@@ -27,9 +27,12 @@ public final class OrchestrationDtos {
     }
 
     public record StepRequest(@NotNull @jakarta.validation.constraints.Min(1) Integer stepOrder, @NotBlank @Size(max = 128) String title, @NotBlank @Size(max = 128) String requiredCapability,
-            @jakarta.validation.constraints.Pattern(regexp="RUNTIME|AX") String executionBackend) {
-        public StepRequest(Integer stepOrder,String title,String requiredCapability){this(stepOrder,title,requiredCapability,"RUNTIME");}
+            @jakarta.validation.constraints.Pattern(regexp="RUNTIME|AX") String executionBackend, @Size(max = 8192) String outputContractJson) {
+        public StepRequest(Integer stepOrder,String title,String requiredCapability){this(stepOrder,title,requiredCapability,"RUNTIME",null);}
+        public StepRequest(Integer stepOrder,String title,String requiredCapability,String executionBackend){this(stepOrder,title,requiredCapability,executionBackend,null);}
     }
+
+    public record OutputContractRequest(@Size(max = 8192) String outputContractJson) {}
 
     public record AssignRequest(Long assignedAgentId, @NotNull StepStatus status) {
     }
@@ -43,7 +46,7 @@ public final class OrchestrationDtos {
     public record PlanResponse(Long id, Long teamId, String goal, String contextSummary, PlanStatus status, Instant createdAt, Instant updatedAt, Long executionWorkflowId, String executionRunKey) {
     }
 
-    public record StepResponse(Long id, Long planId, Integer stepOrder, String title, String requiredCapability, Long assignedAgentId, StepStatus status, Instant createdAt, Instant updatedAt, String executionBackend) {
+    public record StepResponse(Long id, Long planId, Integer stepOrder, String title, String requiredCapability, Long assignedAgentId, StepStatus status, Instant createdAt, Instant updatedAt, String executionBackend, String outputContractJson) {
     }
 
     public record PlanDetail(PlanResponse plan, List<StepResponse> steps) {
@@ -62,7 +65,7 @@ public final class OrchestrationDtos {
     }
 
     static StepResponse from(AgentPlanStep step) {
-        return new StepResponse(step.id, step.planId, step.stepOrder, step.title, step.requiredCapability, step.assignedAgentId, step.status, step.createdAt, step.updatedAt, step.executionBackend);
+        return new StepResponse(step.id, step.planId, step.stepOrder, step.title, step.requiredCapability, step.assignedAgentId, step.status, step.createdAt, step.updatedAt, step.executionBackend, step.outputContractJson);
     }
 }
 

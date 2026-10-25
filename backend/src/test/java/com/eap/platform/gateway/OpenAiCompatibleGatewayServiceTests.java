@@ -49,6 +49,23 @@ class OpenAiCompatibleGatewayServiceTests {
     }
 
     @Test
+    void staleApprovedPreflightCannotBypassTheExplicitReuseGuardInEitherGatewayPath() throws Exception {
+        JsonNode request = objectMapper.readTree("{\"model\":\"gpt-test\",\"messages\":[{\"role\":\"user\",\"content\":\"public fixture\"}]}");
+        JsonNode streamRequest = request.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) streamRequest).put("stream", true);
+        for (String state : List.of("CHANGED", "UNRECORDED")) {
+            when(preflightService.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(
+                    1L,"old-approved",1L,GovernanceDataAction.APPROVAL_REQUIRED,GovernanceGatewayDirective.PROCEED_WITH_WARNING,true,1,List.of(),List.of(),
+                    "fixture","openai","gpt-test",GovernanceApprovalStatus.APPROVED,"reviewer",null,Instant.now(),"fingerprint",Instant.now(),state));
+            assertThatThrownBy(() -> service.chatCompletions(request,1L,null,null,"trace-context",GatewayDtos.ClassificationHints.empty()))
+                    .isInstanceOf(GatewayException.class).hasMessageContaining("审批依据");
+            assertThatThrownBy(() -> service.chatCompletionsStream(streamRequest,1L,null,null,"trace-context-stream",GatewayDtos.ClassificationHints.empty()))
+                    .isInstanceOf(GatewayException.class).hasMessageContaining("审批依据");
+        }
+        org.mockito.Mockito.verifyNoInteractions(upstreamClient);
+    }
+
+    @Test
     void blocksSecretBeforeCallingUpstream() throws Exception {
         when(preflightService.evaluate(any())).thenReturn(decision("input-block", GovernanceGatewayDirective.BLOCK, false));
 
@@ -147,7 +164,7 @@ class OpenAiCompatibleGatewayServiceTests {
         };
         return new GovernanceDataDtos.PreflightResponse(
                 1L, key, 1L, action, directive, allowed, 0, List.of(), List.of(),
-                "test-classifier", "openai", "gpt-test", GovernanceApprovalStatus.NOT_REQUIRED, null, null, null, null, Instant.now()
+                "test-classifier", "openai", "gpt-test", GovernanceApprovalStatus.NOT_REQUIRED, null, null, null, null, Instant.now(), "NOT_APPLICABLE"
         );
     }
 }

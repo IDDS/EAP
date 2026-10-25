@@ -194,6 +194,7 @@ func (r *runner) identityInstall(w http.ResponseWriter, req *http.Request) {
 	r.credentialExpiry = time.Unix(in.ExpiresAt, 0)
 	r.credentialUID = uid
 	r.mu.Unlock()
+	r.refreshMCPLeases()
 	mac := hmac.New(sha256.New, token)
 	mac.Write([]byte("eap-delivery-v1|" + in.Operation + "|" + in.Nonce + "|" + key + "|" + in.Revision))
 	writeJSON(w, map[string]any{"operation": in.Operation, "proof": base64.RawURLEncoding.EncodeToString(mac.Sum(nil))})

@@ -39,7 +39,7 @@ public class ToolInvocationService {
         event.durationMs = command.durationMs() == null ? valueOr(event.durationMs, 0L) : Math.max(0L, command.durationMs());
         event.inputObservationKey = prefer(command.inputObservationKey(), event.inputObservationKey, 128);
         event.outputObservationKey = prefer(command.outputObservationKey(), event.outputObservationKey, 128);
-        event.attributesJson = prefer(command.attributesJson(), event.attributesJson, 32768);
+        event.attributesJson = TraceMetadata.project(command.attributesJson() == null ? event.attributesJson : command.attributesJson());
         event.observedAt = command.observedAt() == null ? valueOr(event.observedAt, Instant.now()) : command.observedAt();
         return ToolInvocationDtos.from(repository.save(event));
     }

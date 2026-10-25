@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "screenshots": [
+    "real-source-1440.png",
+    "real-target-390.png"
+  ],
+  "realData": true,
+  "confirmedRelationsReadable": true,
+  "mobileWrappingVerified": true
+}

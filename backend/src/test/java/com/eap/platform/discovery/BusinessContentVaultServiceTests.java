@@ -118,4 +118,28 @@ class BusinessContentVaultServiceTests {
         endpoint.fingerprintReviewRequired = false;
         return endpoint;
     }
+
+    @Test
+    void rawRetentionUsesServerReceiptRatherThanProbeClock() {
+        var properties = new DiscoveryAgentV1Properties();
+        // Generated in memory, never a deployment credential.
+        properties.setContentVaultMasterKey(java.util.Base64.getEncoder().encodeToString(
+                java.util.UUID.randomUUID().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        service = new BusinessContentVaultService(repository, agentService, properties, sanitizer,
+                observationService, telemetryService, new ObjectMapper().findAndRegisterModules());
+        var endpoint = enabledEndpoint();
+        when(agentService.authenticateContent("content-key")).thenReturn(endpoint);
+        when(agentService.isContentCaptureEnabled(endpoint)).thenReturn(true);
+        when(sanitizer.sanitize(any())).thenReturn(new SensitiveContentSanitizer.SanitizedContent(
+                "safe", "PUBLIC", "GENERAL_TEXT", "PASSIVE_OBSERVED", false));
+        when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        Instant before = Instant.now();
+        service.capture("content-key", new DiscoveryAgentV1Dtos.ContentCaptureRequest(
+                "future-clock-fixture", null, null, null, null, null, "INPUT", null, null,
+                "synthetic sample", null, null, Map.of(), true, true, before.plusSeconds(86400L * 365)));
+        var captured = ArgumentCaptor.forClass(BusinessContentRecord.class);
+        verify(repository).save(captured.capture());
+        assertThat(captured.getValue().expiresAt).isBetween(before.plusSeconds(86400L * 30),
+                Instant.now().plusSeconds(86400L * 30));
+    }
 }

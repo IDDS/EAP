@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "go": {
+    "handoff-python": {
+      "passed": true
+    }
+  },
+  "binaries": {
+    "eap-handoff-source": "31a32bb69fbe9d03a2af3bb00e1440116286db9284c2aa5e5a14efa96d02a3e0",
+    "eap-handoff-target": "68d6b702778296f0a17008dbe70ca412d0c3592eb4af9d1fec71770ce4e8d8a9"
+  }
+}

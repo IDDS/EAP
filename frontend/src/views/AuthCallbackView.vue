@@ -1,12 +1,13 @@
 <template>
   <main class="auth-callback">
-    <el-card>
+    <el-card shadow="never">
+      <p class="auth-brand">EAP · 企业智能体控制平面</p>
       <h1>企业身份认证</h1>
       <p v-if="!error" role="status">正在完成登录并读取权限…</p>
       <template v-else>
         <el-alert type="error" :title="error" :closable="false" show-icon />
-        <el-button type="primary" :loading="signingIn" @click="retry">重新登录</el-button>
-        <el-button @click="manualLogin">手工令牌登录</el-button>
+        <div class="auth-actions"><el-button type="primary" :loading="signingIn" @click="retry">重新登录</el-button>
+        <el-button @click="manualLogin">手工令牌登录</el-button></div>
       </template>
     </el-card>
   </main>
@@ -61,5 +62,10 @@ onMounted(async () => {
 
 <style scoped>
 .auth-callback { max-width: 560px; margin: 12vh auto; padding: 16px; }
-.auth-callback .el-button { margin-top: 20px; }
+.auth-callback h1 { margin: 12px 0 24px; font-size: 26px; color: var(--console-ink); }
+.auth-callback :deep(.el-card__body) { padding: 32px; }
+.auth-brand { color: var(--console-muted); font-size: 13px; margin: 0; }
+.auth-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.auth-actions .el-button { margin: 0; min-height: 44px; }
+@media(max-width:600px) { .auth-callback { margin-top: 8vh; }.auth-callback :deep(.el-card__body) { padding: 24px 20px; }.auth-actions { flex-direction: column; } }
 </style>

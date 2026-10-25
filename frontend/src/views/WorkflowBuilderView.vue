@@ -2,11 +2,11 @@
   <section class="page-grid workflow-page">
     <div class="toolbar">
       <div class="toolbar-title">
-        <strong>智能体工作流</strong>
+        <h2>智能体工作流</h2>
         <span>从左侧拖拽 Agent 到画布，点击两个节点创建执行连线</span>
       </div>
       <div class="button-row">
-        <el-select v-model="selectedWorkflowId" class="agent-select" @change="loadWorkflow">
+        <el-select v-model="selectedWorkflowId" aria-label="选择工作流" class="agent-select" popper-class="workflow-select-options" @change="loadWorkflow">
           <el-option v-for="workflow in workflows" :key="workflow.id" :label="`${workflow.name} · ${workflow.code}`" :value="workflow.id" />
         </el-select>
         <el-button type="primary" :icon="VideoPlay" :loading="running" :disabled="!permissions.can('runWorkflows')" @click="runWorkflow">安全预演</el-button>
@@ -20,8 +20,8 @@
       <el-button @click="load">重新读取工作流</el-button>
     </el-alert>
     <div class="workflow-view-tabs" aria-label="工作流视图">
-      <button :class="{ active: workflowTab === 'design' }" @click="workflowTab = 'design'">流程设计</button>
-      <button :class="{ active: workflowTab === 'runs' }" @click="workflowTab = 'runs'">执行过程 <span>{{ executions.length }}</span></button>
+      <button :class="{ active: workflowTab === 'design' }" :aria-pressed="workflowTab === 'design'" @click="workflowTab = 'design'">流程设计</button>
+      <button :class="{ active: workflowTab === 'runs' }" :aria-pressed="workflowTab === 'runs'" @click="workflowTab = 'runs'">执行过程 <span>{{ executions.length }}</span></button>
     </div>
     <template v-if="workflowTab === 'design'">
     <el-alert title="安全预演：检查节点策略与分支路径，不调用 Agent、不生成制品；预演通过不代表任务执行成功。" type="info" :closable="false" show-icon />
@@ -176,7 +176,8 @@
         <el-table-column label="状态" width="150"><template #default="{ row }">{{ executionStatusLabel(row.status) }}</template></el-table-column>
         <el-table-column prop="reason" label="结果说明" min-width="220" />
       </el-table>
-      <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" />
+      <router-link v-if="selectedExecution" :to="{ path: '/task-workspace', query: { workflowId: selectedExecution.workflowId, runKey: selectedExecution.runKey } }">在任务工作台查看结果与证据 →</router-link>
+      <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" @changed="loadExecutions" />
       <PlanOutputs v-if="selectedExecution" :workflow-id="selectedExecution.workflowId" :run-key="selectedExecution.runKey"
         :node-labels="Object.fromEntries(selectedExecution.steps.map(step => [step.nodeKey, step.label]))" />
       <el-table v-if="selectedExecution" :data="selectedExecution.steps" size="small">
@@ -199,7 +200,7 @@ import { EapApi } from '@/api/eap'
 import ExecutionTimeline from '@/components/workflow/ExecutionTimeline.vue'
 import PlanOutputs from '@/components/workflow/PlanOutputs.vue'
 import WorkflowTaskConfig from '@/components/workflow/WorkflowTaskConfig.vue'
-import { toolConfigError } from '@/api/workflowTaskConfig'
+import { toolConfigError, outputContractError, observationContractError } from '@/api/workflowTaskConfig'
 import type { Agent, WorkflowDefinition, WorkflowEdge, WorkflowNode, WorkflowRun, WorkflowExecution } from '@/types/domain'
 
 type DragPayload = {
@@ -221,7 +222,7 @@ const edges = ref<WorkflowEdge[]>([])
 const selectedNode = ref<WorkflowNode>()
 const savedNodeConfigs = ref<Record<string, string | undefined>>({})
 const hasUnsavedConfig = computed(() => nodes.value.some(node => node.configJson !== savedNodeConfigs.value[node.nodeKey]))
-const nodeConfigError = computed(() => nodes.value.map(node => toolConfigError(node.configJson, node.nodeType, node.agentId)).find(Boolean) || '')
+const nodeConfigError = computed(() => nodes.value.map(node => toolConfigError(node.configJson, node.nodeType, node.agentId) || outputContractError(node.configJson, node.nodeType, node.agentId) || observationContractError(node.configJson, node.nodeType, node.agentId)).find(Boolean) || '')
 const nodeHasTool = computed(() => { try { return Object.hasOwn(JSON.parse(selectedNode.value?.configJson || '{}'), 'eapTool') } catch { return false } })
 function nodeToolLabel(node: WorkflowNode) {
   try { return JSON.parse(node.configJson || '{}').eapTool?.name === 'calculate_sum' ? '工具 · 求和计算' : '' } catch { return '' }
@@ -289,7 +290,7 @@ async function executeWorkflow() {
   } finally { submittingExecution.value = false }
 }
 function executionStatusLabel(status: string) {
-  return ({ QUEUED: '排队中', RUNNING: '执行中', DISPATCHING: '派发中', SUCCEEDED: '已确认完成', FAILED: '失败',
+  return ({ QUEUED: '排队中', RUNNING: '执行中', CANCELLED: '已停止后续调度', DISPATCHING: '派发中', SUCCEEDED: '已确认完成', FAILED: '失败',
     EXECUTION_UNKNOWN: '结果未知，需核对', WAITING_APPROVAL: '需要审批', BLOCKED: '策略阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
 }
 watch(selectedWorkflowId, () => {
@@ -610,6 +611,8 @@ onUnmounted(() => { disposed = true; ++executionRequestId; ++workflowRequestId; 
 </script>
 
 <style scoped>
+:global(.el-popper.workflow-select-options) { max-width: calc(100vw - 24px); }
+:global(.workflow-select-options .el-select-dropdown__item) { height: auto; min-height: 34px; padding: 8px 12px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
 .advanced-node-config { margin: 12px 0 18px; }
 .advanced-node-config summary { cursor: pointer; margin-bottom: 12px; color: var(--el-text-color-secondary); }
 .workflow-view-tabs{display:flex;border-bottom:1px solid #dbe3eb;gap:8px}.workflow-view-tabs button{font:inherit;border:0;border-bottom:3px solid transparent;background:none;min-height:44px;padding:12px 20px;color:#526175;cursor:pointer}.workflow-view-tabs button.active{color:#176b9b;font-weight:600;border-bottom-color:#2683b8}.workflow-view-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.workflow-view-tabs span{font-size:12px;border-radius:4px;background:#e8eef4;padding:2px 6px;margin-left:8px}

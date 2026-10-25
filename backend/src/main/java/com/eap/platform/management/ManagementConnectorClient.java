@@ -21,10 +21,12 @@ public class ManagementConnectorClient {
     private final ManagementConnectorProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final ManagementConnectorCredentialPolicy credentials;
 
-    public ManagementConnectorClient(ManagementConnectorProperties properties, ObjectMapper objectMapper) {
+    public ManagementConnectorClient(ManagementConnectorProperties properties, ObjectMapper objectMapper, ManagementConnectorCredentialPolicy credentials) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.credentials = credentials;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofMillis(Math.max(500, properties.getConnectTimeoutMs())))
                 .followRedirects(HttpClient.Redirect.NEVER)
@@ -32,13 +34,14 @@ public class ManagementConnectorClient {
     }
 
     public JsonNode fetch(ManagementValueConnector connector) {
+        credentials.validate(connector);
         URI uri = targetUri(connector);
         HttpRequest.Builder request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getReadTimeoutMs())))
                 .header(HttpHeaders.ACCEPT, "application/json")
                 .header(HttpHeaders.USER_AGENT, "EAP-Business-Value-Connector/0.1")
                 .GET();
-        authorize(request, connector);
+        credentials.authorize(request, connector);
         try {
             HttpResponse<InputStream> response = httpClient.send(request.build(), HttpResponse.BodyHandlers.ofInputStream());
             try (InputStream input = response.body()) {
@@ -56,7 +59,7 @@ public class ManagementConnectorClient {
             Thread.currentThread().interrupt();
             throw new BusinessException("业务系统同步被中断");
         } catch (Exception exception) {
-            throw new BusinessException("无法读取业务系统：" + safeMessage(exception));
+            throw new BusinessException("无法读取业务系统，请核对目标及连接状态");
         }
     }
 
@@ -105,33 +108,5 @@ public class ManagementConnectorClient {
         return bytes.length == 4 && (bytes[0] & 0xff) == 100 && ((bytes[1] & 0xc0) == 64);
     }
 
-    private void authorize(HttpRequest.Builder request, ManagementValueConnector connector) {
-        String authType = connector.authType == null ? "NONE" : connector.authType.toUpperCase();
-        if ("NONE".equals(authType)) return;
-        if (!"BEARER_ENV".equals(authType) && !"HEADER_ENV".equals(authType)) {
-            throw new BusinessException("连接器认证方式仅支持 NONE、BEARER_ENV 或 HEADER_ENV");
-        }
-        if (connector.credentialEnvKey == null || connector.credentialEnvKey.isBlank()) {
-            throw new BusinessException("连接器未配置凭据环境变量名");
-        }
-        String secret = System.getenv(connector.credentialEnvKey.trim());
-        if (secret == null || secret.isBlank()) {
-            throw new BusinessException("运行环境中不存在连接器凭据 " + connector.credentialEnvKey.trim());
-        }
-        String header = "BEARER_ENV".equals(authType) ? HttpHeaders.AUTHORIZATION
-                : firstNonBlank(connector.authHeader, "X-API-Key");
-        String prefix = "BEARER_ENV".equals(authType) ? firstNonBlank(connector.authPrefix, "Bearer ")
-                : firstNonBlank(connector.authPrefix, "");
-        request.header(header, prefix + secret);
-    }
-
-    private String firstNonBlank(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private String safeMessage(Exception exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
-        return message.replaceAll("[\\r\\n\\t]", " ").substring(0, Math.min(message.length(), 256));
-    }
+    public void validateConfiguration(ManagementValueConnector connector) { credentials.validate(connector); }
 }

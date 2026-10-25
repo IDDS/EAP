@@ -29,6 +29,8 @@
             </div>
           </div>
 
+          <details class="agent-profile-disclosure">
+            <summary>身份与运行线索 <span>编码、厂商、主机与进程</span></summary>
           <div class="agent-profile-facts">
             <div>
               <span>资产编码</span>
@@ -49,6 +51,7 @@
               <small v-if="primaryDiscovery?.executablePath" :title="primaryDiscovery.executablePath">{{ primaryDiscovery.executablePath }}</small>
             </div>
           </div>
+          </details>
 
           <div class="agent-profile-footer">
             <div class="agent-profile-badges">
@@ -90,13 +93,14 @@
 
     <el-alert v-if="!agent" type="warning" :closable="false" title="未找到该智能体，请返回目录重新选择。" />
 
-    <section v-if="agent" class="agent-setup-guide">
+    <details v-if="agent" class="agent-setup-guide" :open="route.query.setup === '1'">
+      <summary>创建与接入进度 <span>登记、部署与试运行状态</span></summary>
       <div><strong>创建与接入进度</strong><p>登记身份 → 配置部署或关联实例 → 启用 → 试运行与观测验证</p></div>
       <div class="setup-guide-actions"><el-tag>身份已登记</el-tag><el-tag :type="agent.lifecycleStatus === 'ACTIVE' ? 'success' : 'info'">{{ agent.lifecycleStatus === 'ACTIVE' ? '已启用' : '未启用' }}</el-tag><el-tag :type="runtimes.length ? 'success' : 'warning'">{{ runtimes.length ? '已有运行登记' : '待接入运行实例' }}</el-tag><el-tag :type="modelEvents.length && spans.length ? 'success' : 'info'">{{ modelEvents.length && spans.length ? '当前窗口有模型与调用链观测' : '执行与观测待验证' }}</el-tag></div>
       <div class="setup-guide-actions"><el-button link type="primary" @click="activeTab='deploy'">配置部署与试运行</el-button><el-button link type="primary" @click="activeTab='runtime'">查看运行接入</el-button><router-link to="/registry?section=environment">关联已有实例</router-link></div>
-    </section>
-    <div v-if="agent" class="agent-detail-tabs" role="tablist">
-      <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key"><el-icon><component :is="tab.icon" /></el-icon>{{ tab.label }}<b v-if="tab.count !== undefined">{{ tab.count }}</b></button>
+    </details>
+    <div v-if="agent" class="agent-detail-tabs" role="group" aria-label="智能体详情视图">
+      <button v-for="tab in tabs" :key="tab.key" type="button" :class="{ active: activeTab === tab.key }" :aria-label="tab.label" :aria-pressed="activeTab === tab.key" @click="activeTab = tab.key"><el-icon aria-hidden="true"><component :is="tab.icon" /></el-icon>{{ tab.label }}<b v-if="tab.count !== undefined">{{ tab.count }}</b></button>
     </div>
 
     <template v-if="agent">

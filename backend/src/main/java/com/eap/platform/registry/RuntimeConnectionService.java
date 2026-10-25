@@ -8,6 +8,7 @@ import com.eap.platform.substrate.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -152,10 +153,27 @@ public class RuntimeConnectionService {
     }
     @Transactional(readOnly=true)
     public void checkIdentity(AgentRuntimeInstance runtime){current(bound(runtime.instanceKey));}
+    /** Fresh installed epoch, isolated from an enclosing contract's MySQL snapshot. */
+    @Transactional(propagation=Propagation.REQUIRES_NEW,readOnly=true)
+    public String inspectionGeneration(String instance) {
+        var r=bound(instance);var c=connections.findByInstanceKey(r.instanceKey).orElse(null);
+        if(!valid(c)||c.verifiedAt==null||c.deliveryOperation!=null)throw new BusinessException("实例尚未验证任务协议或凭证已失效");
+        return c.generation;
+    }
+    // Renewal commits independently. Suspend the caller's persistence context and
+    // database snapshot so this read uses the installed lease, even after admission.
+    @Transactional(propagation=Propagation.NOT_SUPPORTED)
     public String dispatchToken(AgentRuntimeInstance runtime){
         if(delivery!=null)delivery.ensure(runtime.instanceKey);
         var r=bound(runtime.instanceKey);var c=connections.findByInstanceKey(r.instanceKey).orElse(null);
         if(!valid(c)||c.verifiedAt==null)throw new BusinessException("实例尚未验证任务协议或凭证已失效");
+        current(r);return token(r,c);
+    }
+    /** Inspect readiness using the installed credential, without delivery or renewal. */
+    @Transactional(readOnly=true)
+    public String inspectionToken(AgentRuntimeInstance runtime){
+        var r=bound(runtime.instanceKey);var c=connections.findByInstanceKey(r.instanceKey).orElse(null);
+        if(!valid(c)||c.verifiedAt==null||c.deliveryOperation!=null)throw new BusinessException("实例尚未验证任务协议或凭证已失效");
         current(r);return token(r,c);
     }
     @Transactional(readOnly=true)
@@ -197,6 +215,16 @@ public class RuntimeConnectionService {
         var r=bound(access.instanceKey());var c=connections.findByInstanceKey(r.instanceKey).orElse(null);
         if(r.status==RuntimeStatus.OFFLINE||!Objects.equals(r.agentId,access.agentId())||!Objects.equals("runtime-"+r.id,access.endpointKey())||!valid(c)||!Objects.equals(c.generation,access.generation()))throw new UnauthorizedException("实例追踪身份已失效");
         String canonical=raw.toLowerCase(Locale.ROOT);
+        var team=creationDb.queryForList("select s.role_ordinal,c.protocol_json from team_evolution_slots s join team_evolution_evaluations e on e.id=s.evaluation_id join team_evolution_contracts c on c.id=e.contract_id where s.trace_id=?",canonical);
+        if(!team.isEmpty()) {
+            com.fasterxml.jackson.databind.JsonNode role;
+            try {role=new com.fasterxml.jackson.databind.ObjectMapper().readTree((String)team.getFirst().get("protocol_json")).path("roles").path(((Number)team.getFirst().get("role_ordinal")).intValue());}
+            catch(Exception ex){throw new UnauthorizedException("团队原追踪不可读取");}
+            if(team.size()!=1||role.path("agentId").asLong()!=access.agentId()||role.path("runtimeId").asLong()!=r.id
+                    ||!role.path("instanceKey").asText().equals(r.instanceKey)||!role.path("actorUid").asText().equals(r.getBoundActorUid())
+                    ||!role.path("actorTemplate").asText().equals(r.getBoundActorTemplate())||!role.path("endpoint").asText().equals(r.endpoint))throw new UnauthorizedException("团队追踪不属于原实例身份");
+            return canonical; // Stopped original slots remain recognizable and cannot fall back to chat.
+        }
         var issued=creationDb.queryForList("select e.agent_id,e.instance_key,e.actor_uid,e.template,e.endpoint from agent_experiment_trials t join agent_experiments e on e.id=t.experiment_id where t.trace_id=?",canonical);
         if(issued.isEmpty())return scoped;
         var frozen=issued.getFirst();

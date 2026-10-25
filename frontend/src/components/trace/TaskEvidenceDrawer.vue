@@ -1,5 +1,5 @@
 <template>
-  <el-drawer append-to-body :model-value="true" title="任务结果与执行过程" size="min(780px, 100vw)" @close="$emit('close')">
+  <el-drawer append-to-body :z-index="4000" :model-value="true" title="任务结果与执行过程" size="min(780px, 100vw)" @close="$emit('close')">
     <div v-loading="loading" class="task-evidence">
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
       <el-button :disabled="loading" @click="load">刷新进展</el-button>
@@ -8,7 +8,7 @@
         <div class="task-summary"><div><span>执行状态</span><strong>{{ executionLabel(data.task.status) }}</strong></div><div><span>业务问题</span><strong>{{ outcomeLabel(data.task.problemResolved) }}</strong></div></div>
         <section class="task-result"><h3>要处理的事情</h3><p>{{ data.task.inputSummary || '尚未提供任务说明' }}</p><h3>执行结果</h3><p>{{ data.task.resultSummary || '暂未提供执行结果。可刷新进展或查看下方执行记录。' }}</p><h3>业务确认说明</h3><p>{{ data.task.resolutionSummary || '尚未填写确认说明' }}</p></section>
         <section class="task-next"><h3>建议下一步</h3><p>{{ taskNextStep(data.task) }}</p>
-          <div class="result-actions"><el-button :disabled="loading || !!error" type="success" plain @click="$emit('confirm-result', data.task, true)">确认问题已解决</el-button><el-button :disabled="loading || !!error" plain @click="$emit('confirm-result', data.task, false)">记录尚未解决</el-button></div>
+          <div v-if="canConfirm" class="result-actions"><el-button :disabled="loading || !!error || confirming" type="success" plain @click="$emit('confirm-result', data.task, true)">确认问题已解决</el-button><el-button :disabled="loading || !!error || confirming" plain @click="$emit('confirm-result', data.task, false)">记录尚未解决</el-button></div>
           <p class="evidence-note">这是业务结果登记，不会改变任务的执行进展。</p>
         </section>
         <details class="evidence-note"><summary>关联方式与技术信息</summary><p>任务类型：{{ data.task.taskType }}。记录通过明确的任务标识关联；未关联不表示没有发生。工作流标识与任务编号可能不同。</p></details>
@@ -37,7 +37,7 @@ import { getData } from '@/api/http'
 import type { AgentTask } from '@/types/domain'
 interface Evidence { id: number; key: string; traceId?: string; agentId?: number; label: string; status: string; observedAt?: string; amount?: number; currency?: string }
 interface EvidenceResponse { task: AgentTask; associationBasis: string; sections: { source: string; records: Evidence[]; hasMore: boolean; conflictingAgentRecords: number }[] }
-const props = defineProps<{ taskId: number }>()
+const props = defineProps<{ taskId: number; canConfirm?: boolean; confirming?: boolean }>()
 defineEmits<{ close: []; 'confirm-result':[task:AgentTask,resolved:boolean] }>()
 const data = ref<EvidenceResponse>()
 const error = ref('')

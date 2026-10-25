@@ -74,6 +74,18 @@ public class WorkflowSchedulingService {
             if(db.update("update workflow_phase_observations set state=?,ended_ms=? where execution_id=? and owner_epoch=? and node_sequence=? and phase_kind=? and owner_id=? and state='RUNNING'",state,Instant.now().toEpochMilli(),original.id,original.ownerEpoch,node,kind,original.ownerId)!=1)
                 throw new IllegalStateException("Phase was not open"); });
     }
+    // The run row fences expiry/owner replacement while a bounded reclaim RPC is issued.
+    String reclaim(WorkflowExecution original, int node, java.util.function.Supplier<String> action) {
+        if (!enrolled(original.id)) return "SKIPPED_LEGACY";
+        return tx.execute(ignored -> {
+            requireOwner(original);
+            String state = action.get();
+            if (db.update("update workflow_phase_observations set state=?,ended_ms=? where execution_id=? and owner_epoch=? and node_sequence=? and phase_kind='RECLAIM' and owner_id=? and state='RUNNING'",
+                    state, Instant.now().toEpochMilli(), original.id, original.ownerEpoch, node, original.ownerId) != 1)
+                throw new IllegalStateException("Reclaim phase was not open");
+            return state;
+        });
+    }
     private boolean enrolled(long id) { return db.queryForObject("select count(*) from workflow_schedule_entries where execution_id=?",Long.class,id)>0; }
     private void requireOwner(WorkflowExecution original) {
         var current=executions.lockById(original.id).orElseThrow();
@@ -96,8 +108,9 @@ public class WorkflowSchedulingService {
                 (r,n)->new Group(r.getString(1),r.getLong(2),elapsed(now,r.getLong(3))));
         List<Long> waits=db.query("select queued_ms,dispatch_ms from workflow_schedule_entries where dispatch_ms is not null order by dispatch_sequence desc limit 100",(r,n)->elapsed(r.getLong(2),r.getLong(1))).stream().filter(Objects::nonNull).sorted().toList();
         var runs=db.query("select e.id,e.run_key,e.workflow_id,e.status,e.owner_epoch,e.owner_id,s.group_key,s.selection_reason,s.queued_ms,s.dispatch_ms,e.started_at from workflow_schedule_entries s join workflow_executions e on e.id=s.execution_id order by s.queued_ms desc,e.id desc limit 20",(r,n)->{
-            long id=r.getLong(1),epoch=r.getLong(5);String status=r.getString(4);boolean valid="RUNNING".equals(status)&&r.getString(6)!=null&&r.getTimestamp(11)!=null
-                    &&Instant.ofEpochMilli(now).isBefore(r.getTimestamp(11).toInstant().plusSeconds(properties.getTimeoutSeconds()));
+            var started=r.getTimestamp(11,Calendar.getInstance(TimeZone.getTimeZone("UTC")));
+            long id=r.getLong(1),epoch=r.getLong(5);String status=r.getString(4);boolean valid="RUNNING".equals(status)&&r.getString(6)!=null&&started!=null
+                    &&Instant.ofEpochMilli(now).isBefore(started.toInstant().plusSeconds(properties.getTimeoutSeconds()));
             List<Phase> phases=db.query("select owner_epoch,node_sequence,phase_kind,state,started_ms,ended_ms,owner_id from workflow_phase_observations where execution_id=? order by node_sequence,started_ms",(p,k)->{
                 String state=p.getString(4);boolean open="RUNNING".equals(state);
                 if(open && (!valid || p.getLong(1)!=epoch || !Objects.equals(p.getString(7),r.getString(6))))state="UNCONFIRMED";

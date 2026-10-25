@@ -1,7 +1,7 @@
 <template>
   <main ref="screen" class="command-center" :class="{ 'motion-paused': !autoRefresh || documentHidden }">
     <header class="cc-header">
-      <div class="cc-brand"><img src="/eap-logo.svg" alt="EAP" /><div><span>EAP · 企业智能体控制平面</span><h1>智能体运行指挥中心</h1></div></div>
+      <div class="cc-brand"><img src="/eap-logo.svg" alt="EAP" width="44" height="44" /><div><span>EAP · 企业智能体控制平面</span><h1>智能体运行指挥中心</h1></div></div>
       <div class="cc-context"><span class="cc-live-dot" :class="{ stale: failedSources.length || !lastUpdated || !autoRefresh || documentHidden }" />{{ autoRefresh ? '自动刷新 · 15 秒' : '已暂停刷新' }}<span class="cc-divider">/</span>企业全局</div>
       <div class="cc-actions"><button @click="toggleAutoRefresh" :aria-pressed="!autoRefresh">{{ autoRefresh ? '暂停' : '继续' }}</button><button :disabled="loading" @click="refresh">{{ loading ? '更新中…' : '刷新' }}</button><button @click="toggleFullscreen">{{ fullscreen ? '退出全屏' : '全屏展示' }}</button><router-link to="/">返回控制台 ↗</router-link></div>
     </header>

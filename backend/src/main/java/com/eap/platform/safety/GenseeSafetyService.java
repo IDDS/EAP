@@ -56,6 +56,9 @@ public class GenseeSafetyService {
     @Transactional
     public SafetyDtos.SessionResponse createSession(SafetyDtos.SessionRequest request) {
         SafetySession session = sessionRepository.findBySessionKey(request.sessionKey()).orElseGet(SafetySession::new);
+        if (session.id != null) {
+            requireExactSessionKey(session, request.sessionKey());
+        }
         session.sessionKey = request.sessionKey();
         session.rootAgentId = request.rootAgentId();
         session.objective = request.objective();
@@ -75,11 +78,10 @@ public class GenseeSafetyService {
     }
 
     private SafetyDtos.SafetyEvaluationResponse evaluate(SafetyDtos.SafetyEventRequest request,boolean retainPayload) {
-        sessionRepository.findBySessionKey(request.sessionKey())
-                .orElseThrow(() -> new BusinessException("安全会话不存在"));
+        SafetySession session = requireSession(request.sessionKey());
 
         SafetyEvent event = new SafetyEvent();
-        event.sessionKey = request.sessionKey();
+        event.sessionKey = session.sessionKey;
         event.agentId = request.agentId();
         event.parentAgentId = request.parentAgentId();
         event.eventType = request.eventType();
@@ -111,10 +113,15 @@ public class GenseeSafetyService {
 
     @Transactional
     public SafetyDtos.ArtifactResponse registerArtifact(SafetyDtos.ArtifactRequest request) {
-        eventRepository.findById(request.eventId()).orElseThrow(() -> new BusinessException("安全事件不存在"));
+        SafetySession session = requireSession(request.sessionKey());
+        SafetyEvent event = eventRepository.findById(request.eventId())
+                .orElseThrow(() -> new BusinessException("安全事件不存在"));
+        if (!session.sessionKey.equals(event.sessionKey)) {
+            throw new BusinessException("安全事件不属于指定会话");
+        }
         SafetyArtifact artifact = new SafetyArtifact();
-        artifact.sessionKey = request.sessionKey();
-        artifact.eventId = request.eventId();
+        artifact.sessionKey = session.sessionKey;
+        artifact.eventId = event.id;
         artifact.artifactUri = request.artifactUri();
         artifact.artifactType = request.artifactType();
         artifact.contentHash = request.contentHash();
@@ -124,6 +131,20 @@ public class GenseeSafetyService {
     @Transactional(readOnly = true)
     public List<SafetyDtos.ArtifactResponse> listArtifacts(String sessionKey) {
         return artifactRepository.findBySessionKeyOrderByCreatedAtDesc(sessionKey).stream().map(SafetyDtos::from).toList();
+    }
+
+    private SafetySession requireSession(String sessionKey) {
+        SafetySession session = sessionRepository.findBySessionKey(sessionKey)
+                .orElseThrow(() -> new BusinessException("安全会话不存在"));
+        requireExactSessionKey(session, sessionKey);
+        return session;
+    }
+
+    private void requireExactSessionKey(SafetySession session, String sessionKey) {
+        // Database collations may equate different keys; never rewrite or bind an alias.
+        if (!session.sessionKey.equals(sessionKey)) {
+            throw new BusinessException("安全会话标识不匹配，请使用已登记的完整标识");
+        }
     }
 
     private DecisionResult decide(SafetyDtos.SafetyEventRequest request) {

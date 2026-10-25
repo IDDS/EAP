@@ -1,0 +1,365 @@
+[
+  {
+    "event": {
+      "server": "fixture",
+      "tool": "calculate_sum",
+      "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "spanId": "89533e2badd04897",
+      "startTimeUnixNano": "1792467771031302177",
+      "endTimeUnixNano": "1792467771071147624",
+      "status": "SUCCEEDED",
+      "reason": "TOOL_RESULT",
+      "evidence": "PROTOCOL_RESPONSE",
+      "effectVerified": false,
+      "taskCorrelation": "CONFIGURED",
+      "parentSpanId": "bbbbbbbbbbbbbbbb"
+    },
+    "otlp": {
+      "resourceSpans": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "eap-mcp-stdio-observer"
+                }
+              },
+              {
+                "key": "service.version",
+                "value": {
+                  "stringValue": "0.1.0"
+                }
+              },
+              {
+                "key": "eap.agent.id",
+                "value": {
+                  "stringValue": "75"
+                }
+              }
+            ]
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "eap.mcp.protocol"
+              },
+              "spans": [
+                {
+                  "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "spanId": "89533e2badd04897",
+                  "name": "mcp tools/call",
+                  "kind": 3,
+                  "startTimeUnixNano": "1792467771031302177",
+                  "endTimeUnixNano": "1792467771071147624",
+                  "attributes": [
+                    {
+                      "key": "mcp.server.name",
+                      "value": {
+                        "stringValue": "fixture"
+                      }
+                    },
+                    {
+                      "key": "tool.name",
+                      "value": {
+                        "stringValue": "calculate_sum"
+                      }
+                    },
+                    {
+                      "key": "rpc.method",
+                      "value": {
+                        "stringValue": "tools/call"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.contract",
+                      "value": {
+                        "stringValue": "MCP_PROTOCOL_V1"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.outcome",
+                      "value": {
+                        "stringValue": "SUCCEEDED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.reason",
+                      "value": {
+                        "stringValue": "TOOL_RESULT"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.evidence",
+                      "value": {
+                        "stringValue": "PROTOCOL_RESPONSE"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.effect",
+                      "value": {
+                        "stringValue": "UNVERIFIED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.task_correlation",
+                      "value": {
+                        "stringValue": "CONFIGURED"
+                      }
+                    }
+                  ],
+                  "status": {
+                    "code": 1
+                  },
+                  "parentSpanId": "bbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "event": {
+      "server": "fixture",
+      "tool": "calculate_sum",
+      "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "spanId": "b47113e0334aed3d",
+      "startTimeUnixNano": "1792467771176931070",
+      "endTimeUnixNano": "1792467771200434603",
+      "status": "FAILED",
+      "reason": "TOOL_ERROR",
+      "evidence": "PROTOCOL_RESPONSE",
+      "effectVerified": false,
+      "taskCorrelation": "CONFIGURED",
+      "parentSpanId": "bbbbbbbbbbbbbbbb"
+    },
+    "otlp": {
+      "resourceSpans": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "eap-mcp-stdio-observer"
+                }
+              },
+              {
+                "key": "service.version",
+                "value": {
+                  "stringValue": "0.1.0"
+                }
+              },
+              {
+                "key": "eap.agent.id",
+                "value": {
+                  "stringValue": "75"
+                }
+              }
+            ]
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "eap.mcp.protocol"
+              },
+              "spans": [
+                {
+                  "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "spanId": "b47113e0334aed3d",
+                  "name": "mcp tools/call",
+                  "kind": 3,
+                  "startTimeUnixNano": "1792467771176931070",
+                  "endTimeUnixNano": "1792467771200434603",
+                  "attributes": [
+                    {
+                      "key": "mcp.server.name",
+                      "value": {
+                        "stringValue": "fixture"
+                      }
+                    },
+                    {
+                      "key": "tool.name",
+                      "value": {
+                        "stringValue": "calculate_sum"
+                      }
+                    },
+                    {
+                      "key": "rpc.method",
+                      "value": {
+                        "stringValue": "tools/call"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.contract",
+                      "value": {
+                        "stringValue": "MCP_PROTOCOL_V1"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.outcome",
+                      "value": {
+                        "stringValue": "FAILED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.reason",
+                      "value": {
+                        "stringValue": "TOOL_ERROR"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.evidence",
+                      "value": {
+                        "stringValue": "PROTOCOL_RESPONSE"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.effect",
+                      "value": {
+                        "stringValue": "UNVERIFIED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.task_correlation",
+                      "value": {
+                        "stringValue": "CONFIGURED"
+                      }
+                    }
+                  ],
+                  "status": {
+                    "code": 2
+                  },
+                  "parentSpanId": "bbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "event": {
+      "server": "fixture",
+      "tool": "calculate_sum",
+      "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "spanId": "7d3859de4c25b3eb",
+      "startTimeUnixNano": "1792467771262880155",
+      "endTimeUnixNano": "1792467771301105952",
+      "status": "UNKNOWN",
+      "reason": "STREAM_CLOSED",
+      "evidence": "NO_CONFIRMED_RESPONSE",
+      "effectVerified": false,
+      "taskCorrelation": "CONFIGURED",
+      "parentSpanId": "bbbbbbbbbbbbbbbb"
+    },
+    "otlp": {
+      "resourceSpans": [
+        {
+          "resource": {
+            "attributes": [
+              {
+                "key": "service.name",
+                "value": {
+                  "stringValue": "eap-mcp-stdio-observer"
+                }
+              },
+              {
+                "key": "service.version",
+                "value": {
+                  "stringValue": "0.1.0"
+                }
+              },
+              {
+                "key": "eap.agent.id",
+                "value": {
+                  "stringValue": "75"
+                }
+              }
+            ]
+          },
+          "scopeSpans": [
+            {
+              "scope": {
+                "name": "eap.mcp.protocol"
+              },
+              "spans": [
+                {
+                  "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "spanId": "7d3859de4c25b3eb",
+                  "name": "mcp tools/call",
+                  "kind": 3,
+                  "startTimeUnixNano": "1792467771262880155",
+                  "endTimeUnixNano": "1792467771301105952",
+                  "attributes": [
+                    {
+                      "key": "mcp.server.name",
+                      "value": {
+                        "stringValue": "fixture"
+                      }
+                    },
+                    {
+                      "key": "tool.name",
+                      "value": {
+                        "stringValue": "calculate_sum"
+                      }
+                    },
+                    {
+                      "key": "rpc.method",
+                      "value": {
+                        "stringValue": "tools/call"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.contract",
+                      "value": {
+                        "stringValue": "MCP_PROTOCOL_V1"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.outcome",
+                      "value": {
+                        "stringValue": "UNKNOWN"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.reason",
+                      "value": {
+                        "stringValue": "STREAM_CLOSED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.evidence",
+                      "value": {
+                        "stringValue": "NO_CONFIRMED_RESPONSE"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.effect",
+                      "value": {
+                        "stringValue": "UNVERIFIED"
+                      }
+                    },
+                    {
+                      "key": "eap.observation.task_correlation",
+                      "value": {
+                        "stringValue": "CONFIGURED"
+                      }
+                    }
+                  ],
+                  "status": {
+                    "code": 0
+                  },
+                  "parentSpanId": "bbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

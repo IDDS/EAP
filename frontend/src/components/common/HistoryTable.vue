@@ -8,14 +8,18 @@
       <el-button @click="reload">刷新</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
-    <el-table v-loading="loading" :data="items" @row-click="$emit('row-click', $event)"><slot /></el-table>
+    <el-table v-loading="loading" :data="items" :class="{ 'history-desktop-table': !!$slots.mobile }" @row-click="$emit('row-click', $event)"><slot /></el-table>
+    <div v-if="$slots.mobile" v-loading="loading" class="history-mobile-records">
+      <slot name="mobile" :items="items" :loading="loading" :error="error" />
+    </div>
     <div class="history-pagination">
       <span aria-live="polite">{{ error ? '查询失败' : `共 ${total} 条符合条件的记录` }}</span>
-      <el-pagination v-model:current-page="page" v-model:page-size="size" :total="total" :page-sizes="[10,20,50,100]" :pager-count="5" layout="sizes, prev, pager, next" size="small" />
+      <PageControls v-model:current-page="page" v-model:page-size="size" :total="total" :page-sizes="[10,20,50,100]"  />
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import PageControls from '@/components/common/PageControls.vue'
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 export interface HistoryParams { page:number; size:number; keyword?:string; status?:string; order:string; from?:string; to?:string }
 const props=defineProps<{ fetchPage:(params:HistoryParams)=>Promise<{items:any[];totalElements:number}>; statuses:string[]; placeholder:string; resetKey?:string; labels?:Record<string,string> }>()
@@ -50,5 +54,6 @@ onBeforeUnmount(()=>{++generation;clearTimeout(timer)})
 defineExpose({reload})
 </script>
 <style scoped>
+.history-mobile-records{display:none;min-width:0}@media(max-width:760px){.history-table>.history-desktop-table{display:none}.history-mobile-records{display:block;min-height:80px}}
 .history-table{min-width:0}.history-filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.history-filters>.el-input{width:260px}.history-filters>.el-select{width:140px}.history-filters :deep(.el-date-editor){max-width:100%;width:350px;flex-grow:0}.history-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px}.history-pagination>span{font-size:12px;color:var(--el-text-color-secondary)}.history-pagination :deep(.el-pagination){flex-wrap:wrap;row-gap:8px}@media(max-width:600px){.history-filters>.el-input{width:100%}.history-pagination :deep(.el-pagination){--el-pagination-button-width:26px}}
 </style>

@@ -28,6 +28,18 @@ public class PlanExecutionService {
     public record Request(@NotBlank @Pattern(regexp="[A-Za-z0-9_-]{1,64}") String requestKey,
                           Map<String, Object> context, boolean suspendAfterTask) {}
     public record Response(Long planId, Long workflowId, WorkflowExecutionService.Response execution) {}
+    public record ReclaimStep(Long stepId, Integer stepOrder, boolean allowed, String code, String message) {}
+    public record ReclaimReadiness(Long planId, boolean allowed, List<ReclaimStep> steps) {}
+
+    @Transactional(readOnly = true)
+    public ReclaimReadiness reclaimReadiness(Long planId) {
+        plans.findById(planId).orElseThrow(() -> new BusinessException("任务计划不存在"));
+        var checks = steps.findByPlanIdOrderByStepOrder(planId).stream().map(step -> {
+            var check = executions.reclaimReadiness(step.assignedAgentId, step.executionBackend);
+            return new ReclaimStep(step.id, step.stepOrder, check.allowed(), check.code(), check.message());
+        }).toList();
+        return new ReclaimReadiness(planId, !checks.isEmpty() && checks.stream().allMatch(ReclaimStep::allowed), checks);
+    }
 
     @Transactional
     public Response submit(Long planId, Request request, String requester) {
@@ -49,10 +61,16 @@ public class PlanExecutionService {
         if (ordered.isEmpty() || ordered.size() > 62) throw new BusinessException("计划要求 1–62 个步骤");
         var membership = members.findByTeamId(plan.teamId);
         Set<Integer> orders = new HashSet<>();
+        Map<Long, com.fasterxml.jackson.databind.JsonNode> outputContracts = new HashMap<>();
         for (var step : ordered) {
             if (step.stepOrder == null || step.stepOrder < 1 || !orders.add(step.stepOrder)) throw new BusinessException("步骤顺序必须为不重复的正整数");
             if (step.assignedAgentId == null || membership.stream().noneMatch(m -> m.agentId.equals(step.assignedAgentId)))
                 throw new BusinessException("每个步骤必须分配给本团队成员");
+            String contract = WorkflowOutputContract.validateDefinition(step.outputContractJson, step.executionBackend);
+            if (contract != null) {
+                try { outputContracts.put(step.id, mapper.readTree(contract)); }
+                catch (Exception ex) { throw new BusinessException("结果契约无法读取"); }
+            }
             if (step.status != StepStatus.ASSIGNED && step.status != StepStatus.PENDING) throw new BusinessException("步骤已有人工执行状态，请核对后另建计划");
         }
         var workflow = workflows.create(new WorkflowDtos.WorkflowRequest("plan-" + planId + "-" + UUID.randomUUID(), plan.goal, "计划 " + planId + " 的只读执行快照"));
@@ -64,6 +82,7 @@ public class PlanExecutionService {
             Map<String, Object> config = new LinkedHashMap<>();
             config.put("taskObjective", step.title);
             config.put("executionBackend", step.executionBackend);
+            if (outputContracts.containsKey(step.id)) config.put("eapOutput", outputContracts.get(step.id));
             config.put("suspendAfterTask", request.suspendAfterTask());
             if (!previous.equals("start")) config.put("inputFrom", List.of(previous));
             node(workflow.id(), key, "AGENT", step.assignedAgentId, step.title, step.requiredCapability, config, position++);
@@ -95,6 +114,7 @@ public class PlanExecutionService {
         var run = executions.get(plan.executionWorkflowId, plan.executionRunKey);
         plan.status = switch (run.status()) {
             case "SUCCEEDED" -> PlanStatus.COMPLETED;
+            case "CANCELLED" -> PlanStatus.CANCELLED;
             case "QUEUED" -> PlanStatus.QUEUED;
             case "RUNNING" -> PlanStatus.RUNNING;
             case "BLOCKED" -> PlanStatus.BLOCKED;
@@ -105,13 +125,16 @@ public class PlanExecutionService {
         boolean terminal = !Set.of("QUEUED", "RUNNING").contains(run.status());
         for (var step : steps.findByPlanIdOrderByStepOrder(plan.id)) {
             var execution = run.steps().stream().filter(s -> s.nodeKey().equals("step-" + step.id)).findFirst();
-            step.status = execution.map(s -> switch (s.status()) {
+            step.status = execution.map(s -> {
+                if (s.resultValidation() != null && "REJECTED".equals(s.resultValidation().status())) return StepStatus.FAILED;
+                return switch (s.status()) {
                 case "SUCCEEDED" -> StepStatus.DONE;
                 case "DISPATCHING" -> terminal ? StepStatus.EXECUTION_UNKNOWN : StepStatus.RUNNING;
                 case "BLOCKED" -> StepStatus.BLOCKED;
                 case "WAITING_APPROVAL" -> StepStatus.WAITING_APPROVAL;
                 case "EXECUTION_UNKNOWN" -> StepStatus.EXECUTION_UNKNOWN;
                 default -> StepStatus.FAILED;
+                };
             }).orElse(terminal ? StepStatus.SKIPPED : StepStatus.ASSIGNED);
         }
         return new Response(plan.id, plan.executionWorkflowId, run);

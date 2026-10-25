@@ -12,9 +12,10 @@ import java.util.List;
 @RequestMapping("/api/agents")
 public class SubstrateDeploymentController {
     private final SubstrateDeploymentService service;
+    private final ChatSubmissionService chats;
 
-    public SubstrateDeploymentController(SubstrateDeploymentService service) {
-        this.service = service;
+    public SubstrateDeploymentController(SubstrateDeploymentService service, ChatSubmissionService chats) {
+        this.service = service; this.chats = chats;
     }
 
     @GetMapping("/substrate/capabilities")
@@ -27,10 +28,22 @@ public class SubstrateDeploymentController {
         return ApiResponse.ok(service.list(agentId));
     }
 
+    @GetMapping("/{agentId}/substrate/deployments/{version}/content")
+    public ApiResponse<SubstrateDeploymentDtos.DeploymentContent> deploymentContent(@PathVariable Long agentId,
+            @PathVariable Integer version) {
+        return ApiResponse.ok(service.content(agentId, version));
+    }
+
     @PostMapping("/{agentId}/substrate/deployments")
     public ApiResponse<SubstrateDeploymentDtos.DeploymentResponse> deploy(@PathVariable Long agentId,
             @Valid @RequestBody SubstrateDeploymentDtos.DeployRequest request, Authentication authentication) {
         return ApiResponse.ok(service.submit(agentId, request, requester(authentication)));
+    }
+
+    @GetMapping("/{agentId}/substrate/deployments/requests/{requestKey}")
+    public ApiResponse<SubstrateDeploymentDtos.DeploymentReceipt> deploymentReceipt(@PathVariable Long agentId,
+            @PathVariable String requestKey) {
+        return ApiResponse.ok(service.receipt(agentId, requestKey));
     }
 
     @PostMapping("/{agentId}/substrate/deployments/{version}/retry")
@@ -62,12 +75,18 @@ public class SubstrateDeploymentController {
 
     // POST, not GET: a trial run calls the model and spends tokens.
     @PostMapping("/{agentId}/substrate/instances/{name}/chat")
-    public ApiResponse<SubstrateDeploymentDtos.ChatResponse> chat(@PathVariable Long agentId, @PathVariable String name,
-            @Valid @RequestBody SubstrateDeploymentDtos.ChatRequest request) {
-        return ApiResponse.ok(service.chat(agentId, name, request.message()));
+    public ApiResponse<ChatSubmissionService.Receipt> chat(@PathVariable Long agentId, @PathVariable String name,
+            @Valid @RequestBody SubstrateDeploymentDtos.ChatRequest request, Authentication authentication) {
+        return ApiResponse.ok(chats.submit(agentId, name, request, authentication == null ? "console" : authentication.getName()));
     }
 
     private static String requester(Authentication authentication) {
         return authentication == null ? "console" : authentication.getName();
     }
+    @GetMapping("/{agentId}/substrate/instances/{name}/chat/{requestKey}")
+    public ApiResponse<ChatSubmissionService.Receipt> chatReceipt(@PathVariable Long agentId, @PathVariable String name,
+            @PathVariable String requestKey, Authentication authentication) {
+        return ApiResponse.ok(chats.get(agentId, name, requestKey, authentication == null ? "console" : authentication.getName()));
+    }
+
 }

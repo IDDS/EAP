@@ -1,0 +1,105 @@
+{
+  "cases": [
+    {
+      "user": "viewer",
+      "width": 1440,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "viewer",
+      "width": 390,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "operator",
+      "width": 1440,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "operator",
+      "width": 390,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "governance",
+      "width": 1440,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "governance",
+      "width": 390,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "admin",
+      "width": 1440,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    },
+    {
+      "user": "admin",
+      "width": 390,
+      "passed": true,
+      "pkceS256": true,
+      "sourceRuns": 2,
+      "targetRuns": 3,
+      "confirmedLinks": 2,
+      "bidirectionalNavigation": true,
+      "viewportFit": true,
+      "synthetic": false
+    }
+  ],
+  "displayFixtures": [],
+  "unexpectedWrites": [],
+  "pageErrors": [],
+  "serverErrors": [],
+  "passed": true
+}

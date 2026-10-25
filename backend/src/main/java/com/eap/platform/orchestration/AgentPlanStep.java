@@ -35,6 +35,9 @@ public class AgentPlanStep {
     @Column(name = "execution_backend", nullable = false, length = 16)
     String executionBackend = "RUNTIME";
 
+    @Column(name = "output_contract_json", columnDefinition = "TEXT")
+    String outputContractJson;
+
     @Column(name = "assigned_agent_id")
     Long assignedAgentId;
 

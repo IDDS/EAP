@@ -1,0 +1,72 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "eap-handoff-image-test-20261025-r1",
+    "namespace": "eap"
+  },
+  "spec": {
+    "nodeName": "ate-node2",
+    "restartPolicy": "Never",
+    "automountServiceAccountToken": false,
+    "activeDeadlineSeconds": 240,
+    "containers": [
+      {
+        "name": "verify",
+        "image": "10.186.133.66:5001/eap-handoff-sample@sha256:c6e53ce1f97d109a0a2af46045928171b72245d2e42b5a2b21d33b90871bae09",
+        "command": [
+          "/usr/bin/python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "/tests",
+          "-v"
+        ],
+        "env": [
+          {
+            "name": "PYTHONPATH",
+            "value": "/opt/eap-handoff:/opt/eap-framework:/opt/eap-framework/site"
+          },
+          {
+            "name": "PYTHONDONTWRITEBYTECODE",
+            "value": "1"
+          },
+          {
+            "name": "LANGSMITH_TRACING",
+            "value": "false"
+          },
+          {
+            "name": "LANGCHAIN_TRACING_V2",
+            "value": "false"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "256Mi"
+          },
+          "limits": {
+            "cpu": "2",
+            "memory": "512Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "tests",
+            "mountPath": "/tests",
+            "readOnly": true
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "tests",
+        "configMap": {
+          "name": "eap-handoff-image-test-20261025-r1"
+        }
+      }
+    ]
+  }
+}

@@ -1,5 +1,8 @@
 <template>
   <section class="page-grid safety-page">
+    <div class="toolbar"><div class="toolbar-title"><span class="interface-eyebrow">治理 · 安全响应</span><h2>安全响应</h2><span>查看安全决策，针对已登记会话评估操作风险</span></div></div>
+    <el-alert v-if="pageError" :title="pageError" type="error" show-icon :closable="false" />
+    <el-alert v-if="!canManage" title="当前账号可查看安全记录，没有执行安全评估的权限。" type="info" show-icon :closable="false" />
     <div class="metric-strip">
       <div v-for="item in metrics" :key="item.label" class="small-box" :class="item.tone">
         <div>
@@ -12,15 +15,15 @@
 
     <div class="security-flow">
       <div class="flow-step">
-        <strong>Hook Event</strong>
+        <strong>调用事件</strong>
         <span>采集工具调用、数据访问、制品写入和智能体委托。</span>
       </div>
       <div class="flow-step">
-        <strong>Policy Decision</strong>
-        <span>本地策略或 gensee sidecar 输出 ALLOW / ASK / DENY。</span>
+        <strong>风险决策</strong>
+        <span>平台本地规则给出 ALLOW / ASK / DENY，评估本身不执行目标操作。</span>
       </div>
       <div class="flow-step">
-        <strong>Lineage Audit</strong>
+        <strong>审计证据</strong>
         <span>记录会话、父子智能体、控制动作和制品哈希。</span>
       </div>
     </div>
@@ -29,14 +32,16 @@
       <el-card shadow="never" class="panel">
         <template #header>
           <div class="panel-header">
-            <span>gensee-crate 兼容安全评估</span>
+            <span>操作风险评估</span>
             <el-button text :icon="Refresh" @click="load">刷新</el-button>
           </div>
         </template>
-        <el-form label-position="top">
+        <el-form v-if="canManage" label-position="top" :disabled="running || writeUncertain">
           <div class="form-row">
-            <el-form-item label="会话 Key">
-              <el-input v-model="form.sessionKey" />
+            <el-form-item label="安全会话">
+              <el-select v-model="form.sessionKey" filterable placeholder="选择已登记会话" :disabled="loading || running || writeUncertain" aria-label="安全会话">
+                <el-option v-for="session in sessions" :key="session.sessionKey" :label="`${session.sessionKey} · ${session.objective}`" :value="session.sessionKey" />
+              </el-select>
             </el-form-item>
             <el-form-item label="事件类型">
               <el-select v-model="form.eventType">
@@ -49,17 +54,22 @@
           </div>
           <div class="form-row">
             <el-form-item label="动作">
-              <el-input v-model="form.action" />
+              <el-input v-model="form.action" maxlength="128" placeholder="描述需要评估的操作" />
             </el-form-item>
             <el-form-item label="目标">
-              <el-input v-model="form.target" />
+              <el-input v-model="form.target" maxlength="256" placeholder="输入本次操作的目标资源" />
             </el-form-item>
           </div>
           <el-form-item label="摘要">
-            <el-input v-model="form.payloadSummary" type="textarea" :rows="3" />
+            <el-input v-model="form.payloadSummary" type="textarea" :rows="3" maxlength="1024" />
           </el-form-item>
-          <el-button type="primary" :icon="Lock" @click="evaluate">执行安全评估</el-button>
+          <p v-if="selectedSession" class="muted">{{ selectedSession.rootAgentId == null ? '此会话未关联智能体' : `会话关联智能体 #${selectedSession.rootAgentId}` }}；本次评估不会执行目标操作。</p>
+          <p v-else-if="!loading && !pageError && !sessions.length" class="muted">暂无安全会话，请先完成运行接入并登记会话。</p>
+          <el-button type="primary" :icon="Lock" :loading="running" :disabled="loading || running || writeUncertain || !selectedSession" @click="evaluate">执行安全评估</el-button>
         </el-form>
+        <p v-else class="muted">可在右侧查看最近决策，或在下方查询已登记的安全会话。</p>
+        <el-alert v-if="formError" :title="formError" :type="writeUncertain ? 'warning' : 'error'" show-icon :closable="false" />
+        <el-button v-if="canManage && writeUncertain" @click="acknowledgeUncertain">已核对记录，允许再次评估</el-button>
       </el-card>
 
       <el-card shadow="never" class="panel">
@@ -74,6 +84,7 @@
             </div>
           </div>
         </div>
+        <el-empty v-if="!loading && !pageError && !summary.recentDecisions.length" description="暂无安全决策" :image-size="56" />
       </el-card>
     </div>
 
@@ -90,15 +101,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Connection, Lock, Refresh, Warning } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'
+import { usePermissions } from '@/stores/permissions'
 import type { SafetyDecision, SafetyEventType, SafetySession, SafetySummary } from '@/types/domain'
 
 const loading = ref(false)
+const permissions = usePermissions()
+const canManage = computed(() => permissions.can('viewConsole') && permissions.can('manageSafety'))
+const running = ref(false), writeUncertain = ref(false), pageError = ref(''), formError = ref('')
+let accessEpoch = 0, loadSequence = 0, disposed = false
 const sessions = ref<SafetySession[]>([])
-const summary = ref<SafetySummary>({
+const emptySummary = (): SafetySummary => ({
   sessionCount: 0,
   eventCount: 0,
   denyCount: 0,
@@ -106,14 +122,17 @@ const summary = ref<SafetySummary>({
   criticalAlertCount: 0,
   recentDecisions: [],
 })
+const summary = ref<SafetySummary>(emptySummary())
 
 const form = reactive({
-  sessionKey: 'demo-incident-001',
+  sessionKey: '',
   eventType: 'TOOL_CALL' as SafetyEventType,
-  action: 'kubectl describe pod',
-  target: 'prod/kubernetes/default/api-pod',
-  payloadSummary: '运维智能体请求访问生产集群资源。',
+  action: '',
+  target: '',
+  payloadSummary: '',
 })
+const selectedSession = computed(() => sessions.value.find(session => session.sessionKey === form.sessionKey))
+const currentAccess = (epoch: number) => !disposed && epoch === accessEpoch && permissions.can('viewConsole')
 
 const metrics = computed(() => [
   { label: '安全会话', value: summary.value.sessionCount, tone: 'box-primary', icon: Connection },
@@ -123,30 +142,79 @@ const metrics = computed(() => [
 ])
 
 async function load() {
+  if (disposed || !permissions.can('viewConsole')) return
+  const epoch = accessEpoch, sequence = ++loadSequence
   loading.value = true
+  pageError.value = ''
+  sessions.value = []
+  summary.value = emptySummary()
   try {
     const [nextSummary, nextSessions] = await Promise.all([EapApi.getSafetySummary(), EapApi.listSafetySessions()])
+    if (!currentAccess(epoch) || sequence !== loadSequence) return
     summary.value = nextSummary
     sessions.value = nextSessions
+  } catch {
+    if (currentAccess(epoch) && sequence === loadSequence) pageError.value = '安全记录加载失败，请刷新重试。'
   } finally {
-    loading.value = false
+    if (currentAccess(epoch) && sequence === loadSequence) loading.value = false
   }
 }
 
 async function evaluate() {
-  await EapApi.createSafetySession({
-    sessionKey: form.sessionKey,
-    rootAgentId: 3,
-    objective: '多智能体安全运行评估',
-  })
-  const result = await EapApi.evaluateSafetyEvent({ ...form, agentId: 3 })
-  ElMessage.success(`决策：${result.decision.decision}`)
-  await load()
+  if (disposed || !canManage.value || loading.value || running.value || writeUncertain.value) return
+  const session = selectedSession.value
+  if (!session || !form.action.trim() || !form.target.trim()) {
+    formError.value = '请选择已登记会话，并填写动作和目标。'
+    return
+  }
+  const epoch = accessEpoch
+  const payload = { ...form, action: form.action.trim(), target: form.target.trim(), agentId: session.rootAgentId ?? undefined }
+  running.value = true
+  formError.value = ''
+  try {
+    const result = await EapApi.evaluateSafetyEvent(payload)
+    if (!currentAccess(epoch) || !canManage.value) return
+    ElMessage.success(`决策：${result.decision.decision}`)
+    await load()
+  } catch {
+    if (currentAccess(epoch) && canManage.value) {
+      writeUncertain.value = true
+      formError.value = `会话 ${payload.sessionKey} 的评估结果未确认，请先刷新并核对最近决策；不会自动重试。`
+    }
+  } finally {
+    if (currentAccess(epoch)) running.value = false
+  }
+}
+
+function acknowledgeUncertain() {
+  if (disposed || !canManage.value || running.value) return
+  writeUncertain.value = false
+  formError.value = ''
 }
 
 function decisionType(decision: SafetyDecision) {
   return decision === 'ALLOW' ? 'success' : decision === 'ASK' ? 'warning' : 'danger'
 }
 
-onMounted(load)
+watch(() => [permissions.state.user, permissions.can('viewConsole'), permissions.can('manageSafety')], () => {
+  ++accessEpoch
+  ++loadSequence
+  sessions.value = []
+  summary.value = emptySummary()
+  Object.assign(form, { sessionKey: '', eventType: 'TOOL_CALL', action: '', target: '', payloadSummary: '' })
+  loading.value = running.value = writeUncertain.value = false
+  pageError.value = formError.value = ''
+  void load()
+}, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => { disposed = true; ++accessEpoch; ++loadSequence })
 </script>
+
+<style scoped>
+.safety-page .el-alert { margin-bottom: 12px; }
+.safety-page .el-form .el-select { width: 100%; }
+.safety-page .small-box span { color: var(--console-muted); }
+.safety-page .small-box::before { display: none; }
+@media (max-width: 760px) {
+  .safety-page .security-flow, .safety-page .safety-layout, .safety-page .form-row { grid-template-columns: minmax(0, 1fr); }
+}
+</style>

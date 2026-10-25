@@ -1,0 +1,108 @@
+{
+  "eap/deployment/mysql": {
+    "uid": "a5e39523-df41-40b3-b53c-77299713a346",
+    "sha256": "6b53878b11a4b1ad3d841b8104a66a5b8965df8c5eed73ca88c92ae1d552ca74"
+  },
+  "eap/deployment/prompt-optimizer": {
+    "uid": "b04e7e4e-bf8d-4e09-9af0-2f974258010b",
+    "sha256": "82737afec1627ac990e499a5a5bd9e699cf111be56c727a75f4286d5352ffbfa"
+  },
+  "eap/service/backend": {
+    "uid": "179efd63-7ccb-4451-be79-a28298a5a6fa",
+    "sha256": "edec971cd610a20a0a8c15159bbc3934b70af6d7fd50c476590c014251fa8f0b"
+  },
+  "eap/service/frontend": {
+    "uid": "2742538c-06ab-4218-bba4-75b06d878e44",
+    "sha256": "ee5118f6a66a8bc205b792cfaa3ce9b20d116eb7d4d3832b6cb798686507017b"
+  },
+  "eap/service/mysql": {
+    "uid": "5cdf056e-f4b0-48d0-b712-ad04c4b3f3e6",
+    "sha256": "90ff5df135947015808161ef9857457216526464fca29c1b608492cb315710a8"
+  },
+  "eap/service/prompt-optimizer": {
+    "uid": "e6cba449-1210-4013-96cd-8d94bc673e48",
+    "sha256": "e6f1ff9d089f996dc754224d7d70fafb16922c68575652737501bfad46d8bd08"
+  },
+  "eap/configmap/kube-root-ca.crt": {
+    "uid": "c05c9f06-4d98-49ec-b815-1ba39578f917",
+    "sha256": "94bf1d72b8352fa844f902225575c2e7e4653a148afc50b8b580f3eb6e0c8eb2"
+  },
+  "eap/secret-identities": [
+    "eap-actor-tools-test-owner 5f4cfdb7-1dc2-4205-a0d4-2ad4b6e0408f 1047320",
+    "eap-actor-tools-v2-test-owner 7e3572b7-91c4-4d58-accf-4dc9662c26bc 1052409",
+    "eap-connection-test-owner f94dbb8c-41da-46de-96c5-548d6372ca26 1021299",
+    "eap-db 441bffb0-2f3d-4c02-ae07-2ea6cba70315 756878",
+    "eap-ebpf-observer ce67e850-5aa6-482b-a899-0d4713a077ab 5927666",
+    "eap-gateway 8df93ac3-c561-4a59-9825-3cf34aef9b3a 763441",
+    "eap-observability fd74eba2-d297-415d-bed7-a8590cf3a30d 849365",
+    "eap-runtime a6590b5b-0ccd-4ff0-b37d-9207b5f3c5f1 760746",
+    "eap-runtime-delivery 011eb945-ebae-4d42-8c53-958f2b683f22 2494865",
+    "eap-runtime-integration 0c073371-247e-49ec-8c07-339a2f0904a5 1020892",
+    "eap-t4-test-owner 46096150-15ff-479a-bab0-d40aed8ec938 2364193",
+    "eap-tool-guard-test-owner f826cc61-4260-4dcf-b9e1-47ecbf14f7b7 1030577",
+    "eap-tool-policy-test-owner c88ff99e-cc65-47c4-866f-205cba43c991 1242011",
+    "eap-tool-ui-test-owner e3592a63-bf42-45e4-b6e2-2736a32bfdb5 1070941"
+  ],
+  "eap-auth/deployment/keycloak": {
+    "uid": "c412c73e-6f98-4806-8926-a845be520c1d",
+    "sha256": "d1a7e1b6a1604427ff1b090547c4b3dc2f6c158a63722db87552a925d2fe64d8"
+  },
+  "eap-auth/deployment/keycloak-persistent": {
+    "uid": "a845badb-60ba-4279-9bff-9ae319f6888f",
+    "sha256": "0b7aba2c3af0f50001aaaf864a4dac34b2742d272878e61e7696dc0c9ee4accd"
+  },
+  "eap-auth/service/keycloak": {
+    "uid": "cb303fbf-7c62-4664-bb1b-db534e1029ae",
+    "sha256": "a7beccd64b1f1c02cadde8a0a4bd312bbd4fd6739edf8d01647b7c4354f43e91"
+  },
+  "eap-auth/configmap/keycloak-realm": {
+    "uid": "675fa73f-6ce9-4362-b2af-600843bbe354",
+    "sha256": "0c4106b7916a33a7ac89e5c2aee108f0b69f04cf2fbd7f4ef1629546e562a39e"
+  },
+  "eap-auth/configmap/kube-root-ca.crt": {
+    "uid": "39ce0c5f-cd2f-4aa7-95c2-63a3df759f4b",
+    "sha256": "94bf1d72b8352fa844f902225575c2e7e4653a148afc50b8b580f3eb6e0c8eb2"
+  },
+  "eap-auth/secret-identities": [
+    "eap-test-users a47bff0e-375d-4b6b-9a97-e086c92a445b 835469",
+    "keycloak-admin 948d93f3-4b9c-4f9b-b64c-8b4fe0682b53 833365",
+    "keycloak-backup-cipher a447042e-e35e-41ec-bc7e-dfc682935fa1 2478975"
+  ],
+  "otel-system/deployment/jaeger": {
+    "uid": "de99da75-7f09-440d-8c04-e4ba02a6e8f9",
+    "sha256": "6fb529081ea6053b0a5efe910c5695a1450a42f41b45a54cd6f41e7fc851b1b9"
+  },
+  "otel-system/deployment/opentelemetry-collector": {
+    "uid": "7ffcff42-21d3-43c1-93fb-40b40d8ce512",
+    "sha256": "095f438882e4b21664458b357473865811810a68ab71f6d7840126c4c76edc2a"
+  },
+  "otel-system/deployment/prometheus": {
+    "uid": "dbaa4f90-8f5e-4674-ab38-3a9e9369dd70",
+    "sha256": "b58166621d31de0ab19135001221fa62cb694a0a9f8fa37196a9901ae22de9b0"
+  },
+  "otel-system/service/jaeger": {
+    "uid": "90088573-6cd2-4528-b97c-0246bd9ef9cf",
+    "sha256": "3351d54879ced1fa6ac6a2f221800e1ec3baf3ceb4f4f94c51750705fe3db9f9"
+  },
+  "otel-system/service/opentelemetry-collector": {
+    "uid": "9700def6-d7c5-4afe-b340-1e5f698726a3",
+    "sha256": "719ac0937ab98aeea6a8f8e80eba60f72546e11ba4c184e9263d6c4eb9c7e9e3"
+  },
+  "otel-system/service/prometheus": {
+    "uid": "59e4e0e1-81b1-48b7-8054-a8175166a51a",
+    "sha256": "084d9540865e866ca2609b4871142038278e7aaa5720d19e2a37abf914df51e7"
+  },
+  "otel-system/configmap/kube-root-ca.crt": {
+    "uid": "3fde1e8b-a797-46cc-996c-d468ad6e1f94",
+    "sha256": "94bf1d72b8352fa844f902225575c2e7e4653a148afc50b8b580f3eb6e0c8eb2"
+  },
+  "otel-system/configmap/opentelemetry-collector-config": {
+    "uid": "cc9f2316-4ec8-4325-b3b6-1a22fe5ec861",
+    "sha256": "88c92dced6ac44046e2f81d2086032fd7b34fee659e803eec7ae38e059c695b5"
+  },
+  "otel-system/configmap/prometheus-config": {
+    "uid": "83e0d7ff-b92b-4443-a29d-3a018599c93d",
+    "sha256": "350bf91388cb9dd4eb05f73a82ab5a9678c5d56c6a78a1b7394a2285e3605ba0"
+  },
+  "otel-system/secret-identities": []
+}

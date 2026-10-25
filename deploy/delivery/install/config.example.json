@@ -1,0 +1,24 @@
+{
+  "contract": "EAP_INSTALL_V1",
+  "profile": "CONTROL_PLANE_BOOTSTRAP",
+  "installId": "c01adba4-ad1d-462d-9e5c-5f4567f31234",
+  "namespace": "eap-customer",
+  "databaseCheckImage": "docker.io/library/mysql@sha256:0744ee5ef89ce6ccfa13de3e579fe6b9e27f93dd70da9c06d2c908b1b193fb8d",
+  "database": {
+    "host": "mysql.database.svc.cluster.local",
+    "port": 3306,
+    "name": "customer_eap",
+    "secretName": "eap-database",
+    "usernameKey": "username",
+    "passwordKey": "password",
+    "sslMode": "REQUIRED",
+    "dedicated": true
+  },
+  "auth": {
+    "issuer": "https://login.example.com/realms/eap",
+    "jwkSetUri": "https://login.example.com/realms/eap/protocol/openid-connect/certs",
+    "audience": "eap-api",
+    "clientId": "eap-console",
+    "consoleOrigin": "https://agents.example.com"
+  }
+}

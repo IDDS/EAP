@@ -38,6 +38,7 @@ public class OptimizationService {
     private final AgentService agents;
     private final OpenAiCompatibleGatewayService gateway;
     private final TransactionTemplate tx;
+    @org.springframework.beans.factory.annotation.Autowired private OptimizationUnknownReviewService reviews;
     @Value("${eap.optimization.enabled:false}") boolean enabled;
 
     public OptimizationService(JdbcTemplate db,ObjectMapper json,AgentExperimentService experiments,
@@ -90,7 +91,8 @@ public class OptimizationService {
         return tx.execute(status->{
             lock();var prior=db.queryForList("select id,fingerprint from agent_optimizations where submission_key=?",request.requestKey());
             if(!prior.isEmpty()){if(!fingerprint.equals(prior.getFirst().get("fingerprint")))throw new ConflictException("提交标识对应不同优化请求");return summary(root(((Number)prior.getFirst().get("id")).longValue()));}
-            if(db.queryForObject("select count(*) from agent_optimizations where status in ('QUEUED','SEARCHING','HOLDOUT','UNKNOWN')",Long.class)>0)throw new ConflictException("已有优化任务执行中或未知，请先核对");
+            if(reviews.hasBlockingRoots()||reviews.hasBlockingExperiments())throw new ConflictException("已有优化任务或实验执行中，或原未知尚未完成审计核对");
+            reviews.requireIndependentInstance(request.instanceKey());
             budget.requireOptimizationCapacity(request.agentId(),planned,outputPlan);
             var profile=experiments.profile(new AgentExperimentDtos.Target(request.agentId(),request.instanceKey()));
             if(!request.profileDigest().equals(profile.profile().path("profileDigest").asText())||request.maxTokens()>profile.profile().path("maxTokens").asInt())throw new ConflictException("运行基线已改变或输出上限超出实例配置");

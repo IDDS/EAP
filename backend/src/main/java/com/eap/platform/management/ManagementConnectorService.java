@@ -203,8 +203,9 @@ public class ManagementConnectorService {
         connector.authHeader = normalize(request.authHeader(), 128);
         connector.authPrefix = request.authPrefix() == null ? null : truncate(request.authPrefix(), 64, null);
         if (!"NONE".equals(connector.authType) && blank(connector.credentialEnvKey)) {
-            throw new BusinessException("使用认证时必须填写凭据环境变量名");
+            throw new BusinessException("使用认证时必须填写平台登记的凭据引用");
         }
+        client.validateConfiguration(connector);
         connector.recordsPath = path(request.recordsPath());
         connector.recordKeyPath = requiredPath(request.recordKeyPath(), "来源记录字段路径");
         connector.observedAtPath = path(request.observedAtPath());

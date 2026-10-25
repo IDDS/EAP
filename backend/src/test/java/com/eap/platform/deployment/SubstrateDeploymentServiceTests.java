@@ -44,6 +44,8 @@ class SubstrateDeploymentServiceTests {
     private final SubstrateProperties properties = new SubstrateProperties();
     private final WorkflowExecutionProperties workflow = new WorkflowExecutionProperties();
     private final com.eap.platform.observability.ObservationProperties observation = new com.eap.platform.observability.ObservationProperties();
+    private com.eap.platform.registry.RuntimeWorkService work;
+    private org.springframework.jdbc.core.JdbcTemplate workDb;
     private SubstrateDeploymentService service;
     private SubstrateDeployment stored;
     private final PlatformRuntimeCreationService owned=mock(PlatformRuntimeCreationService.class);
@@ -51,6 +53,13 @@ class SubstrateDeploymentServiceTests {
 
     @BeforeEach
     void setUp() {
+        var workDataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                "jdbc:h2:mem:chat_guard_" + java.util.UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", "");
+        workDb = new org.springframework.jdbc.core.JdbcTemplate(workDataSource);
+        workDb.execute("create table runtime_work_actors(actor_key varchar(128) primary key,reclaim_state varchar(24) not null,reclaim_owner varchar(36))");
+        workDb.execute("create table runtime_work_claims(work_id varchar(36) primary key,actor_key varchar(128) not null,work_kind varchar(24) not null,state varchar(16) not null,created_at timestamp,updated_at timestamp)");
+        work = new com.eap.platform.registry.RuntimeWorkService(workDb,
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(workDataSource));
         identity.setSigningKey("synthetic-unit-identity-signing-material");identity.setDeliveryPrivateKey("synthetic-test-private");identity.setDeliveryPublicKey("synthetic-test-public");
         when(owned.create(any(),anyString(),any())).thenReturn("eap-agents/a7-v1-123456789abc");
         properties.setEnabled(true);
@@ -78,7 +87,123 @@ class SubstrateDeploymentServiceTests {
         PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
         when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         service = new SubstrateDeploymentService(repository, agents, runtimes, registry, client,
-                properties, workflow, observation, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions,owned,identity,mock(com.eap.platform.registry.RuntimeConnectionService.class));
+                properties, workflow, observation, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions,owned,identity,mock(com.eap.platform.registry.RuntimeConnectionService.class), work);
+    }
+
+    private SubstrateDeploymentDtos.DeployRequest sampleRequest(String key, String requestKey, Map<String, Object> extra) {
+        var fields = new java.util.LinkedHashMap<String, Object>();
+        fields.put("sourceType", "TEMPLATE"); fields.put("runnerFramework", key); fields.put("requestKey", requestKey);
+        fields.putAll(extra);
+        return new ObjectMapper().convertValue(fields, SubstrateDeploymentDtos.DeployRequest.class);
+    }
+
+    @Test void sampleCatalogExplainsConfigurationAndDispatchPrerequisites() {
+        var catalog = service.capabilities().frameworkSamples();
+        assertThat(catalog).hasSize(2).allSatisfy(sample -> {
+            assertThat(sample.available()).isFalse(); assertThat(sample.reason()).contains("固定");
+        });
+        properties.setFrameworkSampleImage("registry.example.com/framework:latest");
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> assertThat(sample.available()).isFalse());
+        properties.setFrameworkSampleImage(RUNNER);
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> {
+            assertThat(sample.available()).isTrue(); assertThat(sample.reason()).isNull();
+        });
+        workflow.setEnabled(false);
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> {
+            assertThat(sample.available()).isFalse(); assertThat(sample.reason()).contains("派发");
+        });
+        workflow.setEnabled(true); identity.setDeliveryPrivateKey("");
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> assertThat(sample.available()).isFalse());
+        verifyNoInteractions(client, owned, repository);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"LANGGRAPH_SUM_V1", "AUTOGEN_SUM_V1"})
+    void samplePinsEntryPointAndUsesInstanceIdentityWithoutModelConfiguration(String key) {
+        properties.setFrameworkSampleImage(RUNNER);
+        var response = service.submit(7L, sampleRequest(key, "sample-original", Map.of()), "operator");
+        assertThat(response.sourceType()).isEqualTo("TEMPLATE"); assertThat(response.imageRef()).isEqualTo(RUNNER);
+        var sample = FrameworkSamples.require(key);
+        assertThat(response.config()).containsEntry("runnerFramework", key).containsEntry("frameworkVersion", sample.frameworkVersion())
+                .containsEntry("port", 80)
+                .doesNotContainKeys("image", "model", "systemPrompt", "maxTokens", "readinessPath", "command", "env");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class); verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().command()).containsExactly(sample.command());
+        assertThat(spec.getValue().env()).containsEntry("EAP_TOOLS_ENABLED", "true").containsEntry("EAP_IDENTITY_PUBLIC_KEY", "synthetic-test-public")
+                .doesNotContainKeys("AGENT_MODEL", "AGENT_SYSTEM_PROMPT", "EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN");
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+        when(client.goldenStatus("eap-agents", "eap-a7-v1")).thenReturn(new SubstrateClient.GoldenStatus(true, null));
+        service.processNext(); service.processNext(); service.processNext();
+        assertThat(stored.status).isEqualTo("READY");
+        verify(owned).create(eq(stored), eq(stored.deploymentKey.substring(4)), eq(List.of("backend.eap.svc.cluster.local")));
+    }
+
+    @Test void sampleOriginalIntentSurvivesImageRotationAndTemporaryUnavailability() {
+        properties.setFrameworkSampleImage(RUNNER);
+        var request = sampleRequest("LANGGRAPH_SUM_V1", "original-sample", Map.of());
+        var first = service.submit(7L, request, "operator");
+        when(repository.findByAgentIdAndSubmissionKey(7L, "original-sample")).thenAnswer(call -> Optional.of(stored));
+        clearInvocations(repository, client, owned, safety);
+        for (String image : List.of("registry.example.com/framework@sha256:" + "b".repeat(64), "")) {
+            properties.setFrameworkSampleImage(image);
+            var replay = service.submit(7L, request, "operator");
+            assertThat(replay.deploymentKey()).isEqualTo(first.deploymentKey()); assertThat(replay.imageRef()).isEqualTo(RUNNER);
+        }
+        assertThatThrownBy(() -> service.submit(7L, sampleRequest("AUTOGEN_SUM_V1", "original-sample", Map.of()), "operator"))
+                .isInstanceOf(com.eap.platform.common.ConflictException.class);
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void sampleRejectsCallerOverridesBeforeCreatingAnIntent() {
+        properties.setFrameworkSampleImage(RUNNER);
+        var overrides = new java.util.LinkedHashMap<String, Object>();
+        overrides.put("image", RUNNER); overrides.put("command", List.of("/bin/sh")); overrides.put("port", 80);
+        overrides.put("readinessPath", "/readyz"); overrides.put("systemPrompt", "x"); overrides.put("model", "test-model");
+        overrides.put("maxTokens", 1); overrides.put("thinkingMode", "PROVIDER_DEFAULT"); overrides.put("runnerToolMode", "NONE");
+        overrides.put("gitUrl", "https://example.com/code.git"); overrides.put("gitRef", "main"); overrides.put("contextPath", "");
+        overrides.put("dockerfile", "Dockerfile"); overrides.put("env", Map.of("PATH", "/tmp"));
+        overrides.put("egressHosts", List.of("example.com")); overrides.put("sandboxClass", "MICROVM");
+        overrides.forEach((field, value) -> assertThatThrownBy(() -> service.submit(7L,
+                sampleRequest("LANGGRAPH_SUM_V1", "rejected", Map.of(field, value)), "operator"))
+                .as(field).isInstanceOf(BusinessException.class));
+        for (String key : List.of("", "CREWAI", "EAP_NATIVE", "KAGENT_ADK"))
+            assertThatThrownBy(() -> service.submit(7L, sampleRequest(key, "rejected", Map.of()), "operator")).isInstanceOf(BusinessException.class);
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void unconfiguredSampleDoesNotFallBackToNativeRunner() {
+        assertThatThrownBy(() -> service.submit(7L, sampleRequest("LANGGRAPH_SUM_V1", "unavailable", Map.of()), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("样例镜像");
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void missingReceiptIsReadOnlyAndDoesNotMeanTheOriginalPostCannotCommit() {
+        var receipt = service.receipt(7L, "original-key");
+        assertThat(receipt.status()).isEqualTo("NOT_FOUND");
+        assertThat(receipt.deploymentKey()).isNull();
+        verify(repository).findByAgentIdAndSubmissionKey(7L, "original-key");
+        verifyNoMoreInteractions(repository);
+        verifyNoInteractions(client, owned, safety, agents);
+    }
+
+    @Test void receiptRemainsQueryableWithoutCurrentRuntimeOrAgentEligibility() {
+        var request = controlledRunner(null, null, "deepseek-flash", "RUNNER");
+        service.submit(7L, request, "operator");
+        when(repository.findByAgentIdAndSubmissionKey(7L, request.requestKey())).thenReturn(Optional.of(stored));
+        properties.setEnabled(false); clearInvocations(repository, client, owned, agents, safety);
+        var receipt = service.receipt(7L, request.requestKey());
+        assertThat(receipt.version()).isEqualTo(1);
+        assertThat(receipt.status()).isEqualTo("QUEUED");
+        verify(repository).findByAgentIdAndSubmissionKey(7L, request.requestKey());
+        verifyNoMoreInteractions(repository); verifyNoInteractions(client, owned, agents, safety);
+    }
+
+    @Test void invalidReceiptKeysNeverAccessStorage() {
+        for (String key : List.of("", "with/slash", "a".repeat(65)))
+            assertThatThrownBy(() -> service.receipt(7L, key)).isInstanceOf(BusinessException.class);
+        verifyNoInteractions(repository, client, owned);
     }
 
     @Test
@@ -116,6 +241,153 @@ class SubstrateDeploymentServiceTests {
         identity.setDeliveryPrivateKey("");
         assertThatThrownBy(()->service.submit(7L,runner(Map.of(),List.of()),"operator")).isInstanceOf(BusinessException.class);
         verifyNoInteractions(client,owned);
+    }
+
+    @Test void kagentRequiresPinnedImageAndSecureIdentityBeforePublication() {
+        for (String image : List.of("", "localhost:5001/kagent:latest", "localhost:5001/kagent@sha256:short")) {
+            properties.setKagentRunnerImage(image);
+            assertThat(service.capabilities().kagentRunnerAvailable()).isFalse();
+            assertThatThrownBy(() -> service.submit(7L, frameworkRunner("KAGENT_ADK", "RUNNER"), "operator"))
+                    .isInstanceOf(BusinessException.class);
+        }
+        properties.setKagentRunnerImage(RUNNER.replace("eap-agent-runner", "eap-kagent-runner"));
+        assertThat(service.capabilities().kagentRunnerAvailable()).isTrue();
+        identity.setDeliveryPrivateKey("");
+        assertThat(service.capabilities().kagentRunnerAvailable()).isFalse();
+        assertThatThrownBy(() -> service.submit(7L, frameworkRunner("KAGENT_ADK", "RUNNER"), "operator"))
+                .isInstanceOf(BusinessException.class);
+        verify(repository, never()).save(any());
+        verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void kagentFreezesImageAndUsesTheSameEapIdentityAndGatewayContract() {
+        String image = RUNNER.replace("eap-agent-runner", "eap-kagent-runner");
+        properties.setKagentRunnerImage(image);
+        var first = service.submit(7L, frameworkRunner("KAGENT_ADK", "RUNNER"), "operator");
+        assertThat(first.imageRef()).isEqualTo(image);
+        assertThat(first.config()).containsEntry("runnerFramework", "KAGENT_ADK");
+        properties.setKagentRunnerImage(RUNNER);
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c -> Optional.of(stored));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);
+        verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().image()).isEqualTo(image);
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+        assertThat(spec.getValue().env()).containsEntry("EAP_IDENTITY_DIRECTORY", "/run/eap-identity")
+                .containsEntry("AGENT_MODEL", "deepseek-flash")
+                .doesNotContainKeys("EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN", "EAP_OBSERVABILITY_TOKEN");
+    }
+
+    @Test void kagentReplayKeepsOriginalReceiptAfterAvailabilityChangesAndRejectsFrameworkChange() {
+        properties.setKagentRunnerImage(RUNNER);
+        var request = frameworkRunner("KAGENT_ADK", "RUNNER");
+        var first = service.submit(7L, request, "operator");
+        when(repository.findByAgentIdAndSubmissionKey(7L, request.requestKey())).thenReturn(Optional.of(stored));
+        properties.setKagentRunnerImage("");
+        identity.setDeliveryPrivateKey("");
+        clearInvocations(repository, client, owned, safety);
+        var replay = service.submit(7L, request, "operator");
+        assertThat(replay.deploymentKey()).isEqualTo(first.deploymentKey());
+        assertThat(replay.imageRef()).isEqualTo(first.imageRef());
+        assertThatThrownBy(() -> service.submit(7L, frameworkRunner("EAP_NATIVE", "RUNNER"), "operator"))
+                .isInstanceOf(com.eap.platform.common.ConflictException.class);
+        verify(repository, never()).save(any());
+        verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void explicitNativeFrameworkPreservesLegacyIntentAndInvalidFrameworksCannotPublish() {
+        var first = service.submit(7L, frameworkRunner(null, "RUNNER"), "operator");
+        assertThat(first.config()).doesNotContainKey("runnerFramework");
+        when(repository.findByAgentIdAndSubmissionKey(7L, "framework-test")).thenReturn(Optional.of(stored));
+        assertThat(service.submit(7L, frameworkRunner("EAP_NATIVE", "RUNNER"), "operator").deploymentKey())
+                .isEqualTo(first.deploymentKey());
+        clearInvocations(repository, client, owned, safety);
+        for (var request : List.of(frameworkRunner("UNKNOWN", "RUNNER"), frameworkRunner("KAGENT_ADK", "IMAGE"),
+                frameworkRunner("KAGENT_ADK", "SOURCE"))) {
+            assertThatThrownBy(() -> service.submit(7L, request, "operator")).isInstanceOf(BusinessException.class);
+        }
+        verify(repository, never()).save(any());
+        verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void kagentToolModeIsFrozenAndInjectedWithoutChangingOldIntent() {
+        properties.setKagentRunnerImage(RUNNER);
+        var first = service.submit(7L, toolRunner("KAGENT_ADK", "RUNNER", "CALCULATE_SUM_V1"), "operator");
+        assertThat(first.config()).containsEntry("runnerToolMode", "CALCULATE_SUM_V1");
+        when(repository.findByAgentIdAndSubmissionKey(7L, "framework-test")).thenReturn(Optional.of(stored));
+        assertThatThrownBy(() -> service.submit(7L, toolRunner("KAGENT_ADK", "RUNNER", "NONE"), "operator"))
+                .isInstanceOf(com.eap.platform.common.ConflictException.class);
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c -> Optional.of(stored));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);
+        verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().env()).containsEntry("EAP_KAGENT_TOOL_MODE", "CALCULATE_SUM_V1")
+                .containsEntry("EAP_TOOLS_ENABLED", "true");
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+    }
+
+    @Test void disabledKagentToolsKeepLegacyReplayAndInvalidToolsCannotPublish() {
+        properties.setKagentRunnerImage(RUNNER);
+        for (var request : List.of(toolRunner("EAP_NATIVE", "RUNNER", "CALCULATE_SUM_V1"),
+                toolRunner("KAGENT_ADK", "IMAGE", "CALCULATE_SUM_V1"),
+                toolRunner("KAGENT_ADK", "RUNNER", "SHELL"))) {
+            assertThatThrownBy(() -> service.submit(7L, request, "operator")).isInstanceOf(BusinessException.class);
+        }
+        verify(repository, never()).save(any());
+        var first = service.submit(7L, frameworkRunner("KAGENT_ADK", "RUNNER"), "operator");
+        assertThat(first.config()).doesNotContainKey("runnerToolMode");
+        when(repository.findByAgentIdAndSubmissionKey(7L, "framework-test")).thenReturn(Optional.of(stored));
+        assertThat(service.submit(7L, toolRunner("KAGENT_ADK", "RUNNER", "NONE"), "operator").deploymentKey())
+                .isEqualTo(first.deploymentKey());
+    }
+
+    private static SubstrateDeploymentDtos.DeployRequest toolRunner(String framework, String source, String mode) {
+        return new SubstrateDeploymentDtos.DeployRequest(source, null, null, null, null, Map.of(), "test prompt",
+                "deepseek-flash", "GVISOR", "SMALL", List.of(), "framework-test", null, null, null, null,
+                null, null, framework, mode);
+    }
+
+    private static SubstrateDeploymentDtos.DeployRequest frameworkRunner(String framework, String source) {
+        return new SubstrateDeploymentDtos.DeployRequest(source, null, null, null, null, Map.of(), "test prompt",
+                "deepseek-flash", "GVISOR", "SMALL", List.of(), "framework-test", null, null, null, null,
+                null, null, framework);
+    }
+    @Test void freezesExplicitModelControlsAndInjectsOnlyPlatformOwnedVariables() {
+        var request = controlledRunner(4096, "DISABLED", "deepseek-flash", "RUNNER");
+        var response = service.submit(7L, request, "operator");
+        assertThat(response.config()).containsEntry("maxTokens", 4096).containsEntry("thinkingMode", "DISABLED");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(c -> Optional.of(stored));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class);
+        verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().env()).containsEntry("AGENT_MAX_TOKENS", "4096").containsEntry("AGENT_THINKING_MODE", "DISABLED");
+    }
+
+    @Test void legacyOmittedControlsKeepConfigAndIdempotencyUnchanged() {
+        var request = controlledRunner(null, null, "deepseek-flash", "RUNNER");
+        var first = service.submit(7L, request, "operator");
+        assertThat(first.config()).doesNotContainKeys("maxTokens", "thinkingMode");
+        when(repository.findByAgentIdAndSubmissionKey(7L, request.requestKey())).thenReturn(Optional.of(stored));
+        assertThat(service.submit(7L, request, "operator").deploymentKey()).isEqualTo(first.deploymentKey());
+    }
+
+    @Test void rejectsUnsupportedModelControlsBeforeDeployment() {
+        for (int tokens : new int[]{0, -1, 8193}) {
+            assertThatThrownBy(() -> service.submit(7L, controlledRunner(tokens, "DISABLED", "deepseek-flash", "RUNNER"), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("输出上限");
+        }
+        assertThatThrownBy(() -> service.submit(7L, controlledRunner(1024, "DISABLED", "other-model", "RUNNER"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("关闭思考");
+        assertThatThrownBy(() -> service.submit(7L, controlledRunner(1024, "invalid", "deepseek-flash", "RUNNER"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("思考模式");
+        assertThatThrownBy(() -> service.submit(7L, controlledRunner(1024, "PROVIDER_DEFAULT", "other-model", "IMAGE"), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("仅适用于");
+        verifyNoInteractions(client, owned);
+    }
+
+    private SubstrateDeploymentDtos.DeployRequest controlledRunner(Integer tokens, String thinking, String model, String source) {
+        return new SubstrateDeploymentDtos.DeployRequest(source, null, null, null, null, Map.of(), "test prompt", model,
+                "GVISOR", "SMALL", List.of(), "model-control-test", null, null, null, null, tokens, thinking);
     }
     @Test void failedDeliveryNeverReportsReadyAndRetryKeepsOriginalInstance() {
         service.submit(7L,runner(Map.of(),List.of()),"operator");
@@ -410,5 +682,55 @@ class SubstrateDeploymentServiceTests {
     private static SafetyDtos.SafetyEvaluationResponse decision(SafetyDecision value) {
         return new SafetyDtos.SafetyEvaluationResponse(null, new SafetyDtos.DecisionResponse(null, null, null, value,
                 null, null, null, null, null, null));
+    }
+    @Test void chatTransmitsOnlyExplicitHistoryAndRequiresIsolationProtocol() throws Exception {
+        for (boolean isolated : List.of(false,true)) {
+            var calls=new java.util.concurrent.atomic.AtomicInteger();
+            var received=new java.util.concurrent.atomic.AtomicReference<String>();
+            var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+            server.createContext("/eap/state",exchange->{
+                byte[] body=(isolated ? "{\"conversationMode\":\"EXPLICIT_V1\"}" : "{\"turns\":8}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);exchange.close();
+            });
+            server.createContext("/chat",exchange->{
+                calls.incrementAndGet();received.set(new String(exchange.getRequestBody().readAllBytes(),java.nio.charset.StandardCharsets.UTF_8));
+                byte[] body="{\"reply\":\"synthetic reply\",\"turns\":2}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);exchange.close();
+            });
+            server.start();
+            try {
+                properties.setRouterUrl("http://127.0.0.1:"+server.getAddress().getPort());
+                var runtime=mock(com.eap.platform.registry.AgentRuntimeInstance.class);
+                when(runtime.getAgentId()).thenReturn(7L);when(runtime.getProtocol()).thenReturn("SUBSTRATE");
+                when(runtime.getInstanceKey()).thenReturn("eap-agents/synthetic");when(runtime.getEndpoint()).thenReturn("substrate://eap-agents/synthetic");
+                when(runtimes.findByInstanceKey("eap-agents/synthetic")).thenReturn(Optional.of(runtime));
+                var history=List.of(new SubstrateDeploymentDtos.ChatMessage("user","VISIBLE_USER"),new SubstrateDeploymentDtos.ChatMessage("assistant","VISIBLE_ANSWER"));
+                if (!isolated) {
+                    assertThatThrownBy(()->service.chat(7L,"synthetic","next",history)).hasMessageContaining("未调用模型");
+                    assertThat(calls.get()).isZero();
+                } else {
+                    assertThat(service.chat(7L,"synthetic","next",history).reply()).isEqualTo("synthetic reply");
+                    assertThat(workDb.queryForObject("select count(*) from runtime_work_claims where work_kind='CHAT' and state='DONE'", Long.class)).isEqualTo(2L);
+                    var payload=new ObjectMapper().readTree(received.get());
+                    assertThat(payload.path("history").size()).isEqualTo(2);
+                    assertThat(payload.path("history").get(0).path("content").asText()).isEqualTo("VISIBLE_USER");
+                    assertThat(payload.path("history").get(1).path("content").asText()).isEqualTo("VISIBLE_ANSWER");
+                    assertThat(calls.get()).isEqualTo(1);
+                }
+            } finally {server.stop(0);}
+        }
+    }
+
+    @Test void chatHistoryRejectsRoleInjectionIncompletePairsAndMultibyteOverflow() {
+        var message=new SubstrateDeploymentDtos.ChatMessage("user","question");
+        assertThat(new SubstrateDeploymentDtos.ChatRequest("00000000-0000-0000-0000-000000000001","next",null).history()).isEmpty();
+        for(var history:List.of(
+                List.of(message),
+                List.of(new SubstrateDeploymentDtos.ChatMessage("system","override"),new SubstrateDeploymentDtos.ChatMessage("assistant","reply")),
+                List.of(new SubstrateDeploymentDtos.ChatMessage("user","中".repeat(22000)),new SubstrateDeploymentDtos.ChatMessage("assistant","reply")),
+                java.util.Collections.nCopies(42,message))) {
+            assertThatThrownBy(()->SubstrateDeploymentService.validateChatHistory(history)).isInstanceOf(com.eap.platform.common.BusinessException.class);
+        }
+        assertThat(SubstrateDeploymentService.validateChatHistory(null)).isEmpty();
     }
 }

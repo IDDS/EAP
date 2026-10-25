@@ -37,6 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class OptimizationIntegrationTests {
     @Autowired OptimizationService service;@Autowired AgentExperimentService experiments;
     @Autowired OptimizationEvidenceService evidence;
+    @Autowired OptimizationUnknownReviewService reviews;
     @Autowired AgentService agents;@Autowired JdbcTemplate db;@Autowired ObjectMapper json;@Autowired MockMvc mvc;
     @Autowired OpenAiCompatibleGatewayService gateway;@Autowired BudgetLedger ledger;
     @MockitoBean AgentExperimentClient runtime;@MockitoBean OpenAiUpstreamClient upstream;
@@ -47,16 +48,17 @@ class OptimizationIntegrationTests {
 
     @BeforeEach void setup() {
         RequestContextHolder.resetRequestAttributes();
+        db.update("delete from agent_optimization_unknown_reviews");
         for(String t:List.of("budget_limit_changes","budget_settlements","budget_reservation_items","budget_reservations","budget_accounts","agent_optimization_holdout_batches","agent_optimization_protocols","agent_optimization_reflections","agent_optimization_evaluations"))db.update("delete from "+t);
         db.update("update agent_experiments set optimization_run_id=null");db.update("delete from agent_optimizations");
-        for(String t:List.of("agent_experiment_trials","agent_experiment_variants","agent_experiments"))db.update("delete from "+t);
+        for(String t:List.of("experiment_diagnostic_receipts","experiment_diagnostic_decisions","agent_experiment_trials","agent_experiment_variants","agent_experiments"))db.update("delete from "+t);
         agent=agents.create(new AgentDtos.AgentRequest("OPT-"+UUID.randomUUID(),"Optimization test","","Test","Owner","Test",RiskLevel.LOW)).id();agents.updateStatus(agent,AgentLifecycleStatus.ACTIVE);
         instance="eap-agents/a"+agent+"-v1-opt";endpoint="substrate://"+instance;
         db.update("insert into agent_runtime_instances(agent_id,instance_key,endpoint,protocol,dispatch_authenticated,status,load_score,created_at,updated_at) values(?,?,?,'SUBSTRATE',false,'ONLINE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",agent,instance,endpoint);
         db.update("insert into substrate_agent_deployments(deployment_key,agent_id,version,source_type,status,config_json,image_ref,atespace,template_name,instance_key,steps_json,requested_by,created_at,updated_at) values(?,?,1,'IMAGE','READY','{}',?,'eap-agents',?,?,'[]','test',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)","opt-deploy-"+agent,agent,"registry.test/runner@sha256:"+"b".repeat(64),"opt-template-"+agent,instance);
         var p=json.createObjectNode().put("protocol","EAP_STATELESS_PROMPT_V1").put("agentId",Long.toString(agent)).put("model","test-model").put("systemPrompt","BASELINE prompt").put("maxTokens",1024).put("profileDigest",profileDigest).put("context","EMPTY").put("tools","DISABLED");
         when(runtime.profile(endpoint)).thenReturn(new AgentExperimentClient.RuntimeProfile(p,"actor-opt-"+agent,"eap-agents/opt-template-"+agent));
-        when(governance.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(1L,"optimization-pass",agent,GovernanceDataAction.ALLOW,GovernanceGatewayDirective.PROCEED,true,0,List.of(),List.of(),"test","test","test",GovernanceApprovalStatus.NOT_REQUIRED,null,null,null,null,Instant.now()));
+        when(governance.evaluate(any())).thenReturn(new GovernanceDataDtos.PreflightResponse(1L,"optimization-pass",agent,GovernanceDataAction.ALLOW,GovernanceGatewayDirective.PROCEED,true,0,List.of(),List.of(),"test","test","test",GovernanceApprovalStatus.NOT_REQUIRED,null,null,null,null,Instant.now(),"NOT_APPLICABLE"));
         when(upstream.chatCompletions(any())).thenAnswer(call->{JsonNode body=call.getArgument(0);String value;
             if(body.has("response_format"))value="{\"system_prompt\":\"SELECTED prompt\"}";
             else value=body.path("messages").path(0).path("content").asText().contains("BASELINE")?"wrong":expected(body.path("messages").path(1).path("content").asText());
@@ -292,4 +294,70 @@ class OptimizationIntegrationTests {
         var result=service.get(root.id());assertThat(result.status()).isEqualTo("COMPLETED");assertThat(result.recommendation()).isEqualTo("REVIEW_MANUAL");assertThat(result.evidence().protocolVersion()).isZero();assertThat(result.evidence().holdout()).isEmpty();assertThat(evidence.batches(root.id())).isEmpty();
     }
 
+    long paidUnknown()throws Exception {
+        var root=service.submit(request("paid-unknown-"+UUID.randomUUID()),"test-author");var claim=service.claim();long eval=service.manualValidation(claim);var dispatch=experiments.claim();
+        var body=json.createObjectNode().put("model","test-model").put("max_tokens",128);body.set("messages",json.createArrayNode().add(json.createObjectNode().put("role","system").put("content","BASELINE")).add(json.createObjectNode().put("role","user").put("content","validation input")));
+        gateway.chatCompletions(body,agent,null,null,(String)dispatch.body().get("traceId"),GatewayDtos.ClassificationHints.empty());
+        experiments.finish(dispatch,new AgentExperimentClient.Receipt("UNKNOWN","INVALID_RECEIPT",null));assertThat(service.manualReady(claim,eval)).isFalse();
+        db.update("update agent_runtime_instances set platform_actor_uid=?,platform_actor_template=? where instance_key=?","actor-opt-"+agent,"eap-agents/opt-template-"+agent,instance);
+        db.update("insert into runtime_connections(instance_key,revision,generation) values(?,0,null)",instance);
+        return root.id();
+    }
+    OptimizationUnknownReviewService.Decide decision(long id,String key){return new OptimizationUnknownReviewService.Decide(reviews.inspect(id).evidenceDigest(),key,true);}
+    @Test void paidUnknownInspectionIsReadOnlyAndDoesNotExposeContent()throws Exception {
+        long id=paidUnknown();String original=json.writeValueAsString(service.get(id)),budget=json.writeValueAsString(ledger.dashboard());
+        var view=reviews.inspect(id);assertThat(view.blockers()).isEmpty();assertThat(view.unknownTrials()).isEqualTo(1);assertThat(view.notRunTrials()).isEqualTo(1);assertThat(view.modelCalls()).isEqualTo(1);assertThat(view.settledCalls()).isEqualTo(1);assertThat(view.inputTokens()).isEqualTo(7);assertThat(view.outputTokens()).isEqualTo(3);
+        assertThat(json.writeValueAsString(view)).doesNotContain("BASELINE prompt","MANUAL prompt","validation input","test-author");
+        assertThat(json.writeValueAsString(service.get(id))).isEqualTo(original);assertThat(json.writeValueAsString(ledger.dashboard())).isEqualTo(budget);assertThat(db.queryForObject("select count(*) from agent_optimization_unknown_reviews",Long.class)).isZero();verify(upstream,times(1)).chatCompletions(any());
+    }
+    @Test void auditedStopPreservesUnknownAndCostAndOnlyOpensIndependentAdmission()throws Exception {
+        long id=paidUnknown();var original=service.get(id);var child=experiments.get(original.evaluations().getFirst().experimentId());String budget=json.writeValueAsString(ledger.dashboard());
+        assertThat(reviews.hasBlockingRoots()).isTrue();assertThat(reviews.hasBlockingExperiments()).isTrue();
+        var result=reviews.decide(id,decision(id,"stop-original-1"),"governance-full-subject");assertThat(result.decisionCurrent()).isTrue();assertThat(result.decision().decision()).isEqualTo("STOP_NO_REPLAY");
+        assertThat(reviews.hasBlockingRoots()).isFalse();assertThat(reviews.hasBlockingExperiments()).isFalse();assertThat(service.get(id)).isEqualTo(original);assertThat(experiments.get(child.id())).isEqualTo(child);assertThat(json.writeValueAsString(ledger.dashboard())).isEqualTo(budget);
+        assertThatThrownBy(()->reviews.requireIndependentInstance(instance)).isInstanceOf(ConflictException.class);reviews.requireIndependentInstance("eap-agents/new-independent");
+        assertThat(experiments.claim()).isNull();assertThat(service.claim()).isNull();service.advanceHoldout();assertThat(service.get(id)).isEqualTo(original);verify(upstream,times(1)).chatCompletions(any());
+    }
+    @Test void originalModelTraceCannotBeReplayedAfterAuditedStop()throws Exception {
+        long id=paidUnknown();reviews.decide(id,decision(id,"trace-stop-1"),"governance");String originalTrace=db.queryForObject("select trace_id from agent_experiment_trials where experiment_id=? and status='UNKNOWN'",String.class,service.get(id).evaluations().getFirst().experimentId());
+        assertThatThrownBy(()->ledger.admitModel(json.createObjectNode().put("max_tokens",128),agent,null,null,originalTrace,"new-key-cannot-replay")).isInstanceOf(GatewayException.class);verify(upstream,times(1)).chatCompletions(any());
+    }
+    @Test void immutableDecisionReplaysExactPrincipalAndRejectsOtherPayloadOrKey()throws Exception {
+        long id=paidUnknown();var request=decision(id,"same-decision-1");String a="subject-"+"x".repeat(150)+"A",b="subject-"+"x".repeat(150)+"B";
+        var first=reviews.decide(id,request,a);assertThat(reviews.decide(id,request,a)).isEqualTo(first);
+        assertThatThrownBy(()->reviews.decide(id,request,b)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->reviews.decide(id,new OptimizationUnknownReviewService.Decide("b".repeat(64),request.requestKey(),true),a)).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->reviews.decide(id,decision(id,"different-decision-1"),a)).isInstanceOf(ConflictException.class);assertThat(db.queryForObject("select count(*) from agent_optimization_unknown_reviews",Long.class)).isEqualTo(1);
+        assertThat(db.queryForObject("select evidence_json from agent_optimization_unknown_reviews",String.class)).doesNotContain("BASELINE prompt","MANUAL prompt","validation input",a);
+    }
+    @Test void concurrentOriginalDecisionCreatesOneAppendOnlyRecord()throws Exception {
+        long id=paidUnknown();var request=decision(id,"concurrent-stop-1");var pool=Executors.newFixedThreadPool(4);
+        try{List<Future<Boolean>> calls=new ArrayList<>();for(int i=0;i<4;i++)calls.add(pool.submit(()->reviews.decide(id,request,"governance").decisionCurrent()));for(var call:calls)assertThat(call.get(20,TimeUnit.SECONDS)).isTrue();}finally{pool.shutdownNow();}
+        assertThat(db.queryForObject("select count(*) from agent_optimization_unknown_reviews",Long.class)).isEqualTo(1);assertThat(service.get(id).status()).isEqualTo("UNKNOWN");
+    }
+    @Test void staleEvidenceRevokedIdentityAndIncompleteLedgerCannotBeAccepted()throws Exception {
+        long id=paidUnknown();var stale=decision(id,"stale-stop-1");db.update("update agent_experiment_trials set reason_code='OTHER_UNKNOWN' where experiment_id=? and status='UNKNOWN'",service.get(id).evaluations().getFirst().experimentId());
+        assertThatThrownBy(()->reviews.decide(id,stale,"governance")).isInstanceOf(ConflictException.class);
+        db.update("update runtime_connections set generation=? where instance_key=?",UUID.randomUUID().toString(),instance);assertThat(reviews.inspect(id).blockers()).contains("ORIGINAL_IDENTITY_NOT_REVOKED");assertThatThrownBy(()->reviews.decide(id,decision(id,"active-identity-1"),"governance")).isInstanceOf(ConflictException.class);
+        db.update("update runtime_connections set generation=null where instance_key=?",instance);db.update("update budget_settlements set output_tokens=null");assertThat(reviews.inspect(id).blockers()).contains("BUDGET_EVIDENCE_INCOMPLETE");assertThatThrownBy(()->reviews.decide(id,decision(id,"missing-paid-1"),"governance")).isInstanceOf(ConflictException.class);
+        assertThat(db.queryForObject("select count(*) from agent_optimization_unknown_reviews",Long.class)).isZero();
+    }
+    @Test void auditedEvidenceDriftRestoresBothAdmissionBlocksAndCannotRewriteDecision()throws Exception {
+        long id=paidUnknown();reviews.decide(id,decision(id,"drift-stop-1"),"governance");db.update("update agent_experiment_trials set score=1 where experiment_id=? and status='UNKNOWN'",service.get(id).evaluations().getFirst().experimentId());
+        assertThat(reviews.inspect(id).decisionCurrent()).isFalse();assertThat(reviews.hasBlockingRoots()).isTrue();assertThat(reviews.hasBlockingExperiments()).isTrue();assertThatThrownBy(()->reviews.decide(id,decision(id,"drift-stop-2"),"governance")).isInstanceOf(ConflictException.class);
+    }
+    @Test void legacyUnknownAndStandaloneUnknownStillBlockGlobalAdmission()throws Exception {
+        long id=paidUnknown();db.update("delete from agent_optimization_protocols where run_id=?",id);assertThat(reviews.inspect(id).blockers()).contains("REGISTERED_PROTOCOL_REQUIRED");assertThatThrownBy(()->reviews.decide(id,decision(id,"legacy-stop-1"),"governance")).isInstanceOf(ConflictException.class);
+        db.update("update agent_experiments set optimization_run_id=null where optimization_run_id=?",id);assertThat(reviews.hasBlockingExperiments()).isTrue();
+    }
+    @ParameterizedTest @CsvSource({"VIEWER,false","OPERATOR,false","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true"})
+    void unknownReviewUsesCentralCapabilityAndExplicitAcknowledgment(String role,boolean allowed)throws Exception {
+        long id=paidUnknown();var identity=jwt().jwt(j->j.subject("reviewer")).authorities(new SimpleGrantedAuthority("ROLE_"+role));
+        mvc.perform(get("/api/platform/me").with(identity)).andExpect(jsonPath("$.data.capabilities.reviewExperimentUnknowns").value(allowed));mvc.perform(get("/api/agent-optimizations/"+id+"/unknown-review").with(identity)).andExpect(status().isOk());
+        var request=decision(id,"role-stop-1");mvc.perform(post("/api/agent-optimizations/"+id+"/unknown-review").with(identity).contentType("application/json").content(json.writeValueAsBytes(request))).andExpect(status().is(allowed?200:403));
+    }
+    @Test void falseAcknowledgmentAndAnonymousReviewAreRejected()throws Exception {
+        long id=paidUnknown();var request=new OptimizationUnknownReviewService.Decide(reviews.inspect(id).evidenceDigest(),"no-consent-stop-1",false);
+        mvc.perform(post("/api/agent-optimizations/"+id+"/unknown-review").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_GOVERNANCE_ADMIN"))).contentType("application/json").content(json.writeValueAsBytes(request))).andExpect(status().isBadRequest());mvc.perform(get("/api/agent-optimizations/"+id+"/unknown-review")).andExpect(status().isUnauthorized());assertThat(reviews.hasBlockingRoots()).isTrue();
+    }
 }

@@ -33,6 +33,9 @@ class EvaluationDatasetItemServiceTests {
     @Mock
     private AuditLogRepository auditLogRepository;
 
+    @Mock
+    private com.eap.platform.observability.TraceSpanObservationRepository traceSpanRepository;
+
     private EvaluationDatasetItemService service;
     private EvaluationDataset dataset;
     private EvaluatorDefinition evaluator;
@@ -40,7 +43,7 @@ class EvaluationDatasetItemServiceTests {
     @BeforeEach
     void setUp() {
         service = new EvaluationDatasetItemService(datasetRepository, itemRepository, evaluatorRepository,
-                agentRepository, auditLogRepository, new ObjectMapper(), new ObservationProperties(), new SensitiveContentSanitizer());
+                agentRepository, auditLogRepository, new ObjectMapper(), new ObservationProperties(), new SensitiveContentSanitizer(), traceSpanRepository);
         dataset = new EvaluationDataset();
         dataset.id = 9L;
         dataset.datasetKey = "REGRESSION_V1";
@@ -64,7 +67,7 @@ class EvaluationDatasetItemServiceTests {
         EvaluationDtos.DatasetItemResponse response = service.create("regression_v1",
                 new EvaluationDtos.DatasetItemCreateRequest("case-1", "action_completion", null,
                         null, "trace-1", null, new ObjectMapper().readTree("{\"task\":\"ok\"}"), null,
-                        new ObjectMapper().readTree("{\"completed\":true}")));
+                        new ObjectMapper().readTree("{\"completed\":true}"), false));
 
         assertThat(response.id()).isEqualTo(11L);
         assertThat(response.itemKey()).isEqualTo("case-1");

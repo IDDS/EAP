@@ -3,10 +3,14 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
+import {evaluationHelpers,evaluationState} from './evaluation-test-support.mjs'
 
 // Run the real SFC functions with deferred API responses, without browser dependencies.
 function functionsFrom(file, names, state) {
-  if (file === 'views/EvaluationView.vue') Object.assign(state, { activeJob: ref(), jobs: ref([]), activeTab: ref('overview'), ...state })
+  if (file === 'views/EvaluationView.vue') {
+    names=[...names,...evaluationHelpers]
+    Object.assign(state, { ...evaluationState(), activeJob: ref(), jobs: ref([]), activeTab: ref('overview'), ...state })
+  }
   if (file === 'views/WorkflowBuilderView.vue') {
     Object.assign(state, { loadError: ref(''), savedNodeConfigs: ref({}), nodeConfigError: ref(''), hasUnsavedConfig: ref(false), nodeHasTool: ref(false), permissions: { can: () => true }, workflowTab: ref('design'), selectedExecutionKey: ref(''), disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
   }
@@ -169,7 +173,7 @@ for (const status of [403, 500]) {
 test('team switch clears actionable steps and invalidates pending plan detail', async () => {
   const pendingPlan = deferred(), pendingTeam = deferred()
   const state = functionsFrom('views/OrchestrationView.vue', ['loadTeamDetail', 'selectPlan'], {
-    selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(11), members: ref([]), plans: ref([]), planSteps: ref([{ id: 'old' }]),
+    teamLoading: ref(false), planLoading: ref(false), teamError: ref(''), planError: ref(''), selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(11), members: ref([]), plans: ref([]), planSteps: ref([{ id: 'old' }]),
     EapApi: { getPlan: () => pendingPlan.promise, listTeamMembers: async () => [], listTeamPlans: () => pendingTeam.promise },
   })
   const first = state.selectPlan(11)
@@ -186,7 +190,7 @@ test('team switch clears actionable steps and invalidates pending plan detail', 
 test('team and plan responses cannot overwrite a later selection', async () => {
   const oldTeam = deferred(), oldPlan = deferred(), planStarted = deferred()
   const state = functionsFrom('views/OrchestrationView.vue', ['loadTeamDetail', 'selectPlan'], {
-    selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(), members: ref([]), plans: ref([]), planSteps: ref([]),
+    teamLoading: ref(false), planLoading: ref(false), teamError: ref(''), planError: ref(''), selectedExecution: ref(), disposed: false, teamRequestId: 0, planRequestId: 0, selectedTeamId: ref(1), selectedPlanId: ref(), members: ref([]), plans: ref([]), planSteps: ref([]),
     EapApi: { listTeamMembers: async id => [{ teamId: id }], listTeamPlans: id => id === 1 ? oldTeam.promise : Promise.resolve([{ id: 22 }]), getPlan: id => { if (id === 22) { planStarted.resolve(); return oldPlan.promise } return Promise.resolve({ steps: [{ id }] }) } },
   })
   const first = state.loadTeamDetail()
@@ -652,4 +656,46 @@ test('unsaved or invalid tool drafts cannot reach the execution API', async () =
     await state.executeWorkflow()
     assert.equal(state.submittingExecution.value, false)
   }
+})
+
+function planWorkspace(api) {
+  return functionsFrom('views/OrchestrationView.vue', ['loadTeamDetail', 'selectPlan'], {
+    teamLoading: ref(false), planLoading: ref(false), teamError: ref(''), planError: ref(''),
+    selectedExecution: ref({ id: 'last-execution' }), disposed: false, teamRequestId: 0, planRequestId: 0,
+    selectedTeamId: ref(1), selectedPlanId: ref(11), members: ref([{ id: 1 }]), plans: ref([{ id: 11 }]), planSteps: ref([{ id: 'last-step' }]), EapApi: api,
+  })
+}
+
+test('failed team read ends loading and reports failure separately from an empty team', async () => {
+  const state = planWorkspace({ listTeamMembers: async () => [], listTeamPlans: async () => { throw Error('503') } })
+  await state.loadTeamDetail()
+  assert.equal(state.teamLoading.value, false)
+  assert.match(state.teamError.value, /读取失败/)
+  assert.equal(state.selectedPlanId.value, undefined)
+  assert.equal(state.planSteps.value.length, 0)
+})
+
+test('an older plan failure cannot end the latest loading state or replace its error', async () => {
+  const first = deferred(), second = deferred()
+  const state = planWorkspace({ getPlan: id => id === 11 ? first.promise.then(() => { throw Error('503') }) : second.promise })
+  const old = state.selectPlan(11)
+  const current = state.selectPlan(12)
+  first.resolve(); await old
+  assert.equal(state.planLoading.value, true)
+  assert.equal(state.planError.value, '')
+  second.resolve({ steps: [{ id: 'current-step' }] }); await current
+  assert.equal(state.planLoading.value, false)
+  assert.equal(state.planSteps.value[0].id, 'current-step')
+})
+
+test('background progress refresh retains last evidence and labels failed refreshes', async () => {
+  const pending = deferred()
+  const state = planWorkspace({ getPlan: () => pending.promise.then(() => { throw Error('503') }) })
+  const refresh = state.selectPlan(11, true)
+  assert.equal(state.planSteps.value[0].id, 'last-step')
+  assert.equal(state.selectedExecution.value.id, 'last-execution')
+  assert.equal(state.planLoading.value, false)
+  pending.resolve(); await refresh
+  assert.equal(state.planSteps.value[0].id, 'last-step')
+  assert.match(state.planError.value, /上次读取/)
 })

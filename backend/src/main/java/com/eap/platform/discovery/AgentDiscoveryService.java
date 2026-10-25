@@ -126,6 +126,20 @@ public class AgentDiscoveryService {
 
     @Transactional
     public AgentDiscoveryDtos.EndpointIngestionResponse ingestEndpoint(AgentDiscoveryDtos.EndpointObservationRequest request) {
+        return ingestEndpointWithReceipt(request).response();
+    }
+
+    /** Counts evidence saved after identity association, without changing historical run input counts. */
+    public record EndpointIngestionReceipt(
+            AgentDiscoveryDtos.EndpointIngestionResponse response,
+            int observationsRecorded,
+            int agentsMatched,
+            int mcpServersMatched,
+            int unassociatedObservations
+    ) { }
+
+    @Transactional
+    public EndpointIngestionReceipt ingestEndpointWithReceipt(AgentDiscoveryDtos.EndpointObservationRequest request) {
         DiscoveryEndpoint endpoint = endpointRepository.findByEndpointKey(request.endpointKey())
                 .orElseThrow(() -> new BusinessException("端点尚未注册：" + request.endpointKey()));
         touchEndpoint(endpoint);
@@ -137,6 +151,9 @@ public class AgentDiscoveryService {
         run = runRepository.save(run);
         try {
             Set<Long> discoveredIds = new LinkedHashSet<>();
+            Set<Long> agentIds = new LinkedHashSet<>();
+            Set<Long> mcpIds = new LinkedHashSet<>();
+            int recorded = 0;
             for (AgentDiscoveryDtos.EndpointEvidenceRequest item : request.observations()) {
                 DiscoveryEvidence evidence = toEvidence(endpoint, item);
                 DiscoveredAgent agent = upsert(evidence);
@@ -146,15 +163,20 @@ public class AgentDiscoveryService {
                 agent.missingSnapshotCount = 0;
                 discoveredIds.add(agent.id);
                 saveObservation(run.id, agent.id, evidence);
+                recorded++;
+                if (agent.assetType == DiscoveryAssetType.MCP_CONFIGURATION) mcpIds.add(agent.id);
+                else agentIds.add(agent.id);
             }
             run.status = DiscoveryRunStatus.SUCCEEDED;
             run.observationsCount = request.observations().size();
             run.discoveredCount = discoveredIds.size();
             run.finishedAt = Instant.now();
-            return new AgentDiscoveryDtos.EndpointIngestionResponse(
+            var response = new AgentDiscoveryDtos.EndpointIngestionResponse(
                     AgentDiscoveryDtos.from(endpoint),
                     AgentDiscoveryDtos.from(runRepository.save(run))
             );
+            return new EndpointIngestionReceipt(response, recorded, agentIds.size(), mcpIds.size(),
+                    request.observations().size() - recorded);
         } catch (RuntimeException exception) {
             run.status = DiscoveryRunStatus.FAILED;
             run.errorMessage = truncate(exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage(), 1024);

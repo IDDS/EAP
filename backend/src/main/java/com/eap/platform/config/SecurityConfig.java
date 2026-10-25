@@ -37,9 +37,11 @@ import java.util.Set;
 @EnableMethodSecurity
 public class SecurityConfig {
     private final SecurityProperties properties;
+    private final ProjectIsolation projectIsolation;
 
-    public SecurityConfig(SecurityProperties properties) {
+    public SecurityConfig(SecurityProperties properties, ProjectIsolation projectIsolation) {
         this.properties = properties;
+        this.projectIsolation = projectIsolation;
     }
 
     @Bean
@@ -86,17 +88,58 @@ public class SecurityConfig {
                                 "/api/discovery/connectors/ebpf/observations").permitAll()
                         .requestMatchers("/api/gateway/v1/**").permitAll()
                         .requestMatchers("/internal/agent-optimizations/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/team-evolutions/*/proposals/*/content")
+                            .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/team-evolutions/*/proposals", "/api/team-evolutions/*/proposals/*")
+                            .hasAnyRole(PlatformPermission.RUN_AGENT_EXPERIMENTS.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/team-evolutions/*/proposals")
+                            .hasAnyRole(PlatformPermission.RUN_AGENT_EXPERIMENTS.roles())
+                        .requestMatchers("/api/team-evolutions/*/proposals", "/api/team-evolutions/*/proposals/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/api/team-evolutions/receipts", "/api/team-evolutions/*/actions")
+                            .hasAnyRole(PlatformPermission.RUN_AGENT_EXPERIMENTS.roles())
+                        .requestMatchers("/api/team-evolutions/receipts", "/api/team-evolutions/receipts/**", "/api/team-evolutions/*/actions", "/api/team-evolutions/*/actions/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/api/team-evolutions/console", "/api/team-evolutions/*/console")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers("/api/team-evolutions/console", "/api/team-evolutions/console/**", "/api/team-evolutions/*/console", "/api/team-evolutions/*/console/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/api/observability/content", "/api/observability/content/page",
-                                "/api/workflows/*/executions/*/outputs", "/api/ax/tasks/*/content", "/api/agent-experiments/*/content", "/api/agent-optimizations/*/content")
+                                "/api/workflows/*/executions/*/outputs", "/api/ax/tasks/*/content", "/api/agent-experiments/*/content", "/api/agent-optimizations/*/content", "/api/team-evolutions/*/content")
                             .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.POST, "/api/discovery/v1/admin/agents/*/content-approval")
                             .hasAnyRole(PlatformPermission.APPROVE_CONTENT.roles())
-                         .requestMatchers(HttpMethod.POST, "/api/agent-experiments", "/api/agent-experiments/profile", "/api/agent-optimizations")
+                         .requestMatchers(HttpMethod.POST, "/api/agent-experiments", "/api/agent-experiments/profile", "/api/agent-optimizations", "/api/team-evolutions", "/api/team-evolutions/*/candidates", "/api/team-evolutions/*/evaluations", "/api/team-evolutions/*/budget", "/api/team-evolutions/*/budget/check", "/api/team-evolutions/*/evaluations/*/execution", "/api/team-evolutions/*/evaluations/*/score", "/api/team-evolutions/*/frontier", "/api/team-evolutions/*/holdout", "/api/team-evolutions/*/closure")
                             .hasAnyRole(PlatformPermission.RUN_AGENT_EXPERIMENTS.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/agent-optimizations/*/unknown-review")
+                            .hasAnyRole(PlatformPermission.REVIEW_EXPERIMENT_UNKNOWNS.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/observability/diagnostics/policy")
+                            .hasAnyRole(PlatformPermission.GOVERNANCE.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/observability/agent-executions", "/api/observability/agent-executions/*/graph", "/api/observability/agent-executions/*/links", "/api/observability/agent-executions/deliveries")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers("/api/observability/agent-executions", "/api/observability/agent-executions/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/api/observability/logs")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers("/api/observability/logs", "/api/observability/logs/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/api/observability/operations/*/alerts")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/observability/operations/*/alerts/reconcile",
+                                "/api/observability/operations/*/alerts/*/acknowledgement")
+                            .hasAnyRole(PlatformPermission.GOVERNANCE.roles())
+                        .requestMatchers("/api/observability/operations/*/alerts/**").denyAll()
                         .requestMatchers(HttpMethod.POST, "/api/learning-feedbacks/*/status")
                             .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.POST, "/api/learning-feedbacks")
                             .hasAnyRole(PlatformPermission.MANAGE_FEEDBACK.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/safety/summary", "/api/safety/sessions",
+                                "/api/safety/sessions/*/events", "/api/safety/sessions/*/artifacts")
+                            .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
+                        .requestMatchers(HttpMethod.POST, "/api/safety/sessions", "/api/safety/events/evaluate", "/api/safety/artifacts")
+                            .hasAnyRole(PlatformPermission.MANAGE_SAFETY.roles())
+                        .requestMatchers("/api/safety", "/api/safety/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/api/agents/*/substrate/instances/*/chat/*")
+                            .hasAnyRole(PlatformPermission.OPERATE_INSTANCES.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/agents/*/substrate/deployments/requests/*")
+                            .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
+                        .requestMatchers(HttpMethod.GET, "/api/agents/*/substrate/deployments/*/content")
+                            .hasAnyRole(PlatformPermission.VIEW_CONTENT.roles())
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers(HttpMethod.POST, "/api/evaluations/evaluators", "/api/evaluations/datasets", "/api/evaluations/datasets/*/items", "/api/evaluations/datasets/*/run", "/api/evaluations/results", "/api/evaluations/synchronize", "/api/evaluations/jobs")
                             .hasAnyRole(PlatformPermission.MANAGE_EVALUATIONS.roles())
@@ -156,6 +199,7 @@ public class SecurityConfig {
                 validators.add(new JwtClaimValidator<Collection<String>>("aud", audiences ->
                         audiences != null && audiences.contains(properties.getAudience())));
             }
+            validators.add(projectIsolation);
             nimbus.setJwtValidator(new DelegatingOAuth2TokenValidator<>(validators));
         }
         return decoder;

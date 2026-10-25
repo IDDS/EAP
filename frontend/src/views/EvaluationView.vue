@@ -1,23 +1,24 @@
 <template>
   <section class="page-grid evaluation-workspace">
-    <div class="toolbar">
+    <div class="toolbar console-page-heading">
       <div class="toolbar-title">
-        <strong>评估与可靠性</strong>
-        <span>从运行证据到质量验证</span>
+        <h2>质量评估</h2>
+        <span>跟踪运行质量，管理回归样本与评估规则</span>
       </div>
       <div class="toolbar-actions">
-        <el-button type="primary" :loading="syncing" @click="synchronize">处理下一批观测</el-button>
-        <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button v-if="permissions.can('manageEvaluations')" type="primary" :loading="syncing" :disabled="writeBusy" @click="synchronize">处理下一批观测</el-button>
+        <el-button :loading="loading" :disabled="!permissions.can('viewConsole') || writeBusy" @click="load">刷新</el-button>
       </div>
     </div>
 
     <nav class="evaluation-tabs" aria-label="评估工作区">
-      <button v-for="tab in workspaceTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" :aria-current="activeTab === tab.key ? 'page' : undefined" @click="activeTab = tab.key">{{ tab.label }}</button>
+      <button v-for="tab in workspaceTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" :aria-current="activeTab === tab.key ? 'page' : undefined" :aria-label="tab.label" @click="activeTab = tab.key"><span>{{ tab.label }}</span><small aria-hidden="true">{{ tab.description }}</small></button>
     </nav>
     <el-alert v-if="pageError" :title="pageError" type="warning" :closable="false" show-icon />
+    <el-alert v-if="!permissions.can('viewConsole')" title="当前账号暂无评估工作区访问权限，请确认登录状态。" type="info" :closable="false" />
     <div v-show="activeTab === 'overview'" class="evaluation-overview">
       <div class="evaluation-kpis">
-        <div><el-icon class="kpi-icon blue"><DataAnalysis /></el-icon><div><span>24 小时评估</span><strong>{{ summary.total }}</strong></div></div>
+        <div><el-icon class="kpi-icon blue"><DataAnalysis /></el-icon><div><span>近 {{ summary.windowHours }} 小时评估</span><strong>{{ summary.total }}</strong></div></div>
         <div><el-icon class="kpi-icon green"><CircleCheck /></el-icon><div><span>规则通过率</span><strong>{{ summary.total ? `${passRate}%` : '—' }}</strong></div></div>
         <div><el-icon class="kpi-icon amber"><Warning /></el-icon><div><span>未通过评估</span><strong>{{ summary.failed }}</strong></div></div>
         <div><el-icon class="kpi-icon slate"><Collection /></el-icon><div><span>回归数据集</span><strong>{{ datasets.length }}</strong></div></div>
@@ -75,9 +76,9 @@
         </el-table>
       </el-card>
 
-      <el-card shadow="never" class="panel">
+      <el-card v-if="permissions.can('manageEvaluations')" shadow="never" class="panel">
         <template #header><div class="panel-heading"><strong>运行一次评估</strong><span>显式执行，不会自动改变现有控制决策</span></div></template>
-        <el-form label-position="top" size="small">
+        <el-form label-position="top" size="small" :disabled="writeBusy">
           <el-form-item label="评估器">
             <el-select v-model="form.evaluatorKey" style="width: 100%" @change="applyExample">
               <el-option v-for="item in evaluators" :key="item.evaluatorKey" :label="`${item.name} · ${item.evaluatorKey}`" :value="item.evaluatorKey" />
@@ -99,7 +100,7 @@
     <template v-if="activeTab === 'results'">
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>最近结果</strong><span>分数、置信度和证据可回溯到 Agent / Trace / Span</span></div></template>
-      <el-table :data="results" v-loading="loading" size="small" row-key="id" @row-click="openResult">
+      <el-table :data="results" class="interactive-table" v-loading="loading" size="small" row-key="id" @row-click="openResult">
         <el-table-column prop="evaluatorKey" label="评估器" width="210" />
         <el-table-column prop="traceId" label="Trace" width="180" show-overflow-tooltip />
         <el-table-column label="分数" width="110">
@@ -117,7 +118,7 @@
     <template v-if="activeTab === 'overview'">
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>处理记录</strong><span>最近 20 批 · 点击记录查看过程</span></div></template>
-      <el-table :data="jobs" v-loading="loading" size="small" @row-click="selectJob">
+      <el-table :data="jobs" class="interactive-table" v-loading="loading" size="small" @row-click="selectJob">
         <el-table-column prop="jobKey" label="任务" min-width="230" show-overflow-tooltip />
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="jobTagType(row.status)">{{ jobStatus(row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="扫描/评估" width="130"><template #default="{ row }">{{ row.scanned }} / {{ row.evaluated }}</template></el-table-column>
@@ -131,27 +132,34 @@
 
     </template>
     <template v-if="activeTab === 'datasets'">
-    <el-card shadow="never" class="panel">
-      <template #header><div class="panel-heading"><strong>数据集</strong><span>版本化管理脱敏样本，并通过人工标签校准评估器</span></div></template>
+    <el-card shadow="never" class="panel dataset-library">
+      <template #header><div class="panel-heading"><strong>选择数据集</strong><span>版本化管理脱敏样本，并通过人工标签校准评估器</span></div></template>
       <div class="dataset-actions">
-        <div v-for="item in datasets" :key="item.datasetKey" class="dataset-item" :class="{ 'is-selected': item.datasetKey === selectedDatasetKey }" role="button" tabindex="0" @click="selectDataset(item.datasetKey)" @keydown.enter="selectDataset(item.datasetKey)">
+        <button v-for="item in datasets" :key="item.datasetKey" class="dataset-item" :class="{ 'is-selected': item.datasetKey === selectedDatasetKey }" type="button" :aria-pressed="item.datasetKey === selectedDatasetKey" :disabled="writeBusy || loading" @click="selectDataset(item.datasetKey)">
           <div><strong>{{ item.name }}</strong><span>{{ item.datasetKey }} · {{ item.version }}</span></div>
           <el-tag size="small">{{ item.itemCount }} 条</el-tag>
-        </div>
-        <el-button plain @click="createDemoDataset">创建示例数据集</el-button>
-        <el-button v-if="selectedDatasetKey" type="primary" plain :loading="calibrating" @click="runDatasetCalibration">运行数据集校准</el-button>
+        </button>
+      </div>
+      <p v-if="!datasets.length && !loading" class="annotation-note">{{ permissions.can('manageEvaluations') ? '暂无数据集，可新建数据集并录入回归样本。' : '暂无可查看的数据集。' }}</p>
+      <div class="dataset-library-actions">
+        <el-button v-if="permissions.can('manageEvaluations')" plain :loading="creatingDataset" :disabled="writeBusy" @click="createDemoDataset">创建示例数据集</el-button>
+        <el-button v-if="selectedDatasetKey && permissions.can('manageEvaluations')" type="primary" plain :loading="calibrating" :disabled="writeBusy" @click="runDatasetCalibration">运行数据集校准</el-button>
       </div>
     </el-card>
 
+    </template>
+    <EvaluationDatasetEditor v-show="activeTab === 'datasets'" :dataset-key="selectedDatasetKey" :evaluators="evaluators" :busy="evaluationWriteBusy || loading" @locked="editorLocked = $event" @saved="datasetSaved" />
+    <template v-if="activeTab === 'datasets'">
     <el-card shadow="never" class="panel">
       <template #header>
         <div class="panel-heading">
           <strong>人工标注样本</strong>
           <div class="dataset-annotation-toolbar">
-            <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" @change="selectDataset">
+            <el-select v-model="selectedDatasetKey" size="small" placeholder="选择数据集" style="width: 230px" :disabled="editorLocked" @change="selectDataset">
               <el-option v-for="item in datasets" :key="item.datasetKey" :label="`${item.name} · ${item.version}`" :value="item.datasetKey" />
             </el-select>
-            <el-input v-model="annotationActor" size="small" placeholder="标注人" style="width: 150px" />
+            <el-input v-if="permissions.can('annotateEvaluations') && permissions.state.user?.mode === 'DEVELOPMENT'" v-model="annotationActor" size="small" placeholder="标注人" style="width: 150px" :disabled="writeBusy" />
+            <span v-else-if="permissions.can('annotateEvaluations')" class="annotation-note">标注人使用当前认证身份</span>
           </div>
         </div>
       </template>
@@ -159,6 +167,7 @@
       <el-table :data="datasetItems" v-loading="datasetItemsLoading" size="small" row-key="id">
         <el-table-column prop="itemKey" label="样本" min-width="180" show-overflow-tooltip />
         <el-table-column prop="evaluatorKey" label="评估器" min-width="190" />
+        <el-table-column label="来源引用（正文手填）" min-width="250"><template #default="{ row }"><div v-if="row.agentId || row.traceId || row.spanId" class="sample-references"><span>{{ row.sourceReference?.state === 'OBSERVATION_MATCHED' ? '观测引用已核对（保存时快照）' : '手填引用，未核对' }}</span><template v-if="row.sourceReference?.state === 'OBSERVATION_MATCHED'"><span>观测 #{{ row.sourceReference.observationId }} · {{ row.sourceReference.endpointKey }}</span><span>核对时间 {{ row.sourceReference.checkedAt }}</span></template><span v-if="row.agentId">Agent {{ row.agentId }}</span><code v-if="row.traceId">Trace {{ row.traceId }}</code><code v-if="row.spanId">Span {{ row.spanId }}</code></div><span v-else class="muted">未填写</span></template></el-table-column>
         <el-table-column label="人工标签" width="120">
           <template #default="{ row }">
             <el-tag v-if="row.groundTruthLabel" size="small" :type="annotationTagType(row.groundTruthLabel)">{{ annotationLabel(row.groundTruthLabel) }}</el-tag>
@@ -167,11 +176,11 @@
         </el-table-column>
         <el-table-column prop="annotatedBy" label="标注人" width="130" show-overflow-tooltip />
         <el-table-column prop="annotationRationale" label="标注说明" min-width="220" show-overflow-tooltip />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column v-if="permissions.can('annotateEvaluations')" label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" type="success" plain @click="annotateItem(row, 'PASS')">通过</el-button>
-            <el-button size="small" type="danger" plain @click="annotateItem(row, 'FAIL')">失败</el-button>
-            <el-button size="small" plain @click="annotateItem(row, 'ABSTAIN')">弃权</el-button>
+            <el-button size="small" type="success" plain :disabled="writeBusy" @click="annotateItem(row, 'PASS')">通过</el-button>
+            <el-button size="small" type="danger" plain :disabled="writeBusy" @click="annotateItem(row, 'FAIL')">失败</el-button>
+            <el-button size="small" plain :disabled="writeBusy" @click="annotateItem(row, 'ABSTAIN')">弃权</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -280,16 +289,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DataAnalysis, CircleCheck, Warning, Collection } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
+import { usePermissions } from '@/stores/permissions'
 import EvaluationRunProgress from '@/components/evaluation/EvaluationRunProgress.vue'
+import EvaluationDatasetEditor from '@/components/evaluation/EvaluationDatasetEditor.vue'
 import TraceEvidenceBars from '@/components/evaluation/TraceEvidenceBars.vue'
 import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationCalibrationRunSummary, EvaluationCalibrationRunDetail, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
-const workspaceTabs = [{ key: 'overview', label: '运行概览' }, { key: 'results', label: '评估结果' }, { key: 'datasets', label: '数据集与校准' }, { key: 'rules', label: '评估规则' }]
+const workspaceTabs = [{ key: 'overview', label: '运行概览', description: '处理进度与质量概况' }, { key: 'results', label: '评估结果', description: '分数、结论与执行证据' }, { key: 'datasets', label: '数据集与校准', description: '回归样本与人工标注' }, { key: 'rules', label: '评估规则', description: '评估器与适用范围' }]
+const permissions = usePermissions()
+let accessEpoch = 0
 const activeTab = ref('overview')
 const activeJob = ref<EvaluationJob>()
 const pageError = ref('')
@@ -322,6 +335,10 @@ const router = useRouter()
 const loading = ref(false)
 const running = ref(false)
 const syncing = ref(false)
+const submittingJob = ref(false), creatingDataset = ref(false), annotating = ref(false)
+const editorLocked = ref(false)
+const evaluationWriteBusy = computed(() => running.value || submittingJob.value || creatingDataset.value || calibrating.value || annotating.value)
+const writeBusy = computed(() => evaluationWriteBusy.value || editorLocked.value)
 const form = reactive({
   evaluatorKey: 'ACTION_COMPLETION',
   traceId: '',
@@ -330,6 +347,14 @@ const form = reactive({
   actualJson: '{"completed":true}',
   expectedJson: '{}',
 })
+
+function currentAccess(epoch: number, capability: 'viewConsole' | 'manageEvaluations' | 'annotateEvaluations' = 'viewConsole') {
+  return !pollingDisposed && epoch === accessEpoch && permissions.can('viewConsole') && permissions.can(capability)
+}
+
+function canWrite(capability: 'manageEvaluations' | 'annotateEvaluations') {
+  return currentAccess(accessEpoch, capability) && !writeBusy.value
+}
 
 const passRate = computed(() => {
   if (summary.value.total) return Math.round(summary.value.passRate * 100)
@@ -343,6 +368,8 @@ const confusionRows = computed(() => [
 ])
 
 async function load() {
+  if (!currentAccess(accessEpoch) || editorLocked.value) return
+  const epoch = accessEpoch
   const requestId = ++loadRequestId
   loading.value = true
   pageError.value = ''
@@ -351,7 +378,7 @@ async function load() {
       EapApi.listEvaluators(), EapApi.listEvaluationDatasets(), EapApi.listEvaluationResults({ limit: 100 }), EapApi.listEvaluationJobs(), EapApi.getEvaluationSummary(24),
       EapApi.getContentAnalysisStatus().catch(() => null),
     ])
-    if (pollingDisposed || requestId !== loadRequestId) return
+    if (!currentAccess(epoch) || requestId !== loadRequestId || editorLocked.value) return
     evaluators.value = evaluatorItems
     datasets.value = datasetItems
     results.value = resultItems
@@ -364,18 +391,20 @@ async function load() {
       selectedCalibrationRunId.value = ''
     }
     if (selectedDatasetKey.value) await Promise.all([loadDatasetItems(selectedDatasetKey.value), loadDatasetCalibration(selectedDatasetKey.value), loadCalibrationHistory(selectedDatasetKey.value)])
+    if (!currentAccess(epoch) || requestId !== loadRequestId) return
     if (evaluatorItems.length && !evaluatorItems.some(item => item.evaluatorKey === form.evaluatorKey)) {
       form.evaluatorKey = evaluatorItems[0].evaluatorKey
       applyExample()
     }
   } catch {
-    if (!pollingDisposed && requestId === loadRequestId) pageError.value = '数据加载失败，已保留当前内容，请刷新重试'
+    if (currentAccess(epoch) && requestId === loadRequestId) pageError.value = '数据加载失败，已保留当前账号的内容，请刷新重试'
   } finally {
-    if (!pollingDisposed && requestId === loadRequestId) loading.value = false
+    if (currentAccess(epoch) && requestId === loadRequestId) loading.value = false
   }
 }
 
 function applyExample() {
+  if (!canWrite('manageEvaluations')) return
   if (form.evaluatorKey === 'TOOL_ARGUMENT_VALIDITY') {
     form.inputJson = '{"requiredArguments":["accountId","region"]}'
     form.actualJson = '{"arguments":{"accountId":"a-1"}}'
@@ -411,72 +440,91 @@ function applyExample() {
 }
 
 async function run() {
+  if (!canWrite('manageEvaluations')) return
+  const epoch = accessEpoch
+  running.value = true
   try {
     const input = JSON.parse(form.inputJson) as Record<string, unknown>
     const actual = JSON.parse(form.actualJson) as Record<string, unknown>
     const expected = form.evaluatorKey === 'EXACT_MATCH' ? JSON.parse(form.expectedJson) : undefined
-    running.value = true
     await EapApi.runEvaluation({
       evaluatorKey: form.evaluatorKey, evaluatorVersion: 'v1', traceId: form.traceId || undefined,
       spanId: form.spanId || undefined, input, actual, expected,
     })
+    if (!currentAccess(epoch, 'manageEvaluations')) return
     ElMessage.success('评估完成，结果已保存')
     await load()
   } catch (error) {
+    if (!currentAccess(epoch, 'manageEvaluations')) return
     if (error instanceof SyntaxError) ElMessage.error('JSON 格式不正确，请检查输入')
+    else pageError.value = '评估结果未确认，请刷新最近结果核对；再次执行会提交新的评估。'
   } finally {
-    running.value = false
+    if (currentAccess(epoch, 'manageEvaluations')) running.value = false
   }
 }
 
 let pollingDisposed = false
+let pollGeneration = 0
 let pollTimer: number | undefined
 let finishPollDelay: (() => void) | undefined
 
-function stopPolling() {
-  pollingDisposed = true
+function cancelPolling() {
+  pollGeneration++
   if (pollTimer !== undefined) window.clearTimeout(pollTimer)
   finishPollDelay?.()
   pollTimer = undefined
   finishPollDelay = undefined
 }
 
+function stopPolling() {
+  pollingDisposed = true
+  accessEpoch++
+  cancelPolling()
+  syncing.value = false
+  submittingJob.value = false
+}
+
 async function synchronize() {
-  if (syncing.value) return
+  if (syncing.value || !canWrite('manageEvaluations')) return
+  const epoch = accessEpoch
   syncing.value = true
+  submittingJob.value = true
   try {
     const job = await EapApi.submitEvaluationJob(200)
-    if (pollingDisposed) return
+    if (!currentAccess(epoch, 'manageEvaluations')) return
+    submittingJob.value = false
     activeJob.value = job
     jobs.value = [job, ...jobs.value.filter(item => item.id !== job.id)].slice(0, 20)
     activeTab.value = 'overview'
     ElMessage.success('评估任务已加入队列')
-    await waitForJob(job.id)
-    if (!pollingDisposed && activeJob.value && !['QUEUED', 'RUNNING'].includes(activeJob.value.status)) await load()
+    await waitForJob(job.id, epoch)
+    if (currentAccess(epoch) && activeJob.value && !['QUEUED', 'RUNNING'].includes(activeJob.value.status)) await load()
   } catch {
-    if (!pollingDisposed) pageError.value = '提交状态未确认，请刷新处理记录后再试'
+    if (currentAccess(epoch)) pageError.value = '提交状态未确认，请刷新处理记录后再试'
   } finally {
-    syncing.value = false
+    if (currentAccess(epoch)) { syncing.value = false; submittingJob.value = false }
   }
 }
 
-async function waitForJob(id: number) {
+async function waitForJob(id: number, epoch = accessEpoch) {
+  const generation = ++pollGeneration
+  const current = () => currentAccess(epoch) && generation === pollGeneration
   for (let attempt = 0; attempt < 900; attempt += 1) {
-    if (pollingDisposed) return
+    if (!current()) return
     await new Promise<void>(resolve => {
       finishPollDelay = resolve
       pollTimer = window.setTimeout(resolve, 1000)
     })
+    if (!current()) return
     pollTimer = undefined
     finishPollDelay = undefined
-    if (pollingDisposed) return
     let job: EvaluationJob
     try { job = await EapApi.getEvaluationJob(id) }
     catch {
-      if (!pollingDisposed) pageError.value = '进度连接中断，后台任务继续运行，可点击继续跟踪'
+      if (current()) pageError.value = '进度连接中断，后台任务继续运行，可点击继续跟踪'
       return
     }
-    if (pollingDisposed) return
+    if (!current()) return
     activeJob.value = job
     jobs.value = jobs.value.map(item => item.id === job.id ? job : item)
     if (job.status === 'PARTIAL') {
@@ -492,18 +540,19 @@ async function waitForJob(id: number) {
       return
     }
   }
-  ElMessage.info('任务仍在后台执行，可稍后刷新查看结果')
+  if (current()) ElMessage.info('任务仍在后台执行，可稍后刷新查看结果')
 }
 
 function selectJob(job: EvaluationJob) {
-  if (!syncing.value) activeJob.value = job
+  if (currentAccess(accessEpoch) && !syncing.value) activeJob.value = job
 }
 
 async function resumeJob(id: number) {
-  if (syncing.value) return
+  if (syncing.value || !currentAccess(accessEpoch)) return
+  const epoch = accessEpoch
   syncing.value = true
-  try { pageError.value = ''; await waitForJob(id) }
-  finally { syncing.value = false }
+  try { pageError.value = ''; await waitForJob(id, epoch) }
+  finally { if (currentAccess(epoch)) syncing.value = false }
 }
 
 function jobStatus(status: EvaluationJobStatus) {
@@ -515,93 +564,136 @@ function jobTagType(status: EvaluationJobStatus) {
 }
 
 async function createDemoDataset() {
-  const key = `eap-demo-${Date.now()}`
-  await EapApi.createEvaluationDataset({ datasetKey: key, name: 'EAP 示例回归集', sourceType: 'MANUAL', version: 'v1', itemCount: 0 })
-  await EapApi.createEvaluationDatasetItem(key, {
-    itemKey: 'action-completion-demo', evaluatorKey: 'ACTION_COMPLETION', evaluatorVersion: 'v1',
-    input: { task: '完成示例任务' }, actual: { completed: true },
-  })
-  ElMessage.success('示例数据集和样本已创建，可在下方进行 SME 标注')
-  await load()
+  if (!canWrite('manageEvaluations')) return
+  const epoch = accessEpoch, key = `eap-demo-${crypto.randomUUID()}`
+  creatingDataset.value = true
+  try {
+    await EapApi.createEvaluationDataset({ datasetKey: key, name: 'EAP 示例回归集', sourceType: 'MANUAL', version: 'v1', itemCount: 0 })
+    if (!currentAccess(epoch, 'manageEvaluations')) return
+    await EapApi.createEvaluationDatasetItem(key, {
+      itemKey: 'action-completion-demo', evaluatorKey: 'ACTION_COMPLETION', evaluatorVersion: 'v1',
+      input: { task: '完成示例任务' }, actual: { completed: true },
+    })
+    if (!currentAccess(epoch, 'manageEvaluations')) return
+    ElMessage.success('示例数据集和样本已创建，可在下方进行 SME 标注')
+    await load()
+  } catch {
+    if (currentAccess(epoch)) pageError.value = `示例创建未完成或结果未确认，请刷新核对数据集 ${key}；不会自动重试。`
+  } finally {
+    if (currentAccess(epoch)) creatingDataset.value = false
+  }
 }
 
 async function selectDataset(datasetKey: string) {
+  if (!currentAccess(accessEpoch) || editorLocked.value) return
   selectedDatasetKey.value = datasetKey
   selectedCalibrationRunId.value = ''
   await Promise.all([loadDatasetItems(datasetKey), loadDatasetCalibration(datasetKey), loadCalibrationHistory(datasetKey)])
 }
 
+async function datasetSaved(datasetKey: string) {
+  if (!currentAccess(accessEpoch) || editorLocked.value) return
+  selectedDatasetKey.value = datasetKey
+  selectedCalibrationRunId.value = ''
+  await load()
+}
+
 async function loadDatasetItems(datasetKey = selectedDatasetKey.value) {
+  const epoch = accessEpoch
   const requestId = ++datasetItemsRequestId
   datasetItems.value = []
   datasetItemsLoading.value = false
-  if (!datasetKey) return
+  if (!datasetKey || !currentAccess(epoch)) return
   datasetItemsLoading.value = true
   try {
     const items = await EapApi.listEvaluationDatasetItems(datasetKey)
-    if (requestId === datasetItemsRequestId && datasetKey === selectedDatasetKey.value) datasetItems.value = items
+    if (currentAccess(epoch) && requestId === datasetItemsRequestId && datasetKey === selectedDatasetKey.value) datasetItems.value = items
+  } catch {
+    if (currentAccess(epoch) && requestId === datasetItemsRequestId) pageError.value = '样本读取失败，请刷新当前数据集。'
   } finally {
-    if (requestId === datasetItemsRequestId) datasetItemsLoading.value = false
+    if (currentAccess(epoch) && requestId === datasetItemsRequestId) datasetItemsLoading.value = false
   }
 }
 
 async function annotateItem(item: EvaluationDatasetItem, label: EvaluationGroundTruthLabel) {
-  if (!selectedDatasetKey.value || datasetItemsLoading.value || !datasetItems.value.includes(item)) return
-  await EapApi.annotateEvaluationDatasetItem(selectedDatasetKey.value, item.itemKey, {
-    groundTruthLabel: label,
-    annotatedBy: annotationActor.value.trim() || '控制台用户',
-    rationale: label === 'PASS' ? 'SME 确认样本结果符合预期' : label === 'FAIL' ? 'SME 确认样本结果不符合预期' : 'SME 暂不对该样本下结论',
-  })
-  ElMessage.success(`样本 ${item.itemKey} 已标注为${annotationLabel(label)}`)
-  await Promise.all([loadDatasetItems(), loadDatasetCalibration()])
+  if (!canWrite('annotateEvaluations') || !selectedDatasetKey.value || datasetItemsLoading.value || !datasetItems.value.includes(item)) return
+  const epoch = accessEpoch, datasetKey = selectedDatasetKey.value
+  annotating.value = true
+  try {
+    await EapApi.annotateEvaluationDatasetItem(datasetKey, item.itemKey, {
+      groundTruthLabel: label,
+      annotatedBy: permissions.state.user?.mode === 'DEVELOPMENT' ? annotationActor.value.trim() || '控制台用户' : undefined,
+      rationale: label === 'PASS' ? 'SME 确认样本结果符合预期' : label === 'FAIL' ? 'SME 确认样本结果不符合预期' : 'SME 暂不对该样本下结论',
+    })
+    if (!currentAccess(epoch, 'annotateEvaluations') || datasetKey !== selectedDatasetKey.value) return
+    ElMessage.success(`样本 ${item.itemKey} 已标注为${annotationLabel(label)}`)
+    await Promise.all([loadDatasetItems(datasetKey), loadDatasetCalibration(datasetKey)])
+  } catch {
+    if (currentAccess(epoch) && datasetKey === selectedDatasetKey.value) pageError.value = '标注结果未确认，请刷新当前样本核对。'
+  } finally {
+    if (currentAccess(epoch)) annotating.value = false
+  }
 }
 
 async function loadCalibrationHistory(datasetKey = selectedDatasetKey.value) {
+  const epoch = accessEpoch
   const requestId = ++calibrationHistoryRequestId
   calibrationRuns.value = []
-  if (!datasetKey) return
-  const runs = await EapApi.listEvaluationCalibrationRuns(datasetKey)
-  if (requestId === calibrationHistoryRequestId && datasetKey === selectedDatasetKey.value) calibrationRuns.value = runs
+  if (!datasetKey || !currentAccess(epoch)) return
+  try {
+    const runs = await EapApi.listEvaluationCalibrationRuns(datasetKey)
+    if (currentAccess(epoch) && requestId === calibrationHistoryRequestId && datasetKey === selectedDatasetKey.value) calibrationRuns.value = runs
+  } catch {
+    if (currentAccess(epoch) && requestId === calibrationHistoryRequestId) pageError.value = '校准历史读取失败，请刷新当前数据集。'
+  }
 }
 
 async function selectCalibrationRun(runId: string) {
+  if (!currentAccess(accessEpoch)) return
   selectedCalibrationRunId.value = runId
   await loadDatasetCalibration()
 }
 
 async function loadDatasetCalibration(datasetKey = selectedDatasetKey.value) {
+  const epoch = accessEpoch
   const requestId = ++calibrationRequestId
   const runId = selectedCalibrationRunId.value
   calibration.value = { ...emptyCalibration, evaluators: [] }
   calibrationDetail.value = undefined
-  if (!datasetKey) return
-  if (runId) {
+  if (!datasetKey || !currentAccess(epoch)) return
+  try { if (runId) {
     const detail = await EapApi.getEvaluationCalibrationRun(datasetKey, runId)
-    if (requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && runId === selectedCalibrationRunId.value) {
+    if (currentAccess(epoch) && requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && runId === selectedCalibrationRunId.value) {
       calibration.value = detail.calibration
       calibrationDetail.value = detail
     }
   } else {
     const result = await EapApi.getEvaluationDatasetCalibration(datasetKey)
-    if (requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && !selectedCalibrationRunId.value) calibration.value = result
+    if (currentAccess(epoch) && requestId === calibrationRequestId && datasetKey === selectedDatasetKey.value && !selectedCalibrationRunId.value) calibration.value = result
+  } } catch {
+    if (currentAccess(epoch) && requestId === calibrationRequestId) pageError.value = '校准结果读取失败，请重新选择或刷新。'
   }
 }
 
 async function runDatasetCalibration() {
-  if (!selectedDatasetKey.value) return
+  if (!canWrite('manageEvaluations') || !selectedDatasetKey.value) return
+  const epoch = accessEpoch
   calibrating.value = true
   try {
     const datasetKey = selectedDatasetKey.value
     const requestId = ++calibrationRequestId
     const result = await EapApi.runEvaluationDataset(datasetKey, 200)
+    if (!currentAccess(epoch, 'manageEvaluations')) return
     if (datasetKey === selectedDatasetKey.value && requestId === calibrationRequestId) {
       selectedCalibrationRunId.value = result.runId || ''
       calibration.value = result
     }
     ElMessage.success(`数据集校准完成：运行 ${result.evaluatedItems} 条，F1 ${percent(result.f1)}`)
     await load()
+  } catch {
+    if (currentAccess(epoch)) pageError.value = '校准结果未确认，请刷新校准历史核对；再次运行会创建新的校准记录。'
   } finally {
-    calibrating.value = false
+    if (currentAccess(epoch)) calibrating.value = false
   }
 }
 
@@ -614,6 +706,8 @@ function annotationTagType(label?: EvaluationGroundTruthLabel) {
 }
 
 async function openResult(result: EvaluationResult) {
+  if (!currentAccess(accessEpoch)) return
+  const epoch = accessEpoch
   const requestId = ++traceRequestId
   traceLoading.value = false
   selectedResult.value = result
@@ -623,14 +717,16 @@ async function openResult(result: EvaluationResult) {
   traceLoading.value = true
   try {
     const spans = await EapApi.listTraceSpanObservations({ traceId: result.traceId, limit: 100 })
-    if (requestId === traceRequestId) traceSpans.value = spans
+    if (currentAccess(epoch) && requestId === traceRequestId) traceSpans.value = spans
+  } catch {
+    if (currentAccess(epoch) && requestId === traceRequestId) pageError.value = '关联 Trace 读取失败，请重新打开详情。'
   } finally {
-    if (requestId === traceRequestId) traceLoading.value = false
+    if (currentAccess(epoch) && requestId === traceRequestId) traceLoading.value = false
   }
 }
 
 function openTraceWorkbench() {
-  if (selectedResult.value?.traceId) {
+  if (currentAccess(accessEpoch) && selectedResult.value?.traceId) {
     router.push({ path: '/physical', query: { traceId: selectedResult.value.traceId } })
   }
 }
@@ -652,13 +748,32 @@ function formatTime(value?: string) {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 }
 
+async function resumeCurrentJob(epoch: number) {
+  const job = activeJob.value
+  if (currentAccess(epoch) && job && ['QUEUED', 'RUNNING'].includes(job.status)) await resumeJob(job.id)
+}
+
 onBeforeUnmount(stopPolling)
-onMounted(async () => {
+watch([() => permissions.state.user, () => permissions.can('viewConsole'), () => permissions.can('manageEvaluations'), () => permissions.can('annotateEvaluations')], async () => {
+  const epoch = ++accessEpoch
+  cancelPolling()
+  loadRequestId++; datasetItemsRequestId++; calibrationRequestId++; calibrationHistoryRequestId++; traceRequestId++
+  evaluators.value = []; datasets.value = []; results.value = []; jobs.value = []; datasetItems.value = []
+  selectedDatasetKey.value = ''; selectedCalibrationRunId.value = ''; calibrationRuns.value = []
+  calibration.value = { ...emptyCalibration, evaluators: [] }; calibrationDetail.value = undefined
+  summary.value = { windowHours: 24, total: 0, passed: 0, failed: 0, passRate: 0, averageScore: 0, averageConfidence: 0, evaluators: [] }
+  contentAnalysis.value = null; activeJob.value = undefined; selectedResult.value = undefined; traceSpans.value = []
+  detailVisible.value = false; annotationActor.value = '控制台用户'; pageError.value = ''
+  Object.assign(form, { evaluatorKey: 'ACTION_COMPLETION', traceId: '', spanId: '', inputJson: '{}', actualJson: '{}', expectedJson: '{}' })
+  loading.value = false; datasetItemsLoading.value = false; traceLoading.value = false
+  running.value = false; syncing.value = false; submittingJob.value = false; creatingDataset.value = false; annotating.value = false; calibrating.value = false
+  if (!currentAccess(epoch)) return
   await load()
-  if (!pollingDisposed && activeJob.value && ['QUEUED', 'RUNNING'].includes(activeJob.value.status)) await resumeJob(activeJob.value.id)
-})
+  await resumeCurrentJob(epoch)
+}, { immediate: true, flush: 'sync' })
 </script>
 
 <style scoped>
-.evaluation-workspace{gap:18px}.evaluation-process-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px}.evaluation-process-layout .evaluation-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.evaluation-process-layout :deep(.el-card__body){padding:16px}.evaluation-process-layout .annotation-note{margin:0 0 12px;line-height:1.7}.evaluation-process-layout :deep(.el-card__header){padding:16px}.evaluation-process-layout .evaluation-summary-grid strong{font-size:21px}.evaluation-process-layout .evaluation-summary-grid>div{padding:12px}@media(max-width:1150px){.evaluation-process-layout{grid-template-columns:minmax(0,1fr)}}.evaluation-tabs{display:flex;gap:4px;border-bottom:1px solid #dbe3eb;overflow-x:auto}.evaluation-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;padding:13px 20px;color:#526175;font:inherit;white-space:nowrap;cursor:pointer;min-height:44px}.evaluation-tabs button.active{color:#176b9b;border-bottom-color:#2683b8;font-weight:600}.evaluation-tabs button:hover{background:#eef4f8}.evaluation-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.evaluation-overview{display:grid;gap:16px}.evaluation-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.evaluation-kpis>div{display:flex;gap:16px;align-items:center;padding:18px;background:white;border:1px solid #e2e8f0;border-radius:6px}.evaluation-kpis>div>div{display:grid;gap:5px}.evaluation-kpis span:not(.kpi-icon){font-size:13px;color:#64748b}.evaluation-kpis strong{font-size:27px;font-weight:600;line-height:1.2;color:#26374b;font-variant-numeric:tabular-nums}.kpi-icon{display:grid;place-items:center;width:46px;height:46px;border-radius:6px;font-size:19px;flex-shrink:0}.blue{background:#e6f1f8;color:#2679a7}.green{background:#e8f4ee;color:#277a58}.amber{background:#fff3e4;color:#a96623}.slate{background:#edf0f5;color:#63768c}.evaluation-overview-note{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#64748b;font-size:13px}.evaluation-workspace :deep(.panel){border-radius:6px;border-color:#e2e8f0}.evaluation-workspace :deep(.panel-heading)>span{color:#64748b;font-size:13px}.evaluation-workspace :deep(.el-table__row){cursor:pointer}@media(max-width:1000px){.evaluation-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.evaluation-kpis{gap:10px}.evaluation-kpis>div{padding:12px;gap:10px}.kpi-icon{width:34px;height:38px;font-size:16px}.evaluation-kpis strong{font-size:23px}.evaluation-tabs button{padding:12px}.evaluation-workspace :deep(.panel-heading){align-items:flex-start;gap:8px;flex-wrap:wrap}}
+.sample-references{display:grid;gap:4px;font-size:12px}.sample-references code{white-space:normal;overflow-wrap:anywhere}
+.evaluation-workspace{gap:18px}.evaluation-process-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px}.evaluation-process-layout .evaluation-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.evaluation-process-layout :deep(.el-card__body){padding:16px}.evaluation-process-layout .annotation-note{margin:0 0 12px;line-height:1.7}.evaluation-process-layout :deep(.el-card__header){padding:16px}.evaluation-process-layout .evaluation-summary-grid strong{font-size:21px}.evaluation-process-layout .evaluation-summary-grid>div{padding:12px}@media(max-width:1150px){.evaluation-process-layout{grid-template-columns:minmax(0,1fr)}}.evaluation-tabs{display:flex;gap:4px;border-bottom:1px solid #dbe3eb;overflow-x:auto}.evaluation-tabs button{background:transparent;border:0;border-bottom:3px solid transparent;padding:13px 20px;color:#526175;font:inherit;white-space:nowrap;cursor:pointer;min-height:44px}.evaluation-tabs button.active{color:#176b9b;border-bottom-color:#2683b8;font-weight:600}.evaluation-tabs button:hover{background:#eef4f8}.evaluation-tabs button:focus-visible{outline:2px solid #2683b8;outline-offset:-3px}.evaluation-overview{display:grid;gap:16px}.evaluation-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.evaluation-kpis>div{display:flex;gap:16px;align-items:center;padding:18px;background:white;border:1px solid #e2e8f0;border-radius:6px}.evaluation-kpis>div>div{display:grid;gap:5px}.evaluation-kpis span:not(.kpi-icon){font-size:13px;color:#64748b}.evaluation-kpis strong{font-size:27px;font-weight:600;line-height:1.2;color:#26374b;font-variant-numeric:tabular-nums}.kpi-icon{display:grid;place-items:center;width:46px;height:46px;border-radius:6px;font-size:19px;flex-shrink:0}.blue{background:#e6f1f8;color:#2679a7}.green{background:#e8f4ee;color:#277a58}.amber{background:#fff3e4;color:#a96623}.slate{background:#edf0f5;color:#63768c}.evaluation-overview-note{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;color:#64748b;font-size:13px}.evaluation-workspace :deep(.panel){border-radius:6px;border-color:#e2e8f0}.evaluation-workspace :deep(.panel-heading)>span{color:#64748b;font-size:13px}.evaluation-workspace :deep(.interactive-table .el-table__row){cursor:pointer}@media(max-width:1000px){.evaluation-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.evaluation-kpis{gap:10px}.evaluation-kpis>div{padding:12px;gap:10px}.kpi-icon{width:34px;height:38px;font-size:16px}.evaluation-kpis strong{font-size:23px}.evaluation-tabs button{padding:12px}.evaluation-workspace :deep(.panel-heading){align-items:flex-start;gap:8px;flex-wrap:wrap}}
 </style>

@@ -27,6 +27,7 @@
       <el-header class="topbar">
         <el-button v-if="compactViewport" class="mobile-nav-trigger" :icon="Expand" aria-label="打开功能导航" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = true" />
         <div class="topbar-title">
+          <span v-if="permissionState.user?.project?.projectKey" class="topbar-kicker project-identity" :title="permissionState.user.project.projectKey">项目 · {{ permissionState.user.project.projectKey }}</span>
           <div class="breadcrumb-line">
             <router-link to="/" class="topbar-kicker">EAP 工作台</router-link>
             <span class="breadcrumb-separator">/</span>
@@ -55,6 +56,7 @@
           <el-input
             v-model="globalSearchTerm"
             class="global-search"
+            aria-label="打开全局搜索"
             placeholder="搜索页面、智能体、策略"
             :prefix-icon="Search"
             readonly
@@ -112,7 +114,7 @@
     <el-button type="primary" size="small" @click="reloadForUpdate">立即刷新</el-button>
   </div>
 
-  <el-dialog v-model="authDialogVisible" title="企业身份认证" width="520px">
+  <el-dialog v-model="authDialogVisible" title="企业身份认证" width="min(520px, calc(100vw - 28px))">
     <el-alert
       type="info"
       :closable="false"
@@ -138,10 +140,11 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="searchDialogVisible" title="全局搜索" width="680px" class="global-search-dialog">
+  <el-dialog v-model="searchDialogVisible" title="全局搜索" width="min(680px, calc(100vw - 28px))" class="global-search-dialog">
     <el-input
       v-model="globalSearchTerm"
       autofocus
+      aria-label="全局搜索关键词"
       clearable
       :prefix-icon="Search"
       placeholder="输入页面名称、任务、监控、智能体或策略"
@@ -170,7 +173,8 @@ import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
 import { startOidcSignIn } from '@/api/oidc'
-import { loadCurrentUser } from '@/stores/permissions'
+import { loadCurrentUser, usePermissions } from '@/stores/permissions'
+const { state: permissionState } = usePermissions()
 import { useAgentOpsContextStore } from '@/stores/agentOps'
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
 
@@ -442,3 +446,13 @@ onBeforeUnmount(() => {
   if (versionCheckTimer) window.clearInterval(versionCheckTimer)
 })
 </script>
+
+<style scoped>
+.project-identity {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+</style>

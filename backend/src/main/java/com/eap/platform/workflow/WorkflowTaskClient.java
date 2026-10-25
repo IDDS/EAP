@@ -23,13 +23,20 @@ public class WorkflowTaskClient {
     private final SubstrateClient substrateClient;
     private final com.eap.platform.registry.RuntimeConnectionService connections;
     private final com.eap.platform.registry.ScopedToolService scopedTools;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.observability.ObservationCoverageService coverage;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate db;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.observability.RuntimePlacementEvidenceService placementEvidence;
     private final ScheduledExecutorService deadlines = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon().name("workflow-http-deadline").factory());
     public WorkflowTaskClient(WorkflowExecutionProperties properties, ObjectMapper mapper,
                               SubstrateProperties substrate, SubstrateClient substrateClient, com.eap.platform.registry.RuntimeConnectionService connections, com.eap.platform.registry.ScopedToolService scopedTools) {
         this.properties = properties; this.mapper = mapper; this.substrate = substrate; this.substrateClient = substrateClient; this.connections=connections; this.scopedTools=scopedTools;
     }
-    public record Receipt(String status, String reason, Integer httpStatus, com.fasterxml.jackson.databind.JsonNode output) {
+    public record Receipt(String status, String reason, Integer httpStatus, com.fasterxml.jackson.databind.JsonNode output, String runtimeTraceId) {
+        public Receipt(String status, String reason, Integer httpStatus, com.fasterxml.jackson.databind.JsonNode output) { this(status, reason, httpStatus, output, null); }
         public Receipt(String status, String reason, Integer httpStatus) { this(status, reason, httpStatus, null); }
     }
 
@@ -84,16 +91,26 @@ public class WorkflowTaskClient {
         } catch (IllegalArgumentException exception) { return new Receipt("FAILED", "Substrate Runtime 地址无效", null); }
         if(runtime.hasBoundIdentity())connections.checkIdentity(runtime);
         String dispatchToken = properties.getToken();
-        boolean restore = isTool(payload) && "SUSPENDED".equals(substrateClient.inspect(actor).state());
+        boolean isolationRequired = false;
+        if (!isTool(payload) && db != null) {
+            String template = runtime.getBoundActorTemplate();
+            if (template == null) {
+                var inventory = substrateClient.inspect(actor);
+                if (inventory != null) template = inventory.template();
+            }
+            isolationRequired = db.queryForObject("select count(*) from substrate_agent_deployments where source_type='RUNNER' and atespace=? and (template_name=? or instance_key=?)",
+                    Long.class, actor.atespace(), template, runtime.getInstanceKey()) > 0;
+        }
         try {
             substrateClient.resume(actor);
         } catch (SubstrateClient.SubstrateException exception) {
             return new Receipt("FAILED", "唤醒 Actor 失败（" + exception.code() + "），未派发任务", null);
         }
         if (runtime.hasBoundIdentity()) dispatchToken = connections.dispatchToken(runtime);
-        if (isTool(payload) && !toolReady(actor, dispatchToken, executionDeadline)) {
-            String reason = "实例未确认启用受控工具，未派发任务；请检查运行程序与工具配置";
-            if (restore) try { suspend(runtime); } catch (RuntimeException e) { reason += "；原休眠状态未能恢复，请核对实例"; }
+        if ((isTool(payload) || isolationRequired) && !runtimeReady(actor, dispatchToken, executionDeadline, isTool(payload))) {
+            String reason = isTool(payload) ? "实例未确认启用受控工具，未派发任务；请检查运行程序与工具配置"
+                    : "此平台 Runner 尚未支持任务隔离，请发布新版并使用新实例；未派发任务";
+            // Preparation failure is not an exclusive-idle proof. Reclamation belongs to the workflow owner.
             return new Receipt("FAILED", reason, null);
         }
         prepared.beforeDispatch();
@@ -105,7 +122,7 @@ public class WorkflowTaskClient {
     }
 
     /** Authenticated bounded capability read; old programs must never receive a tool as a model task. */
-    private boolean toolReady(SubstrateActorRef actor, String token, Instant executionDeadline) {
+    private boolean runtimeReady(SubstrateActorRef actor, String token, Instant executionDeadline, boolean tool) {
         HttpURLConnection connection = null;
         ScheduledFuture<?> timer = null;
         try {
@@ -124,7 +141,9 @@ public class WorkflowTaskClient {
             byte[] body;
             try (var in = connection.getInputStream()) { body = in.readNBytes(4097); }
             if (body.length > 4096) return false;
-            var enabled = mapper.readTree(body).path("tools").path("enabled");
+            var state = mapper.readTree(body);
+            if (!tool) return "EXPLICIT_V1".equals(state.path("conversationMode").asText());
+            var enabled = state.path("tools").path("enabled");
             return enabled.isBoolean() && enabled.booleanValue();
         } catch (Exception e) { return false; }
         finally { if (timer != null) timer.cancel(false); if (connection != null) connection.disconnect(); }
@@ -141,6 +160,24 @@ public class WorkflowTaskClient {
     }
 
     private Receipt post(AgentRuntimeInstance runtime, URI uri, String targetActor, String dispatchToken, Map<String, Object> payload, Instant executionDeadline) {
+        String key = String.valueOf(payload.get("taskKey"));
+        String raw = null;
+        if (coverage != null && !isTool(payload) && executionDeadline.isAfter(Instant.now())) {
+            Instant httpDeadline = Instant.now().plusMillis((long)properties.getConnectTimeoutMs() + properties.getReadTimeoutMs());
+            raw = coverage.runtimeDispatch(key, runtime, executionDeadline.isBefore(httpDeadline) ? executionDeadline : httpDeadline);
+        }
+        Map<String,Object> envelope = new java.util.LinkedHashMap<>(payload);
+        if (raw != null) envelope.put("traceId", raw);
+        if (raw != null && placementEvidence != null)
+            placementEvidence.request(key, raw, runtime, com.eap.platform.observability.RuntimePlacementEvidenceStore.Phase.DISPATCH_REQUESTED);
+        var receipt = send(runtime, uri, targetActor, dispatchToken, envelope, executionDeadline);
+        if (raw != null) coverage.runtimeReceipt(key, receipt.status(), receipt.runtimeTraceId());
+        if (raw != null && placementEvidence != null)
+            placementEvidence.request(key, raw, runtime, com.eap.platform.observability.RuntimePlacementEvidenceStore.Phase.RECEIPT_RETURNED);
+        return receipt;
+    }
+
+    private Receipt send(AgentRuntimeInstance runtime, URI uri, String targetActor, String dispatchToken, Map<String, Object> payload, Instant executionDeadline) {
         HttpURLConnection connection = null;
         ScheduledFuture<?> deadline = null;
         try {
@@ -171,7 +208,9 @@ public class WorkflowTaskClient {
                 response = input.readNBytes(properties.getMaxResponseBytes() + 1);
             }
             if (response.length > properties.getMaxResponseBytes()) return new Receipt("EXECUTION_UNKNOWN", "Runtime 响应超限，结果未知", httpStatus);
-            var result = mapper.readTree(response);
+            var result = mapper.reader().with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                            com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).readTree(response);
             if (result == null || !String.valueOf(payload.get("taskKey")).equals(result.path("taskKey").asText())) {
                 return new Receipt("EXECUTION_UNKNOWN", "Runtime 任务标识不匹配，不能确认结果", httpStatus);
             }
@@ -190,10 +229,21 @@ public class WorkflowTaskClient {
             if (output != null && mapper.writeValueAsBytes(output).length > 16384) {
                 return new Receipt("EXECUTION_UNKNOWN", "Runtime 输出超过 16KB，未截断或传递；请按任务标识核对", httpStatus);
             }
-            return new Receipt(status, status.equals("SUCCEEDED") ? "Runtime 已确认任务完成" : "Runtime 已确认任务失败", httpStatus, output);
+            return new Receipt(status, status.equals("SUCCEEDED") ? "Runtime 已确认任务完成" : failureReason(result), httpStatus, output, result.path("traceId").isTextual() ? result.path("traceId").asText() : null);
         } catch (Exception exception) {
             return new Receipt("EXECUTION_UNKNOWN", "Runtime 请求中断、超时或响应无效；请按任务标识核对，未自动重试", null);
         } finally { if (deadline != null) deadline.cancel(false); if (connection != null) connection.disconnect(); }
+    }
+    private String failureReason(com.fasterxml.jackson.databind.JsonNode result) {
+        // Only fixed protocol codes may become persisted/user-visible reasons, never provider text.
+        return switch (result.path("reasonCode").asText()) {
+            case "MODEL_OUTPUT_TRUNCATED" -> "模型输出达到上限而被截断（MODEL_OUTPUT_TRUNCATED）；未传递给后续步骤";
+            case "MODEL_OUTPUT_EMPTY" -> "模型未返回有效正文（MODEL_OUTPUT_EMPTY）；未传递给后续步骤";
+            case "MODEL_OUTPUT_FILTERED" -> "模型响应被过滤（MODEL_OUTPUT_FILTERED）；未传递给后续步骤";
+            case "MODEL_TOOL_CALL_UNSUPPORTED" -> "模型返回了不支持的工具调用（MODEL_TOOL_CALL_UNSUPPORTED）；未执行工具";
+            case "MODEL_FINISH_UNCONFIRMED" -> "模型未确认正常结束（MODEL_FINISH_UNCONFIRMED）；未传递给后续步骤";
+            default -> "Runtime 已确认任务失败";
+        };
     }
     private boolean confirmedTool(AgentRuntimeInstance runtime, Map<String,Object> payload, com.fasterxml.jackson.databind.JsonNode result) {
         var tool=mapper.valueToTree(payload).path("context").path("eapTool");

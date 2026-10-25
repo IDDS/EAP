@@ -57,3 +57,11 @@ V67仅新增协议登记及持久留出批次表，不回填旧根。新登记�
 原58Agents/48工作流/4查询/3效果根、43预占/264关联/43结算、2旧优化根/15旧实验和其他旧行SHA保持；旧非平台账户/共享cap/revision不变。旧平台MODEL33→34、OUTPUT1904→2032严格只增加原1次消费，TOOL10不变。证据K8Substrate artifacts/eap-optimization-batches-20261007/index.html；归档2463113bytes/SHA25646ae84607fd9998451a828943cf258a64671c4980287d8cb71974f77c1426d0a，285文件摘要/708源/14截图。导出明确STOPPED_ON_UNKNOWN/fullLiveHoldoutCompleted=false；工程保护PASS不冒称真实完整评测PASS。通过RAM扫描后精确14源同步/root/eap-src。
 
 下一步优先原UNKNOWN回执核对与可审计治理，之后才能继续独立真实任务完整成本和复验。持续保留可信租户/资源配额、跨入口调度、业务工具及旧凭证迁移、恢复/取消/补偿、T7分级观测和T8联合策略。研究/申请书只作方法依据，私有正文不自动用于反思；旧演示视频未重录。沿用户“别忘记提交gitee”授权只提交14源及5工程文档，PROJECT_MEMORY索引只包含原HEAD和本条，保护其他线程的未提交记忆与材料。
+
+## 准备失败的阶段诊断（2026-10-08）
+
+新执行准备失败只保存有界诊断码：`RUNTIME_CONNECTION_UNAVAILABLE`、`RUNTIME_IDENTITY_*`、`RUNTIME_RESUME_*`、`RUNTIME_INSPECT_*`、`RUNTIME_PROFILE_HTTP_<status>`、`RUNTIME_PROFILE_INVALID` 或 `RUNTIME_PROFILE_UNCONFIRMED`。原生控制码只接受固定白名单；任意错误码归为 `UNCONFIRMED`，不保存异常文本、HTTP响应正文或凭证。无法分类的其他准备异常仍保留 `RUNTIME_NOT_READY`。
+
+失败发生在模型派发前，不增加重试、调用、预算或身份权限；已派发后的未知回执规则不变。远程旧实现红测8项中7项失败，新专项128项、完整613项和打包通过。只发布后端，两文件改动；四角色接口及已撤销UID拒绝通过，原25表记录/费用与身份保持，新增模型/工具为0。
+
+原C/root4仍为 `FAILED/RUNTIME_NOT_READY`，已付50次保持；D未提交，整体 `KEEP_BASELINE`。新诊断修复的是信息丢失，原瞬时失败原因仍未确认，不能据此宣称完整调优或稳定收益。原UNKNOWN已按[V68合同](OPTIMIZATION_UNKNOWN_REVIEW.md)登记独立停止审计，原结果仍UNKNOWN。当前状态以[主线交接](CODEX_NEXT_TASK.md)为准，禁止重放原C或绕过D原门禁。本轮不git commit/push。

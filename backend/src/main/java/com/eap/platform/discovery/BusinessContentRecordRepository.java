@@ -7,6 +7,15 @@ import java.util.Optional;
 public interface BusinessContentRecordRepository extends JpaRepository<BusinessContentRecord, Long> {
     Optional<BusinessContentRecord> findByObservationKey(String observationKey);
 
+    @org.springframework.data.jpa.repository.Query("""
+            select r.id from BusinessContentRecord r
+            where (r.rawRetained = true or r.encryptedContent is not null or r.encryptionIv is not null)
+              and (r.expiresAt <= :now or r.createdAt <= :receivedBefore)
+            order by r.id
+            """)
+    java.util.List<Long> findExpiredRawIds(java.time.Instant now, java.time.Instant receivedBefore,
+                                         org.springframework.data.domain.Pageable page);
+
     @org.springframework.data.jpa.repository.Query("select r.id from BusinessContentRecord r where r.direction = 'OUTPUT' and r.projectionStatus = 'PENDING' order by r.id")
     java.util.List<Long> findPendingProjectionIds(org.springframework.data.domain.Pageable page);
 

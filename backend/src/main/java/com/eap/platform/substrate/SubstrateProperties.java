@@ -31,6 +31,8 @@ public class SubstrateProperties {
     private String workerLabel = "workload=eap-agents";
     private String snapshotLocation = "gs://ate-snapshots/eap/";
     private String runnerImage = "";
+    private String kagentRunnerImage = "";
+    private String frameworkSampleImage = "";
     private String localRegistryPrefix = "localhost:5001/";
     private String localRegistryUrl = "";
     private String gatewayUrl = "";
@@ -70,6 +72,12 @@ public class SubstrateProperties {
     public void setSnapshotLocation(String snapshotLocation) { this.snapshotLocation = snapshotLocation; }
     public String getRunnerImage() { return runnerImage == null ? "" : runnerImage; }
     public void setRunnerImage(String runnerImage) { this.runnerImage = runnerImage; }
+    public String getKagentRunnerImage() { return kagentRunnerImage == null ? "" : kagentRunnerImage; }
+    public void setKagentRunnerImage(String value) { this.kagentRunnerImage = value; }
+    public String getFrameworkSampleImage() { return frameworkSampleImage == null ? "" : frameworkSampleImage; }
+    public void setFrameworkSampleImage(String value) { frameworkSampleImage = value; }
+    public boolean frameworkSampleAvailable() { return getFrameworkSampleImage().matches("[^\\s]+@sha256:[a-f0-9]{64}"); }
+    public boolean kagentRunnerAvailable() { return getKagentRunnerImage().matches("[^\\s]+@sha256:[a-f0-9]{64}"); }
     public String getLocalRegistryPrefix() { return localRegistryPrefix; }
     public void setLocalRegistryPrefix(String localRegistryPrefix) { this.localRegistryPrefix = localRegistryPrefix; }
     public String getLocalRegistryUrl() { return localRegistryUrl == null ? "" : localRegistryUrl; }

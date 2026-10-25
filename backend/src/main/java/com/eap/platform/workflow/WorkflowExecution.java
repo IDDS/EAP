@@ -21,6 +21,7 @@ public class WorkflowExecution {
     @Column(name = "started_at") Instant startedAt;
     @Column(name = "completed_at") Instant completedAt;
     @Column(name = "recovery_version", nullable = false) int recoveryVersion;
+    @Column(name = "stop_version", nullable = false) int stopVersion;
     @Column(name = "owner_epoch", nullable = false) long ownerEpoch;
     @Column(name = "owner_id", length = 36) String ownerId;
 }

@@ -15,12 +15,13 @@ import (
 const experimentProtocol = "EAP_STATELESS_PROMPT_V1"
 
 type experimentInput struct {
-	TaskKey       string `json:"taskKey"`
-	TraceID       string `json:"traceId"`
-	ProfileDigest string `json:"profileDigest"`
-	SystemPrompt  string `json:"systemPrompt"`
-	Input         string `json:"input"`
-	MaxTokens     int    `json:"maxTokens"`
+	EmitDiagnostic bool   `json:"emitDiagnostic,omitempty"`
+	TaskKey        string `json:"taskKey"`
+	TraceID        string `json:"traceId"`
+	ProfileDigest  string `json:"profileDigest"`
+	SystemPrompt   string `json:"systemPrompt"`
+	Input          string `json:"input"`
+	MaxTokens      int    `json:"maxTokens"`
 }
 type experimentResult struct {
 	Status       string          `json:"status"`
@@ -39,7 +40,12 @@ type experimentJournal struct {
 // Controlled task tools are independent of experiments: experiments build two fresh
 // messages, expose no tool definitions, and reject provider tool-call receipts.
 func (r *runner) experimentProfileValue() map[string]any {
-	return map[string]any{"protocol": experimentProtocol, "agentId": r.agentID, "model": r.model, "systemPrompt": r.system, "maxTokens": r.maxTokens, "context": "EMPTY", "tools": "DISABLED", "temperature": 0}
+	profile := map[string]any{"protocol": experimentProtocol, "agentId": r.agentID, "model": r.model, "systemPrompt": r.system, "maxTokens": r.maxTokens, "context": "EMPTY", "tools": "DISABLED", "temperature": 0}
+	// Preserve legacy/default profile digests; explicit overrides must be frozen in the profile.
+	if r.thinkingMode == "DISABLED" {
+		profile["thinkingMode"] = r.thinkingMode
+	}
+	return profile
 }
 func (r *runner) experimentProfileDigest() string {
 	b, _ := json.Marshal(r.experimentProfileValue())
@@ -60,6 +66,7 @@ func (r *runner) experimentProfile(w http.ResponseWriter, req *http.Request) {
 	}
 	p := r.experimentProfileValue()
 	p["profileDigest"] = r.experimentProfileDigest()
+	p["diagnosticsProtocol"] = "EAP_OPTIONAL_DIAGNOSTIC_V1"
 	writeJSON(w, p)
 }
 func saveExperiment(path string, j experimentJournal) error {
@@ -157,16 +164,20 @@ func (r *runner) experiment(w http.ResponseWriter, req *http.Request) {
 	}
 	start := time.Now()
 	j.Result = r.executeExperiment(in)
-	j.Result.LatencyMS = time.Since(start).Milliseconds()
+	end := time.Now()
+	j.Result.LatencyMS = end.Sub(start).Milliseconds()
 	if saveExperiment(path, j) != nil {
 		http.Error(w, "receipt not persisted", 503)
 		return
 	}
+	r.experimentSpan(in, j.Result, start, end)
 	writeJSON(w, j.Result)
 }
 func (r *runner) executeExperiment(in experimentInput) experimentResult {
 	result := experimentResult{Status: "UNKNOWN", TraceID: in.TraceID}
-	body, _ := json.Marshal(map[string]any{"model": r.model, "messages": []message{{Role: "system", Content: in.SystemPrompt}, {Role: "user", Content: in.Input}}, "max_tokens": in.MaxTokens, "temperature": 0, "stream": false})
+	payload := map[string]any{"model": r.model, "messages": []message{{Role: "system", Content: in.SystemPrompt}, {Role: "user", Content: in.Input}}, "max_tokens": in.MaxTokens, "temperature": 0, "stream": false}
+	r.applyThinkingMode(payload)
+	body, _ := json.Marshal(payload)
 	r.mu.Lock()
 	key, token := r.runtimeKey, r.runtimeToken
 	r.mu.Unlock()

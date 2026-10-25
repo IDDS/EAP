@@ -26,6 +26,31 @@ class OtlpTraceIngestionServiceTests {
     private final ToolInvocationService toolInvocationService = mock(ToolInvocationService.class);
 
     @Test
+    void runnerCompletionMetadataSurvivesIngestionWithoutBecomingAnotherModelEvent() throws Exception {
+        var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> call.getArgument(0));
+        String fixture = System.getenv("EAP_RUNNER_OTLP_FIXTURE");
+        JsonNode payload = fixture == null ? objectMapper.readTree("""
+            {"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"metadata-contract","spanId":"1","name":"agent.task","attributes":{
+              "eap.model.finish_reason":"length","eap.model.response_state":"MODEL_OUTPUT_TRUNCATED",
+              "eap.model.request.generation_limit":"2048","eap.model.request.thinking_mode":"DISABLED"
+            }}]}]}]}
+            """) : objectMapper.readTree(java.nio.file.Path.of(fixture).toFile());
+        var result = service.ingest(payload);
+        assertThat(result.invocationsRecorded()).isZero();
+        assertThat(result.traceSpansRecorded()).isEqualTo(1);
+        var capture = ArgumentCaptor.forClass(TraceSpanObservation.class);
+        verify(traceSpanRepository).save(capture.capture());
+        var attrs = objectMapper.readTree(capture.getValue().attributesJson);
+        assertThat(attrs.path("eap.model.finish_reason").asText()).isEqualTo("length");
+        assertThat(attrs.path("eap.model.response_state").asText()).isEqualTo("MODEL_OUTPUT_TRUNCATED");
+        assertThat(attrs.path("eap.model.request.generation_limit").asText()).isEqualTo("2048");
+        assertThat(attrs.path("eap.model.request.thinking_mode").asText()).isEqualTo("DISABLED");
+        assertThat(capture.getValue().attributesJson).doesNotContain("PRIVATE_PARTIAL");
+    }
+
+    @Test
     void storesProducerTimesWithoutInventingMissingOrInvalidEvidence() throws Exception {
         OtlpTraceIngestionService service = new OtlpTraceIngestionService(
                 objectMapper, discoveryService, telemetryService, contentObservationService,
@@ -149,4 +174,37 @@ class OtlpTraceIngestionServiceTests {
         verify(traceSpanRepository, times(4)).save(org.mockito.ArgumentMatchers.any());
         verify(contentObservationService, times(8)).capture(org.mockito.ArgumentMatchers.any(ContentObservationService.CaptureCommand.class));
     }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(ContentCaptureMode.class)
+    void contentModesNeverCopyBodyIntoPublicMetadata(ContentCaptureMode mode) throws Exception {
+        var contents = mock(ContentObservationRepository.class);
+        when(contents.save(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> call.getArgument(0));
+        var props = new ObservationProperties(); props.setCaptureMode(mode);
+        var vault = new ContentObservationService(contents, props);
+        var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, vault,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        when(traceSpanRepository.save(org.mockito.ArgumentMatchers.any())).thenAnswer(call -> call.getArgument(0));
+        service.ingest(objectMapper.readTree("""
+            {"resourceSpans":[{"scopeSpans":[{"spans":[
+              {"traceId":"metadata-security","spanId":"rag","name":"rag query","attributes":{"rag.query":"PRIVATE_RAG_MARKER","rag.documents":[{"text":"PRIVATE_DOCUMENT"}]}},
+              {"traceId":"metadata-security","spanId":"mcp","name":"mcp call","attributes":{"mcp.request":"PRIVATE_MCP_MARKER","mcp.response":"PRIVATE_RESPONSE"}}
+            ]}]}]}
+            """));
+        var spans = ArgumentCaptor.forClass(TraceSpanObservation.class);
+        verify(traceSpanRepository, times(2)).save(spans.capture());
+        assertThat(spans.getAllValues()).allSatisfy(span -> assertThat(span.attributesJson).doesNotContain("PRIVATE"));
+        var tools = ArgumentCaptor.forClass(ToolInvocationService.RecordCommand.class);
+        verify(toolInvocationService).record(tools.capture());
+        assertThat(tools.getValue().attributesJson()).doesNotContain("PRIVATE");
+        var rag = ArgumentCaptor.forClass(com.eap.platform.knowledge.KnowledgeDtos.KnowledgeInteractionRequest.class);
+        verify(knowledgeService).record(rag.capture());
+        assertThat(rag.getValue().inputSummary()).isNull(); assertThat(rag.getValue().outputSummary()).isNull();
+        assertThat(objectMapper.copy().findAndRegisterModules().writeValueAsString(rag.getValue())).doesNotContain("PRIVATE");
+        if (mode == ContentCaptureMode.HASH_ONLY) {
+            var captured = ArgumentCaptor.forClass(ContentObservation.class);
+            verify(contents, times(4)).save(captured.capture());
+            assertThat(captured.getAllValues()).allSatisfy(row -> assertThat(row.contentJson).isNull());
+        }
+    }
+
 }

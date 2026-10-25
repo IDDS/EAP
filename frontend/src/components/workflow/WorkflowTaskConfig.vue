@@ -2,7 +2,7 @@
   <div class="workflow-task-config">
     <el-form-item label="任务类型">
       <el-radio-group :model-value="mode" :disabled="disabled || !!parseError" @change="changeMode">
-        <el-radio-button value="MODEL">模型任务</el-radio-button>
+        <el-radio-button value="MODEL">模型 / 自定义任务</el-radio-button>
         <el-radio-button value="TOOL" :disabled="backend !== 'RUNTIME'">工具任务</el-radio-button>
       </el-radio-group>
     </el-form-item>
@@ -27,11 +27,15 @@
     </template>
     <el-alert v-if="error || parseError" :title="error || parseError" type="error" :closable="false" />
     <p v-if="mode === 'TOOL'" class="tool-help">实例需启用受控工具并通过专属凭证验证；不支持时停止执行。当前支持求和和受控计数；计数授权与对象在实例的工具权限页管理。</p>
+    <WorkflowObservationConfig :model-value="modelValue" :node-type="nodeType" :agent-id="agentId" :disabled="disabled" @update:model-value="publish" />
+    <WorkflowOutputConfig :model-value="modelValue" :node-type="nodeType" :agent-id="agentId" :disabled="disabled" @update:model-value="publish" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import WorkflowOutputConfig from './WorkflowOutputConfig.vue'
+import WorkflowObservationConfig from './WorkflowObservationConfig.vue'
 import { ElMessage } from 'element-plus'
 import { taskConfig, toolConfigError, updateToolNumbers, setTaskMode } from '@/api/workflowTaskConfig'
 const props = defineProps<{ modelValue?: string; nodeType: string; agentId?: number; disabled: boolean }>()

@@ -92,6 +92,9 @@ public class BusinessContentRecord {
     @Column(name = "expires_at")
     Instant expiresAt;
 
+    @Column(name = "raw_erased_at")
+    Instant rawErasedAt;
+
     @Column(name = "observed_at", nullable = false)
     Instant observedAt;
 

@@ -39,6 +39,9 @@ eap:
     jwk-set-uri: ${EAP_SECURITY_JWK_SET_URI:}
     audience: ${EAP_SECURITY_AUDIENCE:}
     roles-claim: ${EAP_SECURITY_ROLES_CLAIM:roles}
+    # Dedicated database deployment; never a caller-selected row filter.
+    project-key: ${EAP_SECURITY_PROJECT_KEY:}
+    initialize-project-binding: ${EAP_SECURITY_INITIALIZE_PROJECT_BINDING:false}
     # Console sign-in (OIDC authorization code + PKCE) against issuer-uri; empty keeps manual token entry only.
     oidc-client-id: ${EAP_SECURITY_OIDC_CLIENT_ID:}
     oidc-scopes: ${EAP_SECURITY_OIDC_SCOPES:openid profile}
@@ -165,9 +168,12 @@ eap:
     # Console deployment. The runner image is the platform's configuration-driven agent; gateway-token is the
     # EAP gateway ingestion token injected into deployed agents (the provider key never leaves the gateway).
     deploy-atespace: ${EAP_SUBSTRATE_DEPLOY_ATESPACE:eap-agents}
+    inventory-atespaces: ${EAP_SUBSTRATE_INVENTORY_ATESPACES:}
     worker-label: ${EAP_SUBSTRATE_WORKER_LABEL:workload=eap-agents}
     snapshot-location: ${EAP_SUBSTRATE_SNAPSHOT_LOCATION:gs://ate-snapshots/eap/}
     runner-image: ${EAP_SUBSTRATE_RUNNER_IMAGE:}
+    kagent-runner-image: ${EAP_SUBSTRATE_KAGENT_RUNNER_IMAGE:}
+    framework-sample-image: ${EAP_SUBSTRATE_FRAMEWORK_SAMPLE_IMAGE:}
     local-registry-prefix: ${EAP_SUBSTRATE_LOCAL_REGISTRY_PREFIX:localhost:5001/}
     local-registry-url: ${EAP_SUBSTRATE_LOCAL_REGISTRY_URL:}
     gateway-url: ${EAP_SUBSTRATE_GATEWAY_URL:}
@@ -187,6 +193,17 @@ eap:
     build-http-git-hosts: ${EAP_SUBSTRATE_BUILD_HTTP_GIT_HOSTS:}
   observability:
     enabled: ${EAP_OBSERVABILITY_ENABLED:true}
+    alert-reconciliation:
+      enabled: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_ENABLED:false}
+      batch-size: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_BATCH_SIZE:50}
+      max-run-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_MAX_RUN_MS:10000}
+      initial-delay-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_INITIAL_DELAY_MS:30000}
+      interval-ms: ${EAP_OBSERVABILITY_ALERT_RECONCILIATION_INTERVAL_MS:60000}
+    metrics-export:
+      enabled: ${EAP_OBSERVABILITY_METRICS_EXPORT_ENABLED:false}
+      url: ${EAP_OBSERVABILITY_METRICS_EXPORT_URL:}
+      window-minutes: ${EAP_OBSERVABILITY_METRICS_EXPORT_WINDOW_MINUTES:60}
+      interval-ms: ${EAP_OBSERVABILITY_METRICS_EXPORT_INTERVAL_MS:60000}
     # Metadata-only model-call projection; independent from heuristic task evaluation.
     content-analysis-enabled: ${EAP_CONTENT_ANALYSIS_ENABLED:true}
     content-analysis-initial-delay-ms: ${EAP_CONTENT_ANALYSIS_INITIAL_DELAY_MS:15000}

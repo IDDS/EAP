@@ -46,6 +46,118 @@ class EndpointDiscoveryIngestionTests {
 
     private AgentDiscoveryService service;
 
+    private DiscoveryEndpoint receiptEndpoint() {
+        DiscoveryEndpoint endpoint = new DiscoveryEndpoint();
+        endpoint.id = 701L;
+        endpoint.endpointKey = "receipt-host";
+        endpoint.hostName = "receipt-host";
+        when(endpointRepository.findByEndpointKey(endpoint.endpointKey)).thenReturn(Optional.of(endpoint));
+        when(runRepository.save(any())).thenAnswer(call -> {
+            DiscoveryRun run = call.getArgument(0);
+            run.id = 702L;
+            return run;
+        });
+        return endpoint;
+    }
+
+    private void knownReceiptIdentity(boolean mcp) throws Exception {
+        DiscoveredAgent existing = new DiscoveredAgent();
+        existing.id = 703L;
+        existing.fingerprint = "independent-inventory";
+        existing.name = "Independent inventory";
+        existing.assetType = mcp ? DiscoveryAssetType.MCP_CONFIGURATION : DiscoveryAssetType.AGENT;
+        existing.sourceTypes = "PROCESS";
+        existing.riskLevel = RiskLevel.LOW;
+        existing.managedAgentId = mcp ? null : 900L;
+        DiscoveryIdentityLink link = new DiscoveryIdentityLink();
+        link.discoveredAgent = existing;
+        when(identityLinkRepository.findByIdentityKey(sha256("identity|known-workload|receipt-host")))
+                .thenReturn(Optional.of(link));
+        when(agentRepository.save(any())).thenAnswer(call -> call.getArgument(0));
+        if (!mcp) when(managedAgentRepository.existsById(900L)).thenReturn(true);
+    }
+
+    private HostObservationService.HostObservationDtos.HostNetworkObservation receiptFlow(String identity, boolean mcp, int port) {
+        return new HostObservationService.HostObservationDtos.HostNetworkObservation(
+                mcp ? "mcp-client" : "agent-worker", 704L, "/fixture/agent-worker", null, null, null,
+                null, 0, "127.0.0.1", port, null, "OUTBOUND", null,
+                null, null, null, null, null, identity,
+                HostObservationService.HostObservationDtos.NetworkObservationKind.CONNECT_ATTEMPT);
+    }
+
+    private AgentDiscoveryDtos.HostObservationResponse receiptIngest(DiscoveryEndpoint endpoint,
+            List<HostObservationService.HostObservationDtos.HostNetworkObservation> flows) {
+        return new HostObservationService(new HostObservationProperties(), service)
+                .ingestForEndpoint(endpoint, HostObservationSensorType.EBPF, "eap-ebpf-bpftrace/1.1.1", flows);
+    }
+
+    @Test
+    void hostReceiptDoesNotReportUnassociatedCandidateAsRecorded() {
+        var response = receiptIngest(receiptEndpoint(), List.of(receiptFlow("unknown-workload", false, 41001)));
+        assertThat(response.observationsInspected()).isEqualTo(1);
+        assertThat(response.observationsRecorded()).isZero();
+        assertThat(response.agentsDiscovered()).isZero();
+        assertThat(response.warnings()).anyMatch(message -> message.contains("1") && message.contains("身份"));
+        verify(observationRepository, org.mockito.Mockito.never()).save(any());
+        verify(agentRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void hostReceiptCountsSavedRowsAndDistinctMatchedAgents() throws Exception {
+        var endpoint = receiptEndpoint();
+        knownReceiptIdentity(false);
+        var response = receiptIngest(endpoint, List.of(receiptFlow("known-workload", false, 41001),
+                receiptFlow("unknown-workload", false, 41002), receiptFlow("known-workload", false, 41003)));
+        assertThat(response.observationsInspected()).isEqualTo(3);
+        assertThat(response.observationsRecorded()).isEqualTo(2);
+        assertThat(response.agentsDiscovered()).isEqualTo(1);
+        assertThat(response.mcpServersDiscovered()).isZero();
+        verify(observationRepository, org.mockito.Mockito.times(2)).save(any());
+        var runs = ArgumentCaptor.forClass(DiscoveryRun.class);
+        verify(runRepository, org.mockito.Mockito.times(2)).save(runs.capture());
+        assertThat(runs.getValue().observationsCount).isEqualTo(3);
+        assertThat(runs.getValue().discoveredCount).isEqualTo(1);
+    }
+
+    @Test
+    void hostReceiptCountsDistinctCanonicalMcpAssets() throws Exception {
+        var endpoint = receiptEndpoint();
+        knownReceiptIdentity(true);
+        var response = receiptIngest(endpoint, List.of(receiptFlow("known-workload", true, 41001),
+                receiptFlow("known-workload", true, 41002), receiptFlow("unknown-workload", true, 41003)));
+        assertThat(response.observationsRecorded()).isEqualTo(2);
+        assertThat(response.agentsDiscovered()).isZero();
+        assertThat(response.mcpServersDiscovered()).isEqualTo(1);
+        verify(observationRepository, org.mockito.Mockito.times(2)).save(any());
+    }
+
+    @Test
+    void hostReceiptDoesNotAcknowledgePersistenceFailure() throws Exception {
+        var endpoint = receiptEndpoint();
+        knownReceiptIdentity(false);
+        when(observationRepository.save(any())).thenThrow(new IllegalStateException("fixture write failed"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> receiptIngest(endpoint,
+                List.of(receiptFlow("known-workload", false, 41001))))
+                .isInstanceOf(IllegalStateException.class).hasMessage("fixture write failed");
+    }
+
+    @Test
+    void hostReceiptCountsOnlyNormalizedAgentCandidates() {
+        var endpoint = new DiscoveryEndpoint();
+        endpoint.endpointKey = "receipt-host";
+        endpoint.hostName = "receipt-host";
+        var ignored = new HostObservationService.HostObservationDtos.HostNetworkObservation(
+                "tat_agent", 704L, "/qcloud/tat_agent", null, null, null,
+                null, 0, "127.0.0.1", 41001, null, "OUTBOUND", null,
+                null, null, null, null, null, "not-an-agent",
+                HostObservationService.HostObservationDtos.NetworkObservationKind.CONNECT_ATTEMPT);
+        var response = receiptIngest(endpoint, List.of(ignored));
+        assertThat(response.observationsInspected()).isEqualTo(1);
+        assertThat(response.observationsRecorded()).isZero();
+        assertThat(response.agentsDiscovered()).isZero();
+        verify(runRepository, org.mockito.Mockito.never()).save(any());
+    }
+
     @BeforeEach
     void setUp() {
         service = new AgentDiscoveryService(

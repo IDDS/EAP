@@ -33,6 +33,9 @@ public class AgentExperimentService {
  private void checkEnabled(){if(!enabled)throw new BusinessException("提示词对照实验尚未启用");}
  @Transactional public AgentExperimentDtos.Summary submit(AgentExperimentDtos.Submit r,String actor){return submitLinked(r,actor,null);}
  @org.springframework.beans.factory.annotation.Autowired private org.springframework.jdbc.core.JdbcTemplate optimizationDb;
+ @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.optimization.OptimizationUnknownReviewService reviews;
+ @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.observability.DiagnosticSamplingService diagnostics;
+ @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.observability.ObservationCoverageService coverage;
  @Transactional public AgentExperimentDtos.Summary submitOptimization(AgentExperimentDtos.Submit r,String actor,Long runId){
   if(runId==null)throw new BusinessException("优化运行标识缺失");
   var rows=optimizationDb.queryForList("select * from agent_optimizations where id=? and public_samples_confirmed=true for update",runId);
@@ -50,7 +53,8 @@ public class AgentExperimentService {
  private AgentExperimentDtos.Summary submitLinked(AgentExperimentDtos.Submit r,String actor,Long runId){
   checkEnabled();admission.lock();String fingerprint=digest(runId==null?List.of(r.agentId(),r.instanceKey(),r.profileDigest(),r.candidatePrompt(),r.maxTokens(),r.samples(),r.publicSamplesConfirmed(),actor):List.of(r.agentId(),r.instanceKey(),r.profileDigest(),r.candidatePrompt(),r.maxTokens(),r.samples(),r.publicSamplesConfirmed(),actor,runId));
   var prior=experiments.findBySubmissionKey(r.requestKey());if(prior.isPresent()){if(!fingerprint.equals(prior.get().requestFingerprint))throw new ConflictException("提交标识已用于不同实验");return summary(prior.get());}
-  if(experiments.findFirstByStatusInOrderByIdAsc(List.of("QUEUED","RUNNING","UNKNOWN")).isPresent())throw new ConflictException("已有实验正在执行或结果未知，请先核对记录");
+  if(reviews.hasBlockingExperiments())throw new ConflictException("已有实验正在执行或原未知尚未完成审计核对");
+  reviews.requireIndependentInstance(r.instanceKey());
   if(!r.publicSamplesConfirmed()||r.samples().isEmpty()||r.samples().size()>3||r.maxTokens()<1||r.maxTokens()>256||r.candidatePrompt().getBytes(StandardCharsets.UTF_8).length>8000)throw new BusinessException("实验仅支持确认公开的 1–3 条样本和不超过 256 的输出上限");
   if(r.samples().stream().anyMatch(s->s.input().getBytes(StandardCharsets.UTF_8).length>2000||s.input().isBlank()||s.expected().isBlank())||r.samples().stream().map(AgentExperimentDtos.Sample::input).distinct().count()!=r.samples().size())throw new BusinessException("样本输入过长、为空或重复");
   var runtime=target(r.agentId(),r.instanceKey());var p=readProfile(runtime.getEndpoint(),r.agentId());var dep=deployment(r.agentId(),p);
@@ -60,7 +64,7 @@ public class AgentExperimentService {
   AgentExperiment e=new AgentExperiment();e.optimizationRunId=runId;e.agentId=r.agentId();e.instanceKey=r.instanceKey();e.endpoint=runtime.getEndpoint();e.imageRef=dep.getImageRef();e.deploymentVersion=dep.getVersion();e.actorUid=p.actorUid();e.template=p.template();e.submissionKey=r.requestKey();e.requestFingerprint=fingerprint;e.profileDigest=r.profileDigest();e.profileJson=json(p.profile());e.samplesJson=json(r.samples());e.maxTokens=r.maxTokens();e.requestedBy=actor;experiments.saveAndFlush(e);
   var b=variant(e,"BASELINE",baseline);var c=variant(e,"CANDIDATE",r.candidatePrompt());
   for(int i=0;i<r.samples().size();i++)for(var v:i%2==0?List.of(b,c):List.of(c,b)){var t=new ExperimentTrial();t.experimentId=e.id;t.variantId=v.id;t.sampleIndex=i;t.taskKey="experiment:"+e.id+":"+v.variantName.toLowerCase()+":"+i;t.traceId=UUID.randomUUID().toString().replace("-","");trials.save(t);}
-  trials.flush();return summary(e);
+  trials.flush();diagnostics.register(e.id,runtime,p.actorUid(),p.template());coverage.enrollExperiment(e.id);return summary(e);
  }
  private ExperimentVariant variant(AgentExperiment e,String name,String prompt){var v=new ExperimentVariant();v.experimentId=e.id;v.variantName=name;v.systemPrompt=prompt;v.configDigest=digest(List.of("EAP_STATELESS_PROMPT_V1",e.profileDigest,prompt,e.maxTokens,"temperature=0","context=EMPTY","tools=DISABLED"));return variants.saveAndFlush(v);}
  @Transactional(readOnly=true) public List<AgentExperimentDtos.Summary> list(){return experiments.findTop50ByOrderByIdDesc().stream().map(this::summary).toList();}
@@ -77,10 +81,13 @@ public class AgentExperimentService {
   try{var runtime=target(e.agentId,e.instanceKey);if(!runtime.getEndpoint().equals(e.endpoint))throw new BusinessException("实例端点改变");}catch(BusinessException ex){t.status="FAILED";t.reasonCode="AGENT_OR_RUNTIME_DISABLED";t.finishedAt=Instant.now();stop(e,"FAILED");return null;}
   e.status="RUNNING";t.status="RUNNING";t.startedAt=Instant.now();t.queueMs=Duration.between(e.createdAt,t.startedAt).toMillis();
   var v=variants.findById(t.variantId).orElseThrow();var sample=tree(e.samplesJson).get(t.sampleIndex);
-  return new Dispatch(t.id,e.agentId,e.instanceKey,e.endpoint,e.actorUid,e.template,e.profileDigest,Map.of("taskKey",t.taskKey,"traceId",t.traceId,"profileDigest",e.profileDigest,"systemPrompt",v.systemPrompt,"input",sample.path("input").asText(),"maxTokens",e.maxTokens));
+  var body=new LinkedHashMap<String,Object>(Map.of("taskKey",t.taskKey,"traceId",t.traceId,"profileDigest",e.profileDigest,"systemPrompt",v.systemPrompt,"input",sample.path("input").asText(),"maxTokens",e.maxTokens));
+  if("EAP_OPTIONAL_DIAGNOSTIC_V1".equals(tree(e.profileJson).path("diagnosticsProtocol").asText()))body.put("emitDiagnostic",true);
+  coverage.experimentEvent(t.id,true);
+  return new Dispatch(t.id,e.agentId,e.instanceKey,e.endpoint,e.actorUid,e.template,e.profileDigest,body);
  }
  @Transactional public void finish(Dispatch d,AgentExperimentClient.Receipt receipt){
-  admission.lock();var t=trials.findById(d.trialId()).orElseThrow();if(!"RUNNING".equals(t.status))return;var e=find(t.experimentId);t.finishedAt=Instant.now();t.endToEndMs=Duration.between(t.startedAt,t.finishedAt).toMillis();t.status=receipt.status();t.reasonCode=receipt.reasonCode();
+  admission.lock();var t=trials.findById(d.trialId()).orElseThrow();if(!"RUNNING".equals(t.status))return;var e=find(t.experimentId);t.finishedAt=Instant.now();t.endToEndMs=Duration.between(t.startedAt,t.finishedAt).toMillis();t.status=receipt.status();t.reasonCode=receipt.reasonCode();coverage.experimentEvent(t.id,false);
   if(!"SUCCEEDED".equals(t.status)){stop(e,t.status);return;}
   var body=receipt.body();t.outputText=body.path("output").asText();t.finishReason=body.path("finishReason").asText();
   if(body.path("latencyMs").canConvertToLong()&&body.path("latencyMs").asLong()>=0)t.latencyMs=body.path("latencyMs").asLong();

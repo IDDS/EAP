@@ -2,6 +2,7 @@ package com.eap.platform.orchestration;
 
 import com.eap.platform.agent.AgentRepository;
 import com.eap.platform.common.BusinessException;
+import com.eap.platform.workflow.WorkflowOutputContract;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -107,14 +108,23 @@ public class OrchestrationService {
         step.requiredCapability = request.requiredCapability();
         step.executionBackend = request.executionBackend()==null?"RUNTIME":request.executionBackend();
         if(!java.util.Set.of("RUNTIME","AX").contains(step.executionBackend))throw new BusinessException("执行后端仅支持 RUNTIME 或 AX");
+        step.outputContractJson = WorkflowOutputContract.validateDefinition(request.outputContractJson(), step.executionBackend);
         step.status = StepStatus.PENDING;
         return OrchestrationDtos.from(stepRepository.save(step));
     }
 
     @Transactional
+    public OrchestrationDtos.StepResponse updateOutputContract(Long stepId, OrchestrationDtos.OutputContractRequest request) {
+        editablePlan(stepPlanId(stepId));
+        AgentPlanStep step = lockedStep(stepId);
+        step.outputContractJson = WorkflowOutputContract.validateDefinition(request.outputContractJson(), step.executionBackend);
+        return OrchestrationDtos.from(step);
+    }
+
+    @Transactional
     public OrchestrationDtos.StepResponse assignStep(Long stepId, OrchestrationDtos.AssignRequest request) {
-        AgentPlanStep step = stepRepository.findById(stepId).orElseThrow(() -> new BusinessException("计划步骤不存在"));
-        var plan = editablePlan(step.planId);
+        var plan = editablePlan(stepPlanId(stepId));
+        AgentPlanStep step = lockedStep(stepId);
         if (request.status() != StepStatus.PENDING && request.status() != StepStatus.ASSIGNED) throw new BusinessException("运行状态由执行引擎回写，不能手工标记");
         if (request.assignedAgentId() == null && request.status() == StepStatus.ASSIGNED) throw new BusinessException("分配状态必须指定团队成员");
         if (request.assignedAgentId() != null && memberRepository.findByTeamId(plan.teamId).stream().noneMatch(m -> m.agentId.equals(request.assignedAgentId()))) throw new BusinessException("只能分配给本团队成员");
@@ -124,6 +134,16 @@ public class OrchestrationService {
         step.assignedAgentId = request.assignedAgentId();
         step.status = request.status();
         return OrchestrationDtos.from(step);
+    }
+
+    private Long stepPlanId(Long id) {
+        // Do not hydrate a stale entity before waiting for the parent plan lock.
+        return stepRepository.findPlanIdById(id).orElseThrow(() -> new BusinessException("计划步骤不存在"));
+    }
+
+    private AgentPlanStep lockedStep(Long id) {
+        // Lock order is plan -> step; a current read also avoids a MySQL RR snapshot.
+        return stepRepository.findForUpdate(id).orElseThrow(() -> new BusinessException("计划步骤不存在"));
     }
 
     private AgentPlan editablePlan(Long id) {

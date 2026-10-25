@@ -20,6 +20,18 @@ The observer only reports Agent-like processes and connection metadata. It expli
 
 It cannot decrypt HTTPS or obtain Prompt, response text, API keys or exact Token usage. Those require the separately governed Content Proxy, an application/runtime OpenTelemetry signal, a model gateway, or provider usage reconciliation.
 
+## eBPF connect adapter 1.1.1
+
+The adapter reports `CONNECT_ATTEMPT` evidence. A connect-entry event does not establish socket type, TLS, connection success, transferred bytes, tool outcome or EAP task identity. It omits unmeasured protocol and byte fields; the updated host-observation receiver also recognizes the known `eap-ebpf-bpftrace/1.0.0` producer and removes those unsupported claims from newly ingested evidence. Existing historical records are not rewritten. Other collectors can still report actual zero or positive byte measurements.
+
+`max_events` is now a hard limit on pending distinct observations. One upload may be in flight, with a snapshot of at most the same size. Excess new keys are dropped and counted; repeated keys are coalesced. Uploads run separately from capture, retry with capped exponential backoff, require a complete acknowledgement, and never follow redirects with the machine identity. Failed HTTP bodies and arbitrary exceptions are not logged. Telemetry retries do not re-execute tools and do not promise exactly-once ingestion.
+
+Periodic `observer_health` JSON logs expose pending/in-flight observations, upload failures, coalescing and dropped counts. They distinguish absent prerequisites, no observed events, degraded delivery and shutdown. These are local status logs, not a new central heartbeat API. Kernel ring-buffer loss accounting remains unavailable. The queue is in memory; shutdown reports any unresolved observations without guaranteeing delivery or persistence.
+
+Configure `retry_initial_seconds` (default 5), `retry_max_seconds` (default 300) and `status_interval_seconds` (default 30) under `ebpf_observer`. Install a backend supporting this contract before deploying the new adapter. Keep an existing enrolled machine identity; the package does not enroll hosts, install bpftrace or activate services. Full contract and verification boundaries: [eBPF reliability](../docs/EBPF_OBSERVER_RELIABILITY.md).
+
+Version 1.1.1 supports an inherited anonymous pipe via `--credential-fd`: the credential is consumed once, the descriptor is closed before bpftrace starts, and no credential state file is required. The BPF script uses explicit byte shifts compatible with bpftrace 0.14. The systemd unit includes `CAP_SYS_PTRACE` for host process identity enrichment; this is a privileged tracing capability. A working PoC launcher and its deployment limits are documented in [PoC eBPF service](../deploy/substrate-poc/ebpf/README.md).
+
 ## Zero-code Docker attachment
 
 For supported frameworks, Discovery Agent can inject observability without changing Agent source code, model credentials or provider routing. The first profile supports Python applications using LiteLLM. A read-only `sitecustomize` hook registers LiteLLM's official `CustomLogger`, and sends Prompt, response and usage data to the Agent-scoped local content collector. The provider API key is never read or copied by the instrumentation.

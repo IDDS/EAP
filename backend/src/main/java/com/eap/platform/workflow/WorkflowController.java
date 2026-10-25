@@ -18,6 +18,8 @@ public class WorkflowController {
     private final WorkflowService workflowService;
     private final WorkflowExecutionService executions;
     private final WorkflowToolRecoveryService toolRecovery;
+    @org.springframework.beans.factory.annotation.Autowired private WorkflowExecutionConfigurationService configurations;
+    @org.springframework.beans.factory.annotation.Autowired private WorkflowStopService stops;
 
     public WorkflowController(WorkflowService workflowService, WorkflowExecutionService executions, WorkflowToolRecoveryService toolRecovery) {
         this.toolRecovery = toolRecovery;
@@ -74,10 +76,26 @@ public class WorkflowController {
         return ApiResponse.ok(toolRecovery.report(workflowId,runKey));
     }
 
+    @GetMapping("/{workflowId}/executions/{runKey}/stop")
+    public ApiResponse<WorkflowStopService.Report> stopStatus(@PathVariable Long workflowId, @PathVariable String runKey) {
+        return ApiResponse.ok(stops.get(workflowId, runKey));
+    }
+
+    @PostMapping("/{workflowId}/executions/{runKey}/stop")
+    public ApiResponse<WorkflowStopService.Report> stop(@PathVariable Long workflowId, @PathVariable String runKey,
+            @Valid @RequestBody WorkflowStopService.Request request, Authentication authentication) {
+        return ApiResponse.ok(stops.request(workflowId, runKey, request, authentication == null ? "console" : authentication.getName()));
+    }
+
     @GetMapping("/{workflowId}/executions/{runKey}/outputs")
     public ApiResponse<java.util.Map<String, com.fasterxml.jackson.databind.JsonNode>> outputs(
             @PathVariable Long workflowId, @PathVariable String runKey) {
         return ApiResponse.ok(executions.outputs(workflowId, runKey));
+    }
+
+    @GetMapping("/{workflowId}/executions/{runKey}/configuration")
+    public ApiResponse<WorkflowExecutionConfigurationService.Report> configuration(@PathVariable Long workflowId, @PathVariable String runKey) {
+        return ApiResponse.ok(configurations.get(workflowId, runKey));
     }
 
     @GetMapping("/{workflowId}/executions/{runKey}")

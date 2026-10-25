@@ -1,10 +1,10 @@
 <template>
  <el-card shadow="never" class="panel optimization-panel">
-  <template #header><div class="optimization-header"><div><strong><el-icon><MagicStick /></el-icon> 受限提示词优化</strong><p>固定智能体与模型，用独立样本检验人工提示词和搜索候选</p></div><div class="optimization-actions"><el-button :disabled="busy" :loading="loading" @click="load">刷新任务</el-button><el-button v-if="permissions.can('runAgentExperiments')" type="primary" :disabled="!enabled||busy||loading" @click="editing=!editing">{{ editing?'收起表单':'创建优化任务' }}</el-button></div></div></template>
+  <template #header><div class="optimization-header"><div><strong><el-icon><MagicStick /></el-icon> 受限提示词优化</strong><p>固定智能体与模型，用独立样本检验人工提示词和搜索候选</p></div><div class="optimization-actions"><el-button :disabled="busy" :loading="loading" @click="load">刷新任务</el-button><el-button v-if="permissions.can('runAgentExperiments')&&!location.optimizationId" type="primary" :disabled="!enabled||busy||loading" @click="editing=!editing">{{ editing?'收起表单':'创建优化任务' }}</el-button></div></div></template>
   <el-alert v-if="error" :title="error" type="error" :closable="false" />
-  <el-alert v-if="!enabled&&!loading" title="受限优化暂未启用，已完成的评测仍可查看。" type="info" :closable="false" />
+  <el-alert v-if="!enabled&&!loading&&!location.optimizationId" title="受限优化暂未启用，已完成的评测仍可查看。" type="info" :closable="false" />
   <div class="optimization-flow" aria-label="提示词优化流程"><div v-for="(stage,index) in stages" :key="stage"><span>{{ index+1 }}</span><strong>{{ stage }}</strong><small>{{ stageNotes[index] }}</small></div></div>
-  <el-form v-if="editing&&permissions.can('runAgentExperiments')" class="optimization-form" label-position="top" @submit.prevent="submit">
+  <el-form v-if="editing&&!location.optimizationId&&permissions.can('runAgentExperiments')" class="optimization-form" label-position="top" @submit.prevent="submit">
    <el-alert v-if="submitUnknown" title="提交结果未确认。表单已保留，请核对原提交，避免重复执行。" type="warning" :closable="false" />
    <div class="optimization-grid"><el-form-item label="智能体"><el-select v-model="draft.agentId" :disabled="locked" filterable placeholder="选择已启用的智能体" aria-label="优化智能体" @change="chooseAgent"><el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" :disabled="agent.lifecycleStatus!=='ACTIVE'" /></el-select></el-form-item><el-form-item label="运行实例"><el-select v-model="draft.instanceKey" :disabled="locked" aria-label="优化运行实例" placeholder="选择支持独立上下文的实例" @change="clearProfile"><el-option v-for="target in targets" :key="target.instanceKey" :label="target.instanceKey" :value="target.instanceKey" /></el-select></el-form-item></div>
    <el-button :disabled="locked||!draft.instanceKey" :loading="profileLoading" @click="readProfile">读取当前基线</el-button><p class="optimization-note">读取会唤醒实例，不调用模型。运行版本、模型和样本在提交时冻结。</p>
@@ -20,9 +20,10 @@
    </template>
   </el-form>
   <el-table :data="runs" row-key="id" max-height="320" v-loading="loading" @row-click="select"><el-table-column label="优化任务" width="140"><template #default="{row}">#{{ row.id }} · Agent {{ row.agentId }}</template></el-table-column><el-table-column label="进度" min-width="150"><template #default="{row}"><el-tag :type="row.status==='COMPLETED'?'success':['UNKNOWN','FAILED'].includes(row.status)?'warning':'info'">{{ statusLabel(row.status) }}</el-tag></template></el-table-column><el-table-column label="搜索方式" min-width="120"><template #default="{row}">{{ row.engine==='GEPA'?'轨迹反思':'简单搜索' }}</template></el-table-column><el-table-column label="调用准入 / 上限" width="150"><template #default="{row}">{{ row.chargedCalls }} / {{ row.maxCalls }}</template></el-table-column><el-table-column label="结论" min-width="170"><template #default="{row}">{{ recommendationLabel(row) }}</template></el-table-column></el-table>
-  <el-empty v-if="!runs.length&&!loading" description="尚无优化任务，先准备公开的三组独立测试样本" />
+  <el-empty v-if="!runs.length&&!loading&&!error" description="当前范围内暂无优化任务" />
   <template v-if="selected">
-   <div class="optimization-detail-title"><strong>任务 #{{ selected.id }} · {{ statusLabel(selected.status) }}</strong><small>发布 v{{ selected.deploymentVersion }} · 配置 {{ selected.profileDigest.slice(0,12) }} · 数据集 {{ selected.datasetDigest.slice(0,12) }}</small></div>
+   <div class="optimization-detail-title"><strong>任务 #{{ selected.id }} · {{ statusLabel(selected.status) }}</strong><router-link :to="learningRecordPath('optimization',selected.id,selected.agentId)">任务记录链接</router-link><small>发布 v{{ selected.deploymentVersion }} · 配置 {{ selected.profileDigest.slice(0,12) }} · 数据集 {{ selected.datasetDigest.slice(0,12) }}</small></div>
+   <OptimizationUnknownReview ref="unknownReview" v-if="selected.status==='UNKNOWN'" :key="selected.id" :run-id="selected.id" :disabled="busy" />
    <div class="optimization-summary"><div><small>模型调用准入</small><strong>{{ selected.chargedCalls }} / {{ selected.maxCalls }}</strong><el-progress :percentage="Math.min(100,selected.chargedCalls/selected.maxCalls*100)" :show-text="false" /></div><div><small>输出 Token · 已用 + 在途预留</small><strong>{{ selected.usedOutputTokens }} + {{ selected.reservedOutputTokens }}</strong><el-progress :percentage="Math.min(100,(selected.usedOutputTokens+selected.reservedOutputTokens)/selected.maxOutputTokens*100)" :show-text="false" /><small>上限 {{ selected.maxOutputTokens }} · 未确认 {{ selected.pendingReservations }} 笔</small></div><div><small>评审建议</small><strong class="optimization-recommendation">{{ recommendationLabel(selected) }}</strong><small v-if="selected.reasonCode">{{ reasonLabel(selected.reasonCode) }}</small></div></div>
    <template v-if="selected.evidence">
     <p class="optimization-note evidence-registration">留出登记 {{ selected.evidence.holdoutSamples }} 条 · 独立任务组 {{ selected.evidence.independentHoldoutGroups }} 个。人工与候选使用同一留出集；两轮基线输出仍是这组任务的配对重复，不增加独立任务数。相同提示词会复用原评估。样本不足或证据不完整时保留基线。</p>
@@ -35,7 +36,7 @@
     <p class="optimization-note">调用记录耗时包含执行或网关处理，不是纯模型生成时间。未提供版本化价格，金额暂不可核算；搜索与评估的离线成本不等于部署后的服务成本。需要另一组独立任务复验，不自动替换运行提示词。</p>
    </template>
    <div class="optimization-comparison"><article v-for="card in holdoutCards" :key="card.label"><h4>{{ card.label }} · 留出集</h4><strong>{{ card.metrics?`${card.metrics.passed} / ${card.metrics.samples}`:'等待评测' }}</strong><small>精确匹配 / 全部登记样本</small><p>{{ usageText(card.metrics) }}</p><small v-if="card.metrics">已完成 {{ card.metrics.succeeded }} / {{ card.metrics.samples }} · 未知 {{ card.metrics.unknown }}<span v-if="card.notRun!==undefined"> · 未运行 {{ card.notRun }} · 失败 {{ card.failed }}</span></small></article></div>
-   <el-table :data="selected.evaluations" size="small" max-height="320"><el-table-column label="切分 / 来源" width="155"><template #default="{row}">{{ splitLabel(row.split) }} · {{ sourceLabel(row.source) }}</template></el-table-column><el-table-column label="状态" min-width="110"><template #default="{row}">{{ statusLabel(row.status) }}</template></el-table-column><el-table-column label="基线精确匹配" width="140"><template #default="{row}">{{ row.baseline.passed }} / {{ row.baseline.samples }}</template></el-table-column><el-table-column label="对照精确匹配" width="140"><template #default="{row}">{{ row.candidate.passed }} / {{ row.candidate.samples }}</template></el-table-column><el-table-column label="对照 Token" min-width="200"><template #default="{row}">{{ usageText(row.candidate) }}</template></el-table-column><el-table-column label="配对实验" width="100"><template #default="{row}">#{{ row.experimentId }}</template></el-table-column></el-table>
+   <el-table :data="selected.evaluations" size="small" max-height="320"><el-table-column label="切分 / 来源" width="155"><template #default="{row}">{{ splitLabel(row.split) }} · {{ sourceLabel(row.source) }}</template></el-table-column><el-table-column label="状态" min-width="110"><template #default="{row}">{{ statusLabel(row.status) }}</template></el-table-column><el-table-column label="基线精确匹配" width="140"><template #default="{row}">{{ row.baseline.passed }} / {{ row.baseline.samples }}</template></el-table-column><el-table-column label="对照精确匹配" width="140"><template #default="{row}">{{ row.candidate.passed }} / {{ row.candidate.samples }}</template></el-table-column><el-table-column label="对照 Token" min-width="200"><template #default="{row}">{{ usageText(row.candidate) }}</template></el-table-column><el-table-column label="配对实验" width="100"><template #default="{row}"><router-link :to="learningRecordPath('experiment',row.experimentId,selected.agentId)">#{{ row.experimentId }}</router-link></template></el-table-column></el-table>
    <el-button v-if="permissions.can('viewContent')" class="optimization-content-button" :loading="contentLoading" @click="loadContent">查看受权限保护的提示词和样本</el-button>
    <el-collapse v-if="content&&permissions.can('viewContent')"><el-collapse-item title="冻结基线、人工提示词与公开样本" name="frozen"><div class="optimization-grid"><div><strong>运行基线</strong><pre>{{ content.profile.systemPrompt }}</pre></div><div><strong>人工对照</strong><pre>{{ content.manualPrompt }}</pre></div></div><div v-for="sample in content.samples" :key="sample.id" class="optimization-output"><strong>{{ splitLabel(sample.split) }} · {{ sample.id }}</strong><pre>{{ sample.input }}</pre><small>期望：{{ sample.expected }}</small></div></el-collapse-item><el-collapse-item title="已登记候选提示词" name="candidates"><div v-for="(candidate,index) in content.candidates" :key="index" class="optimization-output"><strong>{{ splitLabel(candidate.split) }} · {{ sourceLabel(candidate.source) }} · #{{ candidate.experiment_id }}</strong><pre>{{ candidate.prompt_text }}</pre></div></el-collapse-item></el-collapse>
    <p class="optimization-note">调用准入包含已派发后未确认的请求。未知用量保留占用，缺失指标不按零计算。少量精确文本样本仅支持本次人工评审，候选不会自动发布。</p>
@@ -44,8 +45,11 @@
 </template>
 <script setup lang="ts">
 import {computed,onBeforeUnmount,onMounted,ref,watch} from 'vue'
+import {useRoute,onBeforeRouteUpdate,onBeforeRouteLeave} from 'vue-router'
+import {learningLocation,learningRecordPath} from '@/navigation/learningLinks'
 import {ElMessage} from 'element-plus'
 import {MagicStick} from '@element-plus/icons-vue'
+import OptimizationUnknownReview from '@/components/OptimizationUnknownReview.vue'
 import {EapApi} from '@/api/eap'
 import {ExperimentApi} from '@/api/agentExperiments'
 import {OptimizationApi} from '@/api/agentOptimizations'
@@ -54,6 +58,8 @@ import type {Optimization,OptimizationContent,OptimizationMetrics,OptimizationSa
 import type {Agent} from '@/types/domain'
 import {usePermissions} from '@/stores/permissions'
 const permissions=usePermissions(),runs=ref<Optimization[]>([]),agents=ref<Agent[]>([]),targets=ref<{instanceKey:string}[]>([]),profile=ref<Profile>(),selected=ref<Optimization>(),content=ref<OptimizationContent>()
+const unknownReview=ref<{canLeaveRecord:()=>boolean|undefined}>()
+const route=useRoute(),location=computed(()=>learningLocation(route.query))
 const loading=ref(false),busy=ref(false),profileLoading=ref(false),contentLoading=ref(false),editing=ref(false),enabled=ref(false),submitUnknown=ref(false),error=ref('')
 const stages=['冻结基线','搜索候选','封存候选','留出评测'],stageNotes=['版本与预算固定','训练与验证独立','结束搜索，禁止改写','比较基线、人工与候选']
 const splits=[{key:'TRAIN' as const,label:'训练集',note:'仅这组实际反馈可进入反思'},{key:'VALIDATION' as const,label:'验证集',note:'用于搜索期间选择候选'},{key:'HOLDOUT' as const,label:'留出集',note:'仅在候选封存后独立评测'}]
@@ -69,11 +75,38 @@ function addSample(split:OptimizationSample['split']){if(locked.value||draft.val
 function removeSample(id:string){if(!locked.value)draft.value.samples=draft.value.samples.filter(s=>s.id!==id)}
 async function chooseAgent(){clearProfile();targets.value=[];draft.value.instanceKey='';if(!draft.value.agentId||!permissions.can('runAgentExperiments'))return;const run=profileGeneration,user=permissions.state.user;try{const result=await ExperimentApi.targets(draft.value.agentId);if(alive&&run===profileGeneration&&user===permissions.state.user)targets.value=result.instances}catch{if(alive&&run===profileGeneration&&user===permissions.state.user)error.value='运行实例加载失败'}}
 async function readProfile(){if(locked.value||!draft.value.agentId||!draft.value.instanceKey||!permissions.can('runAgentExperiments'))return;const run=++profileGeneration,user=permissions.state.user;profileLoading.value=true;profile.value=undefined;try{const result=await ExperimentApi.profile(draft.value.agentId,draft.value.instanceKey);if(alive&&run===profileGeneration&&user===permissions.state.user){profile.value=result;draft.value.maxTokens=Math.min(128,result.profile.maxTokens)}}catch{if(alive&&run===profileGeneration&&user===permissions.state.user)error.value='基线读取失败，请核对实例及实验协议'}finally{if(alive&&run===profileGeneration)profileLoading.value=false}}
-async function load(){if(busy.value||loading.value||!permissions.can('viewConsole'))return;const run=++generation,user=permissions.state.user;loading.value=true;try{const [status,rows,list]=await Promise.all([OptimizationApi.status(),OptimizationApi.list(),EapApi.listAgents()]);if(!current(run,user))return;enabled.value=status.enabled;runs.value=rows;agents.value=list;if(selected.value)selected.value=rows.find(r=>r.id===selected.value?.id);error.value=''}catch{if(current(run,user)){runs.value=[];selected.value=undefined;content.value=undefined;contentGeneration++;error.value='优化任务读取失败，请刷新重试'}}finally{if(current(run,user))loading.value=false}}
-function select(row:Optimization){if(busy.value)return;selected.value=row;contentGeneration++;content.value=undefined;contentLoading.value=false}
-async function loadContent(){if(!selected.value||!permissions.can('viewContent'))return;const run=++contentGeneration,user=permissions.state.user,id=selected.value.id;content.value=undefined;contentLoading.value=true;try{const result=await OptimizationApi.content(id);if(alive&&run===contentGeneration&&user===permissions.state.user&&selected.value?.id===id&&permissions.can('viewContent'))content.value=result}catch{if(alive&&run===contentGeneration&&user===permissions.state.user)error.value='任务正文读取失败'}finally{if(alive&&run===contentGeneration)contentLoading.value=false}}
+function clearContent(){contentGeneration++;content.value=undefined;contentLoading.value=false}
+async function load(){
+ if(busy.value||loading.value||!permissions.can('viewConsole')||unknownReview.value?.canLeaveRecord()===false)return
+ const run=++generation,user=permissions.state.user,context=location.value
+ error.value=''
+ if(context.error){runs.value=[];selected.value=undefined;clearContent();error.value=context.error;return}
+ if(context.experimentId)return
+ loading.value=true
+ try{
+  const [status,rows,list]=await Promise.all([context.optimizationId?Promise.resolve({enabled:false}):OptimizationApi.status(),context.optimizationId?OptimizationApi.get(context.optimizationId).then(row=>[row]):OptimizationApi.list(),context.optimizationId?Promise.resolve([]):EapApi.listAgents()])
+  if(!current(run,user)||unknownReview.value?.canLeaveRecord()===false)return
+  if(context.optimizationId&&(rows[0]?.id!==context.optimizationId||(context.agentId!==undefined&&rows[0]?.agentId!==context.agentId)))throw Error('Record mismatch')
+  enabled.value=status.enabled;runs.value=rows.filter(row=>context.agentId===undefined||row.agentId===context.agentId);agents.value=list
+  const next=runs.value.find(row=>row.id===(context.optimizationId??selected.value?.id))
+  if(next?.id!==selected.value?.id)clearContent()
+  selected.value=next
+ }catch{if(current(run,user)){
+  clearContent()
+  if(unknownReview.value?.canLeaveRecord()===false){error.value='优化任务读取失败，请先核对原治理提交；当前记录暂未刷新。';return}
+  runs.value=[];selected.value=undefined;error.value='优化任务不存在、不可访问或读取失败，请核对链接后重试。'
+ }}
+ finally{if(current(run,user))loading.value=false}
+}
+function select(row:Optimization){if(busy.value||unknownReview.value?.canLeaveRecord()===false)return;generation++;loading.value=false;selected.value=row;clearContent()}
+async function loadContent(){if(busy.value||!selected.value||!permissions.can('viewConsole')||!permissions.can('viewContent'))return;clearContent();const run=contentGeneration,user=permissions.state.user,id=selected.value.id;contentLoading.value=true;try{const result=await OptimizationApi.content(id);if(alive&&run===contentGeneration&&user===permissions.state.user&&selected.value?.id===id&&permissions.can('viewConsole')&&permissions.can('viewContent'))content.value=result}catch{if(alive&&run===contentGeneration&&user===permissions.state.user)error.value='任务正文读取失败'}finally{if(alive&&run===contentGeneration&&user===permissions.state.user)contentLoading.value=false}}
+function navigateContext(){generation++;runs.value=[];agents.value=[];selected.value=undefined;clearContent();loading.value=false;error.value='';void load()}
+function canLeaveRecord(){if(busy.value||submitUnknown.value){ElMessage.warning('请先核对当前优化任务提交，再切换记录。');return false}}
+onBeforeRouteUpdate(canLeaveRecord)
+onBeforeRouteLeave(canLeaveRecord)
+watch(()=>[route.query.agentId,route.query.experimentId,route.query.optimizationId],navigateContext,{flush:'sync'})
 async function submit(){
- if(busy.value||!permissions.can('runAgentExperiments')||!profile.value||!draft.value.agentId)return
+ if(busy.value||!permissions.can('runAgentExperiments')||!profile.value||!draft.value.agentId||unknownReview.value?.canLeaveRecord()===false)return
  const d=draft.value
  if(!submitUnknown.value){
   if(!d.manualPrompt.trim()||!d.publicSamplesConfirmed||(d.engine==='GEPA'&&!d.reflectionContentUseConfirmed)||d.samples.some(s=>!s.input.trim()||!s.expected.trim()||!s.groupId.match(/^[A-Za-z0-9_.:-]{1,64}$/))||d.maxCalls<plannedCalls.value||d.maxOutputTokens<plannedOutputTokens.value||d.maxMetricCalls<d.samples.filter(s=>s.split==='VALIDATION').length){ElMessage.warning('请填写人工提示词、独立样本和用途确认，并提供足够的总调用预算');return}

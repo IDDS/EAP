@@ -1,0 +1,73 @@
+{
+  "contract": "EAP_DELIVERY_V1",
+  "releaseId": "private-pilot-20261025-execution-links-r1",
+  "profile": "ASSISTED_PRIVATE_PILOT",
+  "productionReady": false,
+  "schema": 95,
+  "applications": {
+    "backend": "10.186.133.66:5001/eap-backend@sha256:f93d311d41828341a70a919812f983f675aada0e5e3cf4a028c1d2d12642b88c",
+    "frontend": "10.186.133.66:5001/eap-frontend@sha256:6b096481c862f9af3770492be7a011ab856762ba2d95344504d142144aeac33f"
+  },
+  "capabilities": [
+    {
+      "id": "native-runner",
+      "status": "BOUNDED",
+      "scope": "EAP 管理的任务执行、身份、模型准入、预算和观测；旧实例不会自动采用新镜像"
+    },
+    {
+      "id": "kagent-adk",
+      "status": "BOUNDED",
+      "scope": "文本轮次及 CALCULATE_SUM_V1；无多轮工具循环、MCP 执行、子智能体或持久审批恢复"
+    },
+    {
+      "id": "mcp-observation",
+      "status": "BOUNDED",
+      "scope": "受信任宿主的 stdio/HTTP 观测；需要接入配置，不是任意程序零配置追踪"
+    },
+    {
+      "id": "structured-results",
+      "status": "BOUNDED",
+      "scope": "工作流 RUNTIME AGENT/ARTIFACT 与团队计划步骤的有界 JSON 结构契约；提交后冻结，拒绝时停止交接；不证明业务正确性"
+    },
+    {
+      "id": "tool-recovery",
+      "status": "BOUNDED",
+      "scope": "受控计数原效果查询；不自动继续工作流、补偿或重派普通业务工具"
+    },
+    {
+      "id": "project-isolation",
+      "status": "BOUNDED",
+      "scope": "每项目独立部署/数据库绑定、精确JWT项目声明、原生/AX/构建范围拒绝与专属镜像仓库；同库行级多租户未实现，现有PoC保持共享范围，项目原生RBAC/网络/业务及生产验收仍需独立完成"
+    },
+    {
+      "id": "production-operations",
+      "status": "NOT_VERIFIED",
+      "scope": "跨集群灾备、生产认证 HA/TLS、容量及长稳验收尚未完成"
+    },
+    {
+      "id": "ephemeral-execution-observation",
+      "status": "BOUNDED",
+      "scope": "两个固定框架模板中的同进程逻辑子Agent、临时工具、生成代码字节摘要和同流消费者绑定；不保存源码正文，不含跨实例委派或任意模型代码执行"
+    },
+    {
+      "id": "deployment-content-permission",
+      "status": "BOUNDED",
+      "scope": "部署通用响应只含白名单元数据；systemPrompt按Agent和版本经VIEW_CONTENT专用接口读取；历史配置存储不变，不代表项目隔离"
+    },
+    {
+      "id": "identity-sleep-restoration",
+      "status": "BOUNDED",
+      "scope": "身份配送后仅对明确ABORTED占用拒绝最多4次原实例休眠；复核UID/模板和实际终态；创建重放不把RUNNING报告为SUSPENDED，不重发身份或业务"
+    },
+    {
+      "id": "workflow-stop",
+      "status": "BOUNDED",
+      "scope": "新工作流及团队计划的持久停止请求；排队即停、运行中在当前步骤结束后停止后续调度；保留回执/效果/预算和UNKNOWN；不提供强制中断、自动恢复或通用业务补偿"
+    },
+    {
+      "id": "execution-links",
+      "status": "BOUNDED",
+      "scope": "Optional explicit two-runtime DELEGATE/CODE_HANDOFF observation, immutable outbox and read-only console; separate fixed LangGraph/AutoGen IMAGE sample verified through EAP creation, scheduling, confirmation after child exit and reclaim; no execution grant or general source archive; default framework templates not automatically integrated"
+    }
+  ]
+}

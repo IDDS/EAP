@@ -30,6 +30,11 @@ public class AgentService {
         return AgentDtos.from(findAgent(id));
     }
 
+    @Transactional(readOnly = true)
+    public boolean isVisible(Long id) {
+        return agentRepository.findById(id).filter(this::visible).isPresent();
+    }
+
     @Transactional
     public AgentDtos.AgentResponse create(AgentDtos.AgentRequest request) {
         if (agentRepository.existsByCode(request.code())) {

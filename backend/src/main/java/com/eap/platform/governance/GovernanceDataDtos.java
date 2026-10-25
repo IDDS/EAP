@@ -98,7 +98,8 @@ public final class GovernanceDataDtos {
             String name,
             PolicyType policyType,
             EnforcementMode enforcementMode,
-            String reasonCode
+            String reasonCode,
+            Long revision
     ) {
     }
 
@@ -120,7 +121,8 @@ public final class GovernanceDataDtos {
             String approvalReason,
             Instant approvedAt,
             String requestFingerprint,
-            Instant decidedAt
+            Instant decidedAt,
+            String approvalContextState
     ) {
     }
 

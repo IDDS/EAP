@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import ts from 'typescript'
+import {routeStubs} from './learning-test-support.mjs'
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}}
 function mount(file,expose,overrides={}){
  const source=readFileSync(new URL(`../src/${file}`,import.meta.url),'utf8').split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,'')
@@ -11,7 +12,7 @@ function mount(file,expose,overrides={}){
  const EapApi={listLearningFeedbacks:async()=>[],listAgents:async()=>[],feedbackEvidence:async()=>({tasks:[],traces:[]}),...overrides.EapApi}
  const ExperimentApi={list:async()=>[],targets:async()=>({enabled:true,instances:[]}),...overrides.ExperimentApi}
  const notify=[]
- const values={ref:value=>({value}),computed:fn=>({get value(){return fn()}}),watch:(_sources,fn)=>callbacks.push(fn),onBeforeUnmount:fn=>{unmount=fn},usePermissions:()=>permission,EapApi,ExperimentApi,ElMessage:{warning:v=>notify.push(v),success:v=>notify.push(v),error:v=>notify.push(v)},Plus:null}
+ const values={...routeStubs().values,ref:value=>({value}),computed:fn=>({get value(){return fn()}}),watch:(_sources,fn)=>callbacks.push(fn),onBeforeUnmount:fn=>{unmount=fn},usePermissions:()=>permission,EapApi,ExperimentApi,ElMessage:{warning:v=>notify.push(v),success:v=>notify.push(v),error:v=>notify.push(v)},Plus:null}
  const scope=new Function(...Object.keys(values),code+`;return {${expose}}`)(...Object.values(values))
  return{...scope,permission,notify,reset:()=>callbacks.forEach(fn=>fn()),unmount:()=>unmount?.()}
 }

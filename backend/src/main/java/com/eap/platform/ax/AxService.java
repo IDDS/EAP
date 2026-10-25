@@ -28,6 +28,7 @@ public class AxService {
    @NotBlank @Size(max=8000) String objective, @NotBlank @Pattern(regexp="LLM|ECHO|FAIL") String mode) {}
  public record View(String taskKey, Long agentId, String status, String sandboxPhase, String reason,
    String actor, String requestedBy, Instant createdAt, Instant updatedAt, boolean suspended, Long workflowId, String workflowRunKey, String workflowNodeKey, String identityMode, String identityStatus, String instanceKey, String actorUid, Instant identityExpiresAt) {}
+ @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.observability.ObservationCoverageService coverage;
  private final AxTaskRepository tasks; private final AgentRepository agents; private final AxProperties properties;
  private final SubstrateClient substrateClient; private final AxClient client; private final SubstrateProperties substrate; private final WorkflowExecutionProperties workflow;
  private final ObservationProperties observation; private final ObjectMapper mapper; private final AuditLogRepository audits;
@@ -75,7 +76,8 @@ public class AxService {
    AxTask t=new AxTask(); t.taskKey="ax-"+UUID.randomUUID();t.agentId=request.agentId();t.submissionKey=key;
    t.fingerprint=fingerprint;t.requestedBy=owner.substring(0,Math.min(128,owner.length()));
    t.status="QUEUED";t.phase="Pending";t.reason="已持久化，等待创建隔离任务";
-   t.payloadJson=json(Map.of("taskKey",t.taskKey,"objective",request.objective(),"mode",request.mode()));
+   String rawTrace=UUID.randomUUID().toString().replace("-", "");
+   t.payloadJson=json(Map.of("taskKey",t.taskKey,"objective",request.objective(),"mode",request.mode(),"traceId",rawTrace));
    t.createdAt=t.updatedAt=Instant.now();t.deadlineAt=deadline==null?t.createdAt.plusSeconds(1800):deadline;
    t.identityScope=properties.getAtespace();
    t.runnerImage=properties.isInstanceIdentityEnabled()?properties.getRunnerImage():properties.getLegacyRunnerImage();
@@ -91,7 +93,7 @@ public class AxService {
    var decision=safety.evaluate(new SafetyDtos.SafetyEventRequest(t.taskKey,t.agentId,null,SafetyEventType.AGENT_MESSAGE,
      "invoke_agent","ax://"+scope(t)+"/"+t.taskKey,"AX 执行预检",t.payloadJson)).decision().decision();
    if(decision!=SafetyDecision.ALLOW){t.status=decision==SafetyDecision.DENY?"BLOCKED":"WAITING_APPROVAL";t.reason="治理策略未允许派发";t.suspended=true;}
-   tasks.save(t);audit(t,"SUBMIT_AX_TASK",t.status);return view(t);
+   tasks.saveAndFlush(t);coverage.enrollAx(t.id,rawTrace,request.mode());audit(t,"SUBMIT_AX_TASK",t.status);return view(t);
   });
  }
  public List<View> list(){return tasks.findTop100ByOrderByIdDesc().stream().map(this::view).toList();}
@@ -161,7 +163,7 @@ public class AxService {
    substrateClient.setEgressHostnames(new SubstrateActorRef(scope(t),t.taskKey),List.of(t.scoped()?t.identityGatewayHost:substrate.getGatewayHost()));
    if(t.scoped())identities.connect(t.taskKey,t.requestedBy);
    // Commit dispatch intent before HTTP. Restart or lost response only polls receipts, never reposts.
-   change(t.id,r->{r.status="RUNNING";r.phase=state.phase();r.reason="派发意图已持久化，等待匹配任务回执";});
+   change(t.id,r->{r.status="RUNNING";r.phase=state.phase();r.reason="派发意图已持久化，等待匹配任务回执";coverage.axDispatch(r.id);});
    call(t,"POST","/eap/task",t.payloadJson);return;
   }
   if("RUNNING".equals(t.status)){
@@ -185,7 +187,7 @@ public class AxService {
    }
    if(receipt instanceof com.fasterxml.jackson.databind.node.ObjectNode object)object.put("status",status);
    r.status=status;r.resultJson=json(receipt);r.reason="SUCCEEDED".equals(status)?"Runner 已确认业务完成":"FAILED".equals(status)?"Runner 已确认执行失败":"Runner 检测到中断；未重复执行";
-   audit(r,"AX_TASK_RECEIPT",status);
+   coverage.axReceipt(r.id,receipt);audit(r,"AX_TASK_RECEIPT",status);
   });
  }
  private record Response(int statusCode,byte[] body) {}

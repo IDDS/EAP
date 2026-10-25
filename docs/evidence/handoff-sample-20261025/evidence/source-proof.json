@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "baselineInputs": 1030,
+  "candidateInputs": 1035,
+  "changes": {
+    "runtime/agent-runner/tools.go": "25ffa65027d7b9db77084b6e0e4b830777100bbd00136c955e8feb1d41137969",
+    "runtime/agent-runner/handoff_engine.go": "8c2ef4738785f137ecdefbee8f612337371e87b2223de267615ce4b061ff5416",
+    "runtime/agent-runner/handoff_engine_test.go": "a5bccf65fee84a406f5db6ce8cc4061627f200b455c4cc26831007ce1a2ecfdb",
+    "runtime/handoff-sample/handoff_worker.py": "64ece7648efe8e214b1e818ab64d7ecad892e6ce7b12f6d81ced805f50376fed",
+    "runtime/handoff-sample/Dockerfile": "552f57be856929c799a000bad3afbfbcf3e47f1ab7598d0640729de33bfc2c03",
+    "runtime/handoff-sample/test_handoff_worker.py": "137b582ea29afaafbd0fefb2d2a20ab677c106fffaca54571cf5988b21e864a2"
+  }
+}

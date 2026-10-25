@@ -103,7 +103,8 @@ public class BusinessContentVaultService {
             record.encryptionIv = encrypted.iv();
             record.encryptionKeyVersion = properties.getContentVaultKeyVersion();
             record.rawRetained = true;
-            record.expiresAt = record.observedAt.plus(properties.getRawContentRetentionDays(), ChronoUnit.DAYS);
+            // Probe timestamps are evidence, not authority to extend raw-content retention.
+            record.expiresAt = Instant.now().plus(properties.getRawContentRetentionDays(), ChronoUnit.DAYS);
         }
         BusinessContentRecord saved = repository.save(record);
         observationService.capture(new ContentObservationService.CaptureCommand(

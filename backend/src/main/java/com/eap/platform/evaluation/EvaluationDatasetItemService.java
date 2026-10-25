@@ -8,6 +8,7 @@ import com.eap.platform.common.TraceContext;
 import com.eap.platform.observability.ContentCaptureMode;
 import com.eap.platform.observability.ObservationProperties;
 import com.eap.platform.observability.SensitiveContentSanitizer;
+import com.eap.platform.observability.TraceSpanObservationRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -39,6 +40,7 @@ public class EvaluationDatasetItemService {
     private final ObjectMapper objectMapper;
     private final ObservationProperties observationProperties;
     private final SensitiveContentSanitizer sensitiveContentSanitizer;
+    private final TraceSpanObservationRepository traceSpanRepository;
 
     public EvaluationDatasetItemService(
             EvaluationDatasetRepository datasetRepository,
@@ -48,7 +50,8 @@ public class EvaluationDatasetItemService {
             AuditLogRepository auditLogRepository,
             ObjectMapper objectMapper,
             ObservationProperties observationProperties,
-            SensitiveContentSanitizer sensitiveContentSanitizer
+            SensitiveContentSanitizer sensitiveContentSanitizer,
+            TraceSpanObservationRepository traceSpanRepository
     ) {
         this.datasetRepository = datasetRepository;
         this.itemRepository = itemRepository;
@@ -58,6 +61,7 @@ public class EvaluationDatasetItemService {
         this.objectMapper = objectMapper;
         this.observationProperties = observationProperties;
         this.sensitiveContentSanitizer = sensitiveContentSanitizer;
+        this.traceSpanRepository = traceSpanRepository;
     }
 
     @Transactional
@@ -84,6 +88,7 @@ public class EvaluationDatasetItemService {
         item.agentId = request.agentId();
         item.traceId = normalize(request.traceId(), 128);
         item.spanId = normalize(request.spanId(), 128);
+        if (request.verifySourceReference()) freezeSourceReference(item);
         item.inputJson = persistObservation(request.input());
         item.expectedJson = request.expected() == null ? null : persistObservation(request.expected());
         item.actualJson = persistObservation(request.actual());
@@ -149,8 +154,29 @@ public class EvaluationDatasetItemService {
                 item.id, item.itemKey, item.evaluatorKey, item.evaluatorVersion, item.agentId,
                 item.traceId, item.spanId, parseJson(item.inputJson), parseNullableJson(item.expectedJson),
                 parseJson(item.actualJson), item.groundTruthLabel, item.groundTruthScore,
-                item.annotationRationale, item.annotatedBy, item.annotatedAt, item.createdAt, item.updatedAt
+                item.annotationRationale, item.annotatedBy, item.annotatedAt, item.createdAt, item.updatedAt,
+                new EvaluationDtos.DatasetSourceReference(
+                        item.sourceObservationId == null ? "MANUAL_UNVERIFIED" : "OBSERVATION_MATCHED",
+                        item.sourceObservationId, item.sourceEndpointKey, item.sourceObservedAt, item.sourceCheckedAt)
         );
+    }
+
+    private void freezeSourceReference(EvaluationDatasetItem item) {
+        if (item.agentId == null || item.traceId == null || item.traceId.isBlank()
+                || item.spanId == null || item.spanId.isBlank()) {
+            throw new BusinessException("核对观测引用需要同时填写 Agent ID、Trace ID 和 Span ID");
+        }
+        var observation = traceSpanRepository.findByTraceIdAndSpanId(item.traceId, item.spanId)
+                .orElseThrow(() -> new BusinessException("未找到对应观测记录，无法核对来源引用"));
+        // MySQL collation can match approximate keys. Never bind a different Java string.
+        if (!item.traceId.equals(observation.getTraceId()) || !item.spanId.equals(observation.getSpanId())
+                || !item.agentId.equals(observation.getAgentId())) {
+            throw new BusinessException("观测记录与 Agent/Trace/Span 引用不一致，无法保存核对快照");
+        }
+        item.sourceObservationId = observation.getId();
+        item.sourceEndpointKey = observation.getEndpointKey();
+        item.sourceObservedAt = observation.getObservedAt();
+        item.sourceCheckedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     }
 
     private JsonNode parseNullableJson(String json) {

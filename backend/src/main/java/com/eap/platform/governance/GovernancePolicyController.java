@@ -35,5 +35,16 @@ public class GovernancePolicyController {
     public ApiResponse<GovernancePolicyDtos.PolicyResponse> update(@PathVariable Long id, @Valid @RequestBody GovernancePolicyDtos.PolicyRequest request) {
         return ApiResponse.ok(service.update(id, request));
     }
+
+    @GetMapping("/{id}/versions")
+    public ApiResponse<GovernancePolicyDtos.VersionHistory> versions(@PathVariable Long id) {
+        return ApiResponse.ok(service.versions(id));
+    }
+
+    @PostMapping("/{id}/rollback")
+    public ApiResponse<GovernancePolicyDtos.PolicyResponse> rollback(@PathVariable Long id,
+            @Valid @RequestBody GovernancePolicyDtos.RollbackRequest request) {
+        return ApiResponse.ok(service.rollback(id, request));
+    }
 }
 

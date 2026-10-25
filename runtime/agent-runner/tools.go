@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,15 +24,26 @@ type toolInput struct {
 	Arguments map[string]any `json:"arguments"`
 }
 type toolJournal struct {
-	Fingerprint      string `json:"fingerprint"`
-	CallID           string `json:"callId"`
-	TraceID          string `json:"traceId"`
-	Status           string `json:"status"`
-	GuardState       string `json:"guardState"`
-	Executed         bool   `json:"executed"`
-	ReceiptConfirmed bool   `json:"receiptConfirmed"`
-	Output           any    `json:"output,omitempty"`
-	EffectSource     string `json:"effectSource,omitempty"`
+	Fingerprint      string           `json:"fingerprint"`
+	CallID           string           `json:"callId"`
+	TraceID          string           `json:"traceId"`
+	Status           string           `json:"status"`
+	GuardState       string           `json:"guardState"`
+	Executed         bool             `json:"executed"`
+	ReceiptConfirmed bool             `json:"receiptConfirmed"`
+	Output           any              `json:"output,omitempty"`
+	EffectSource     string           `json:"effectSource,omitempty"`
+	Observation      *toolObservation `json:"observation,omitempty"`
+}
+type toolObservation struct {
+	Framework               string `json:"framework"`
+	ProducerID              string `json:"producerId"`
+	StreamKey               string `json:"streamKey,omitempty"`
+	Events                  int    `json:"events"`
+	Pending                 int    `json:"pending"`
+	DeliveryState           string `json:"deliveryState,omitempty"`
+	DeliveryAttempts        int    `json:"deliveryAttempts,omitempty"`
+	BackgroundDeliveryState string `json:"backgroundDeliveryState,omitempty"`
 }
 type guardView struct {
 	CallID string `json:"callId"`
@@ -46,8 +58,10 @@ func toolID(key, task string) string {
 
 // Write intent before contacting claim. Any uncertain disk/network outcome stops execution.
 // Journal files contain no credential or original arguments, and are private to the instance.
-func saveTool(path string, j *toolJournal) error {
-	b, err := json.Marshal(j)
+func saveTool(path string, j *toolJournal) error { return savePrivateJournal(path, j) }
+
+func savePrivateJournal(path string, value any) error {
+	b, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -78,6 +92,10 @@ func saveTool(path string, j *toolJournal) error {
 }
 
 func (r *runner) guardPost(action string, payload any, out any) error {
+	return r.guardPostContext(context.Background(), action, payload, out)
+}
+
+func (r *runner) guardPostContext(ctx context.Context, action string, payload any, out any) error {
 	r.mu.Lock()
 	key, token := r.runtimeKey, r.runtimeToken
 	r.mu.Unlock()
@@ -89,7 +107,7 @@ func (r *runner) guardPost(action string, payload any, out any) error {
 	if err != nil {
 		return errors.New("invalid tool request")
 	}
-	req, err := http.NewRequest(http.MethodPost, r.gateway+"/api/runtime-access/v1/tools/"+action, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.gateway+"/api/runtime-access/v1/tools/"+action, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("tool connection unavailable")
 	}
@@ -144,6 +162,11 @@ func calculateSum(numbers []float64) float64 {
 }
 
 func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, input any) {
+	r.guardedTaskWithExecutor(w, task, objective, input, r.sumExecutor)
+}
+
+// A fixed adapter may supply a request-scoped executor without changing shared runner state.
+func (r *runner) guardedTaskWithExecutor(w http.ResponseWriter, task, objective string, input any, execute func([]float64, *toolJournal) (float64, error)) {
 	if !r.toolsEnabled || r.runtimeKey == "" || r.toolDir == "" || len(task) > 256 {
 		http.Error(w, "guarded tools unavailable", 400)
 		return
@@ -247,7 +270,17 @@ func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, inpu
 		return
 	}
 	// Once the intent is saved, no path replays this callback, including a lost receipt.
-	result := calculateSum(numbers)
+	var result float64
+	if execute != nil {
+		result, err = execute(numbers, j)
+		if err != nil {
+			j.GuardState = "FRAMEWORK_EXECUTION_UNCONFIRMED"
+			_ = saveTool(path, j)
+			return
+		}
+	} else {
+		result = calculateSum(numbers)
+	}
 	j.Executed = true
 	j.Output = map[string]any{"sum": result, "count": len(in.Arguments["numbers"].([]any))}
 	j.Status = "SUCCEEDED"
@@ -268,7 +301,11 @@ func (r *runner) guardedTask(w http.ResponseWriter, task, objective string, inpu
 	}
 }
 func writeToolResult(w http.ResponseWriter, task string, j *toolJournal) {
-	writeJSON(w, map[string]any{"taskKey": task, "status": j.Status, "output": j.Output, "tool": map[string]any{"callId": j.CallID, "traceId": j.TraceID, "state": j.GuardState, "executed": j.Executed, "receiptConfirmed": j.ReceiptConfirmed}})
+	result := map[string]any{"taskKey": task, "status": j.Status, "output": j.Output, "tool": map[string]any{"callId": j.CallID, "traceId": j.TraceID, "state": j.GuardState, "executed": j.Executed, "receiptConfirmed": j.ReceiptConfirmed}}
+	if j.Observation != nil {
+		result["observation"] = j.Observation
+	}
+	writeJSON(w, result)
 }
 
 // Metadata only; used to verify actor-side execution counts after suspend/resume.

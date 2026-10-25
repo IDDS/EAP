@@ -48,6 +48,7 @@ class PlatformPermissionSecurityTests {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @MockitoBean SubstrateDeploymentService deployments;
+    @MockitoBean com.eap.platform.deployment.ChatSubmissionService chats;
     @MockitoBean com.eap.platform.monitoring.SubstrateMonitoringService substrateMonitoring;
     @MockitoBean com.eap.platform.ax.AxService ax;
     @MockitoBean AgentControlService controls;
@@ -60,11 +61,29 @@ class PlatformPermissionSecurityTests {
     @MockitoBean com.eap.platform.workflow.WorkflowSchedulingService scheduling;
     @MockitoBean com.eap.platform.workflow.WorkflowToolRecoveryService toolRecovery;
     @MockitoBean com.eap.platform.orchestration.PlanExecutionService planExecutions;
+    @MockitoBean com.eap.platform.orchestration.OrchestrationService orchestration;
     @MockitoBean GovernancePolicyService policies;
     @MockitoBean ContentObservationService content;
     @MockitoBean DiscoveryAgentV1Service discovery;
     @MockitoBean EvaluationService evaluations;
     @MockitoBean EvaluationDatasetItemService annotations;
+    @MockitoBean com.eap.platform.safety.GenseeSafetyService safety;
+
+    @MockitoBean com.eap.platform.workflow.WorkflowStopService stops;
+    @ParameterizedTest @CsvSource({"VIEWER,false", "OPERATOR,true", "GOVERNANCE_ADMIN,false", "PLATFORM_ADMIN,true"})
+    void stopUsesRunWorkflowsCapabilityAndReadsUseViewConsole(String role, boolean allowed) throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/stop").with(identity(role))).andExpect(status().isOk());
+        mockMvc.perform(post("/api/workflows/7/executions/original/stop").with(identity(role))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"requestKey\":\"stop-original\"}"))
+                .andExpect(allowed ? status().isOk() : status().isForbidden());
+        mockMvc.perform(get("/api/platform/me").with(identity(role)))
+                .andExpect(jsonPath("$.data.capabilities.runWorkflows").value(allowed));
+    }
+    @Test void anonymousCannotReadOrRequestStop() throws Exception {
+        mockMvc.perform(get("/api/workflows/7/executions/original/stop")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/workflows/7/executions/original/stop").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestKey\":\"stop-original\"}")).andExpect(status().isUnauthorized());
+    }
 
     @ParameterizedTest @CsvSource({"VIEWER,false","OPERATOR,false","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true"})
     void scopedAuthorizationUsesSameGovernanceCapability(String role,boolean allowed)throws Exception {
@@ -133,8 +152,22 @@ class PlatformPermissionSecurityTests {
         expected.put("manageFeedback",annotate);
         expected.put("runAgentExperiments",role.equals("PLATFORM_ADMIN"));
         expected.put("manageBudgets",govern);
+        expected.put("reviewExperimentUnknowns",govern);
+        expected.put("manageSafety",govern);
         assertEquals(expected.size(), capabilities.size());
         expected.forEach((key, allowed) -> assertEquals(allowed.booleanValue(), capabilities.path(key).asBoolean(), key));
+
+        for (String path : List.of("/summary", "/sessions", "/sessions/synthetic/events", "/sessions/synthetic/artifacts"))
+            assertEndpoint(capabilities, "viewConsole", get("/api/safety" + path), identity);
+        assertEndpoint(capabilities, "manageSafety", json(post("/api/safety/sessions"),
+                "{\"sessionKey\":\"synthetic\",\"objective\":\"permission check\"}"), identity);
+        assertEndpoint(capabilities, "manageSafety", json(post("/api/safety/events/evaluate"),
+                "{\"sessionKey\":\"synthetic\",\"eventType\":\"TOOL_CALL\",\"action\":\"read\",\"target\":\"test\"}"), identity);
+        assertEndpoint(capabilities, "manageSafety", json(post("/api/safety/artifacts"),
+                "{\"sessionKey\":\"synthetic\",\"eventId\":1,\"artifactUri\":\"artifact://test\",\"artifactType\":\"text\"}"), identity);
+        org.mockito.Mockito.verify(safety, org.mockito.Mockito.times(govern ? 1 : 0)).createSession(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(safety, org.mockito.Mockito.times(govern ? 1 : 0)).evaluate(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(safety, org.mockito.Mockito.times(govern ? 1 : 0)).registerArtifact(org.mockito.ArgumentMatchers.any());
 
         assertEndpoint(capabilities, "viewConsole", get("/api/agents/7/substrate/deployments"), identity);
         assertEndpoint(capabilities, "viewConsole", get("/api/agents/7/substrate/instances"), identity);
@@ -159,15 +192,20 @@ class PlatformPermissionSecurityTests {
         assertEndpoint(capabilities, "deployAgents", json(post("/api/agents/7/substrate/deployments"),
                 "{\"sourceType\":\"RUNNER\",\"systemPrompt\":\"x\",\"model\":\"deepseek-flash\"}"), identity);
         assertEndpoint(capabilities, "deployAgents", post("/api/agents/7/substrate/deployments/1/retry"), identity);
+        assertEndpoint(capabilities, "deployAgents", get("/api/agents/7/substrate/deployments/requests/recovery-key"), identity);
         assertEndpoint(capabilities, "operateInstances", json(post("/api/agents/7/substrate/instances"),
                 "{\"requestKey\":\"00000000-0000-4000-8000-000000000002\"}"), identity);
         assertEndpoint(capabilities, "operateInstances", delete("/api/agents/7/substrate/instances/actor"), identity);
-        assertEndpoint(capabilities, "operateInstances", json(post("/api/agents/7/substrate/instances/actor/chat"), "{\"message\":\"hi\"}"), identity);
+        assertEndpoint(capabilities, "operateInstances", json(post("/api/agents/7/substrate/instances/actor/chat"), "{\"requestKey\":\"00000000-0000-4000-8000-000000000003\",\"message\":\"hi\"}"), identity);
+        assertEndpoint(capabilities, "operateInstances", get("/api/agents/7/substrate/instances/actor/chat/00000000-0000-4000-8000-000000000003"), identity);
         assertEndpoint(capabilities, "operateInstances", json(post("/api/control/commands"),
                 "{\"agentId\":7,\"commandType\":\"PAUSE\",\"runtimeInstanceKey\":\"actor\"}"), identity);
         assertEndpoint(capabilities, "operateInstances", post("/api/control/commands/command/retry"), identity);
         assertEndpoint(capabilities, "runWorkflows", json(post("/api/workflows/7/executions"), "{\"objective\":\"hello\"}"), identity);
         assertEndpoint(capabilities, "runWorkflows", json(post("/api/orchestration/plans/7/executions"), "{\"requestKey\":\"permission-proof\"}"), identity);
+        assertEndpoint(capabilities, "runWorkflows", json(post("/api/orchestration/steps/7/output-contract"), "{\"outputContractJson\":null}"), identity);
+        org.mockito.Mockito.verify(orchestration, org.mockito.Mockito.times(operate ? 1 : 0))
+                .updateOutputContract(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any());
         assertEndpoint(capabilities, "governance", json(post("/api/policies"),
                 "{\"name\":\"test\",\"policyType\":\"PERMISSION\",\"scopeType\":\"GLOBAL\",\"ruleJson\":\"{}\",\"enforcementMode\":\"WARN\",\"enabled\":true}"), identity);
         assertEndpoint(capabilities, "viewContent", get("/api/observability/content"), identity);
@@ -178,6 +216,30 @@ class PlatformPermissionSecurityTests {
         assertEndpoint(capabilities, "manageEvaluations", json(post("/api/evaluations/datasets"), "{\"datasetKey\":\"test\",\"name\":\"test\"}"), identity);
         assertEndpoint(capabilities, "annotateEvaluations", json(patch("/api/evaluations/datasets/test/items/item/annotation"),
                 "{\"groundTruthLabel\":\"PASS\"}"), identity);
+    }
+
+    @ParameterizedTest @CsvSource({"VIEWER", "OPERATOR", "DATA_OWNER", "NONE"})
+    void safetyWritesAreDeniedBeforeParsingOrServiceSideEffects(String role) throws Exception {
+        for (String path : List.of("/sessions", "/events/evaluate", "/artifacts"))
+            mockMvc.perform(json(post("/api/safety" + path), "not-json").with(identity(role))).andExpect(status().isForbidden());
+        org.mockito.Mockito.verifyNoInteractions(safety);
+    }
+
+    @Test void anonymousCannotReadOrWriteSafety() throws Exception {
+        mockMvc.perform(get("/api/safety/summary")).andExpect(status().isUnauthorized());
+        for (String path : List.of("/sessions", "/events/evaluate", "/artifacts"))
+            mockMvc.perform(json(post("/api/safety" + path), "{}")).andExpect(status().isUnauthorized());
+        org.mockito.Mockito.verifyNoInteractions(safety);
+    }
+
+    @ParameterizedTest @CsvSource({"VIEWER", "OPERATOR", "GOVERNANCE_ADMIN", "PLATFORM_ADMIN", "DATA_OWNER", "NONE"})
+    void unmappedSafetyMethodsAndPathsCannotFallThroughToAuthenticated(String role) throws Exception {
+        for (String path : List.of("/sessions", "/events/evaluate", "/artifacts")) {
+            mockMvc.perform(json(put("/api/safety" + path), "{}").with(identity(role))).andExpect(status().isForbidden());
+            mockMvc.perform(delete("/api/safety" + path).with(identity(role))).andExpect(status().isForbidden());
+        }
+        mockMvc.perform(post("/api/safety/future-write").with(identity(role))).andExpect(status().isForbidden());
+        org.mockito.Mockito.verifyNoInteractions(safety);
     }
 
     @Test

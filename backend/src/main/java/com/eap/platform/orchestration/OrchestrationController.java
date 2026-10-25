@@ -33,6 +33,11 @@ public class OrchestrationController {
         return ApiResponse.ok(executions.synchronize(planId));
     }
 
+    @GetMapping("/plans/{planId}/reclaim-readiness")
+    public ApiResponse<PlanExecutionService.ReclaimReadiness> reclaimReadiness(@PathVariable Long planId) {
+        return ApiResponse.ok(executions.reclaimReadiness(planId));
+    }
+
     @GetMapping("/teams")
     public ApiResponse<List<OrchestrationDtos.TeamResponse>> listTeams() {
         return ApiResponse.ok(orchestrationService.listTeams());
@@ -71,6 +76,12 @@ public class OrchestrationController {
     @PostMapping("/plans/{planId}/steps")
     public ApiResponse<OrchestrationDtos.StepResponse> addStep(@PathVariable Long planId, @Valid @RequestBody OrchestrationDtos.StepRequest request) {
         return ApiResponse.ok(orchestrationService.addStep(planId, request));
+    }
+
+    @PostMapping("/steps/{stepId}/output-contract")
+    public ApiResponse<OrchestrationDtos.StepResponse> outputContract(@PathVariable Long stepId,
+            @Valid @RequestBody OrchestrationDtos.OutputContractRequest request) {
+        return ApiResponse.ok(orchestrationService.updateOutputContract(stepId, request));
     }
 
     @PostMapping("/steps/{stepId}/assignment")

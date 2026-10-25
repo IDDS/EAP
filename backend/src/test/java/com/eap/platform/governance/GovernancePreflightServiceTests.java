@@ -110,6 +110,7 @@ class GovernancePreflightServiceTests {
         decision.modelName = "gpt-test";
         decision.requestFingerprint = "fingerprint-1";
         decision.decidedAt = Instant.now();
+        decision.policyContextDigest = GovernanceApprovalContext.digest(new ObjectMapper(), properties, List.of());
         when(decisionRepository.findByDecisionKey("decision-approval")).thenReturn(Optional.of(decision));
         when(dataEventRepository.findById(11L)).thenReturn(Optional.of(dataEventEntity()));
         GovernanceDataDtos.PreflightResponse approved = service.approve(

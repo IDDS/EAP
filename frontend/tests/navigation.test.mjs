@@ -13,7 +13,7 @@ test('every navigable route remains reachable exactly once in the new catalog',(
  const routes=[...router.matchAll(/path: '([^']+)'/g)].map(m=>m[1]).filter(p=>p!='/auth/callback'&&!p.includes(':'))
  assert.equal(new Set(navigationItems.map(i=>i.path)).size,navigationItems.length)
  assert.deepEqual([...navigationItems.map(i=>i.path)].sort(),routes.sort())
- assert.equal(navigationGroups.find(g=>g.id==='workspace-execution').items.length,5)
+ assert.equal(navigationGroups.find(g=>g.id==='workspace-execution').items.length,6)
 })
 test('agent detail highlights its parent and route changes choose the correct workspace',()=>{
  assert.equal(navigationForPath('/agents/15').activePath,'/agents')

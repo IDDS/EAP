@@ -83,6 +83,8 @@ public class AgentRuntimeInstance {
     public String getImportedActorUid() { return importedActorUid; }
     public String getImportedActorTemplate() { return importedActorTemplate; }
 
+    public Long getId() { return id; }
+
     public Long getAgentId() {
         return agentId;
     }

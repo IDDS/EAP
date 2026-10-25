@@ -2,6 +2,7 @@ import { sendControlCommand, retryControlCommand } from './control'
 import type { HistoryParams } from '@/components/common/HistoryTable.vue'
 import { submitWorkflowOnce } from './workflowSubmission'
 import { getData, patchData, postData, putData } from './http'
+import type { DatasetLookup } from '@/evaluation/datasetLookup'
 import type {
   Agent,
   AgentLifecycleStatus,
@@ -119,6 +120,10 @@ export const EapApi = {
     threshold?: number
   }) => postData<EvaluatorDefinition, typeof payload>('/evaluations/evaluators', payload),
   listEvaluationDatasets: () => getData<EvaluationDataset[]>('/evaluations/datasets'),
+  lookupEvaluationDataset: (datasetKey: string) =>
+    getData<DatasetLookup>(`/evaluations/datasets/lookup${queryString({ datasetKey })}`, { silentError: true }),
+  lookupEvaluationDatasetItem: (datasetKey: string, itemKey: string) =>
+    getData<DatasetLookup>(`/evaluations/dataset-items/lookup${queryString({ datasetKey, itemKey })}`, { silentError: true }),
   createEvaluationDataset: (payload: {
     datasetKey: string
     name: string
@@ -144,6 +149,7 @@ export const EapApi = {
     agentId?: number
     traceId?: string
     spanId?: string
+    verifySourceReference?: boolean
     input: Record<string, unknown>
     expected?: unknown
     actual: Record<string, unknown>
@@ -151,7 +157,7 @@ export const EapApi = {
   annotateEvaluationDatasetItem: (datasetKey: string, itemKey: string, payload: {
     groundTruthLabel: 'PASS' | 'FAIL' | 'ABSTAIN'
     groundTruthScore?: number
-    annotatedBy: string
+    annotatedBy?: string
     rationale?: string
   }) => patchData<EvaluationDatasetItem, typeof payload>(
     `/evaluations/datasets/${encodeURIComponent(datasetKey)}/items/${encodeURIComponent(itemKey)}/annotation`, payload,
@@ -226,10 +232,10 @@ export const EapApi = {
   updateAgentStatus: (id: number, lifecycleStatus: AgentLifecycleStatus) =>
     postData<Agent, { lifecycleStatus: AgentLifecycleStatus }>(`/agents/${id}/status`, { lifecycleStatus }),
   listPolicies: () => getData<GovernancePolicy[]>('/policies'),
-  createPolicy: (payload: Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>) =>
-    postData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>>('/policies', payload),
-  updatePolicy: (id: number, payload: Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>) =>
-    putData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'createdAt' | 'updatedAt'>>(`/policies/${id}`, payload),
+  createPolicy: (payload: Omit<GovernancePolicy, 'id' | 'revision' | 'createdAt' | 'updatedAt'> & { expectedRevision?: number }) =>
+    postData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'revision' | 'createdAt' | 'updatedAt'> & { expectedRevision?: number }>('/policies', payload),
+  updatePolicy: (id: number, payload: Omit<GovernancePolicy, 'id' | 'revision' | 'createdAt' | 'updatedAt'> & { expectedRevision?: number }) =>
+    putData<GovernancePolicy, Omit<GovernancePolicy, 'id' | 'revision' | 'createdAt' | 'updatedAt'> & { expectedRevision?: number }>(`/policies/${id}`, payload),
   getGovernanceDataSummary: (hours = 24) => getData<GovernanceDataSummary>(`/governance/data-summary?hours=${hours}`),
   pageGovernanceEvents: (params: HistoryParams & {agentId?:number; endpointKey?:string; eventKey?:string}) => getData<{items: GovernanceDataEvent[]; totalElements:number}>(`/governance/data-events/page${queryString({...params})}`),
   listGovernanceDataEvents: (limit = 100, params: { agentId?: number; page?: number } = {}) =>
@@ -516,8 +522,10 @@ export const EapApi = {
   getWorkflowOutputs: (workflowId: number, runKey: string) =>
     getData<Record<string, unknown>>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}/outputs`),
   getPlan: (planId: number) => getData<AgentPlanDetail>(`/orchestration/plans/${planId}`),
-  addPlanStep: (planId: number, payload: { stepOrder: number; title: string; requiredCapability: string; executionBackend?: string }) =>
+  addPlanStep: (planId: number, payload: { stepOrder: number; title: string; requiredCapability: string; executionBackend?: string; outputContractJson?: string | null }) =>
     postData<AgentPlanStep, { stepOrder: number; title: string; requiredCapability: string }>(`/orchestration/plans/${planId}/steps`, payload),
+  updatePlanOutputContract: (stepId: number, outputContractJson: string | null) =>
+    postData<AgentPlanStep, { outputContractJson: string | null }>(`/orchestration/steps/${stepId}/output-contract`, { outputContractJson }),
   assignPlanStep: (stepId: number, payload: { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }) =>
     postData<AgentPlanStep, { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }>(`/orchestration/steps/${stepId}/assignment`, payload),
   listWorkflows: () => getData<WorkflowDefinition[]>('/workflows'),
@@ -546,4 +554,6 @@ export const EapApi = {
       postData<import('@/types/domain').WorkflowExecution, typeof request>(`/workflows/${workflowId}/executions`, request)),
   listWorkflowExecutions: (workflowId: number) =>
     getData<import('@/types/domain').WorkflowExecution[]>(`/workflows/${workflowId}/executions`),
+  getWorkflowExecution: (workflowId: number, runKey: string) =>
+    getData<WorkflowExecution>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}`),
 }

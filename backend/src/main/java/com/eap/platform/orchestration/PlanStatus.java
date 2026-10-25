@@ -9,6 +9,7 @@ public enum PlanStatus {
     WAITING_APPROVAL,
     EXECUTION_UNKNOWN,
     COMPLETED,
+    CANCELLED,
     FAILED
 }
 

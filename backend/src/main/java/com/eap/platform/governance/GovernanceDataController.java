@@ -2,6 +2,7 @@ package com.eap.platform.governance;
 
 import com.eap.platform.common.ApiResponse;
 import com.eap.platform.config.MachineTokenValidator;
+import com.eap.platform.config.PlatformPermission;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -40,7 +41,7 @@ public class GovernanceDataController {
             @RequestHeader(value = "X-EAP-Governance-Token", required = false) String token,
             @Valid @RequestBody GovernanceDataDtos.PreflightRequest request
     ) {
-        requireIngestionToken(token);
+        if (consoleGovernanceIdentity() == null) requireIngestionToken(token);
         return ApiResponse.ok(preflightService.evaluate(request));
     }
 
@@ -74,8 +75,7 @@ public class GovernanceDataController {
             @RequestHeader(value = "X-EAP-Governance-Approval-Token", required = false) String approvalToken,
             @Valid @RequestBody GovernanceDataDtos.ApprovalRequest request
     ) {
-        requireApprovalToken(approvalToken);
-        return ApiResponse.ok(preflightService.approve(decisionKey, request));
+        return ApiResponse.ok(preflightService.approve(decisionKey, authorizedApproval(approvalToken, request)));
     }
 
     @PostMapping("/preflight-decisions/{decisionKey}/reject")
@@ -84,8 +84,7 @@ public class GovernanceDataController {
             @RequestHeader(value = "X-EAP-Governance-Approval-Token", required = false) String approvalToken,
             @Valid @RequestBody GovernanceDataDtos.ApprovalRequest request
     ) {
-        requireApprovalToken(approvalToken);
-        return ApiResponse.ok(preflightService.reject(decisionKey, request));
+        return ApiResponse.ok(preflightService.reject(decisionKey, authorizedApproval(approvalToken, request)));
     }
 
     @PostMapping("/data-events")
@@ -119,5 +118,21 @@ public class GovernanceDataController {
 
     private void requireApprovalToken(String token) {
         machineTokenValidator.require(service.approvalToken(), token, "治理审批凭证");
+    }
+
+    private String consoleGovernanceIdentity() {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt)) return null;
+        if (!PlatformPermission.GOVERNANCE.allows(authentication)) {
+            throw new org.springframework.security.access.AccessDeniedException("当前账号没有治理权限");
+        }
+        return authentication.getName();
+    }
+
+    private GovernanceDataDtos.ApprovalRequest authorizedApproval(String token, GovernanceDataDtos.ApprovalRequest request) {
+        String principal = consoleGovernanceIdentity();
+        if (principal != null) return new GovernanceDataDtos.ApprovalRequest(principal, request.reason());
+        requireApprovalToken(token);
+        return request;
     }
 }

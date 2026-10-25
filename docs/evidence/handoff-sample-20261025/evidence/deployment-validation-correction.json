@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "originalHttpStatus": 400,
+  "receipt": {
+    "requestKey": "EAP-HANDOFF-20261025-R1-source-v1",
+    "agentId": 116,
+    "deploymentKey": null,
+    "version": null,
+    "status": "NOT_FOUND",
+    "instanceKey": null
+  },
+  "deploymentRecords": 0,
+  "instances": 0,
+  "cause": "Image deployment needs the existing identity protocol on port 80; runner implements /readyz",
+  "sameAgentAndRequestKey": true,
+  "correctedPort": 80,
+  "correctedReadinessPath": "/readyz",
+  "businessDispatched": false
+}

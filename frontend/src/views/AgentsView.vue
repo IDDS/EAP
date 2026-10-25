@@ -1,10 +1,9 @@
 <template>
   <section class="page-grid agentops-catalog-page">
-    <header class="agentops-page-header">
-      <div>
-        <span class="interface-eyebrow">EAP · FORMAL AGENT DIRECTORY</span>
-        <h2>Agent 目录</h2>
-        <p>正式 Agent 是唯一主实体；发现记录、端点、运行实例和遥测均作为身份或运行证据关联展示。</p>
+    <header class="toolbar agent-directory-heading">
+      <div class="toolbar-title">
+        <h2>智能体目录</h2>
+        <span>查找智能体，查看责任归属、运行状态与观测证据。</span>
       </div>
       <div class="button-row">
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -23,24 +22,41 @@
     </div>
 
     <el-card shadow="never" class="panel agentops-catalog-panel">
-      <div class="agentops-catalog-toolbar">
-        <el-input v-model="filters.query" clearable :prefix-icon="Search" placeholder="搜索 Agent、编码、部门、责任人或类别" />
-        <el-select v-model="filters.lifecycleStatus" clearable placeholder="生命周期">
-          <el-option label="草稿" value="DRAFT" /><el-option label="审核中" value="REVIEWING" /><el-option label="已启用" value="ACTIVE" /><el-option label="已暂停" value="PAUSED" /><el-option label="已下线" value="RETIRED" />
-        </el-select>
-        <el-select v-model="filters.health" clearable placeholder="运行健康">
-          <el-option label="健康" value="HEALTHY" /><el-option label="降级" value="DEGRADED" /><el-option label="离线" value="OFFLINE" /><el-option label="未接入" value="NOT_CONNECTED" />
-        </el-select>
-        <el-select v-model="filters.coverage" clearable placeholder="观测覆盖">
-          <el-option label="完整" value="FULL" /><el-option label="部分" value="PARTIAL" /><el-option label="缺失" value="MISSING" />
-        </el-select>
-        <el-select v-model="filters.risk" clearable placeholder="风险态势">
-          <el-option label="正常" value="NORMAL" /><el-option label="关注" value="ATTENTION" /><el-option label="高风险" value="HIGH" /><el-option label="关键风险" value="CRITICAL" />
-        </el-select>
-        <el-button text @click="resetFilters">重置</el-button>
+      <div class="agent-directory-list-heading">
+        <h3>智能体列表 <span>{{ page.totalElements }}</span></h3>
+        <span>概览统计为当前组织范围，列表可进一步筛选</span>
       </div>
+      <div class="agent-directory-search">
+        <div class="agent-directory-field">
+          <label for="agent-directory-query">搜索智能体</label>
+          <el-input id="agent-directory-query" v-model="filters.query" clearable :prefix-icon="Search" placeholder="名称、编码、部门、责任人或类别" />
+        </div>
+        <el-button text @click="resetFilters">重置筛选</el-button>
+      </div>
+      <details class="agent-directory-filters">
+        <summary>状态筛选 <span>{{ filters.lifecycleStatus || filters.health || filters.coverage || filters.risk ? '已设置筛选条件' : '生命周期、健康、覆盖与风险' }}</span></summary>
+        <div class="agentops-catalog-toolbar">
+        <div class="agent-directory-field"><label for="agent-filter-lifecycle">生命周期</label>
+        <el-select id="agent-filter-lifecycle" v-model="filters.lifecycleStatus" clearable placeholder="全部生命周期">
+          <el-option label="草稿" value="DRAFT" /><el-option label="审核中" value="REVIEWING" /><el-option label="已启用" value="ACTIVE" /><el-option label="已暂停" value="PAUSED" /><el-option label="已下线" value="RETIRED" />
+        </el-select></div>
+        <div class="agent-directory-field"><label for="agent-filter-health">运行健康</label>
+        <el-select id="agent-filter-health" v-model="filters.health" clearable placeholder="全部健康状态">
+          <el-option label="健康" value="HEALTHY" /><el-option label="降级" value="DEGRADED" /><el-option label="离线" value="OFFLINE" /><el-option label="未接入" value="NOT_CONNECTED" />
+        </el-select></div>
+        <div class="agent-directory-field"><label for="agent-filter-coverage">观测覆盖</label>
+        <el-select id="agent-filter-coverage" v-model="filters.coverage" clearable placeholder="全部覆盖状态">
+          <el-option label="完整" value="FULL" /><el-option label="部分" value="PARTIAL" /><el-option label="缺失" value="MISSING" />
+        </el-select></div>
+        <div class="agent-directory-field"><label for="agent-filter-risk">风险态势</label>
+        <el-select id="agent-filter-risk" v-model="filters.risk" clearable placeholder="全部风险状态">
+          <el-option label="正常" value="NORMAL" /><el-option label="关注" value="ATTENTION" /><el-option label="高风险" value="HIGH" /><el-option label="关键风险" value="CRITICAL" />
+        </el-select></div>
+        </div>
+      </details>
 
       <el-table v-loading="loading" :data="page.items" class="agentops-agent-table" size="small" row-key="id" @row-click="openAgentRow">
+        <template #empty>{{ loading ? '正在加载智能体…' : '当前范围或筛选条件下没有智能体' }}</template>
         <el-table-column label="Agent" min-width="230" fixed="left">
           <template #default="{ row }"><div class="agentops-agent-identity"><span>{{ initials(row.name) }}</span><div><strong>{{ row.name }}</strong><small>{{ row.code }} · {{ row.category || '未分类' }}</small></div></div></template>
         </el-table-column>
@@ -55,13 +71,33 @@
         <el-table-column label="操作" width="92" fixed="right"><template #default="{ row }"><el-button link type="primary" @click.stop="openAgent(row.id)">详情</el-button></template></el-table-column>
       </el-table>
 
+      <div v-loading="loading" class="agent-directory-mobile" :aria-busy="loading">
+        <ul aria-label="智能体列表">
+          <li v-for="row in page.items" :key="row.id" class="agent-directory-mobile-row">
+            <router-link :to="`/agents/${row.id}`" class="agent-directory-name">{{ row.name }}<span aria-hidden="true">查看详情 →</span></router-link>
+            <p class="agent-directory-code">{{ row.code }} · {{ row.category || '未分类' }}</p>
+            <p>{{ row.ownerDepartment || '待分配部门' }} · {{ row.ownerUser || '待认领' }}</p>
+            <dl class="agent-directory-states">
+              <div><dt>生命周期</dt><dd><StatusAxis axis="lifecycle" :value="row.lifecycleStatus" /></dd></div>
+              <div><dt>运行健康</dt><dd><StatusAxis axis="health" :value="row.operationalHealth" /></dd></div>
+              <div><dt>接入纳管</dt><dd><StatusAxis axis="onboarding" :value="row.onboardingState" /></dd></div>
+              <div><dt>观测覆盖</dt><dd><StatusAxis axis="coverage" :value="row.observationCoverage" /></dd></div>
+              <div><dt>风险态势</dt><dd><StatusAxis axis="risk" :value="row.riskPosture" /></dd></div>
+              <div><dt>运营事项</dt><dd :class="{ 'is-danger': row.openWorkItemCount > 0 }">{{ row.openWorkItemCount }} 项</dd></div>
+            </dl>
+            <div class="agent-directory-evidence"><EvidenceBadge :basis="row.statusBasis" /><StatusAxis axis="freshness" :value="row.dataFreshness" /><small>{{ formatDate(row.latestObservedAt) }}</small></div>
+          </li>
+        </ul>
+        <p v-if="!page.items.length" class="agent-directory-empty" role="status">{{ loading ? '正在加载智能体…' : '当前范围或筛选条件下没有智能体，可调整筛选或组织范围。' }}</p>
+      </div>
+
       <div class="agentops-pagination">
         <span>共 {{ page.totalElements }} 个 Agent</span>
-        <el-pagination v-model:current-page="currentPage" v-model:page-size="pageSize" :total="page.totalElements" :page-sizes="[20, 50, 100]" layout="sizes, prev, pager, next" />
+        <PageControls v-model:current-page="currentPage" v-model:page-size="pageSize" :total="page.totalElements" :page-sizes="[20, 50, 100]"  />
       </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" title="创建智能体身份" width="560px">
+    <el-dialog v-model="dialogVisible" title="创建智能体身份" width="min(560px, calc(100vw - 28px))">
       <el-alert type="info" :closable="false" title="先创建草稿身份，再配置部署、启用并验证运行。已有实例可在“发现与接入 → 运行环境发现”中关联。" />
       <el-form :disabled="!permissions.can('deployAgents')" label-position="top" style="margin-top: 16px">
         <el-form-item label="唯一编码"><el-input v-model="form.code" placeholder="例如 FIN-ANALYST" /></el-form-item>
@@ -76,6 +112,7 @@
 </template>
 
 <script setup lang="ts">
+import PageControls from '@/components/common/PageControls.vue'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'

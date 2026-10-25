@@ -31,6 +31,8 @@ class WorkflowTaskClientSubstrateTests {
     private final AtomicReference<Map<String, Object>> toolReceipt = new AtomicReference<>(Map.of());
     private final com.eap.platform.registry.ScopedToolService scopedTools=mock(com.eap.platform.registry.ScopedToolService.class);
     private final AtomicReference<Map<String,Object>> output=new AtomicReference<>(Map.of());
+    private final AtomicReference<String> responseStatus = new AtomicReference<>("SUCCEEDED");
+    private final AtomicReference<String> reasonCode = new AtomicReference<>("");
     private HttpServer router;
     private WorkflowTaskClient client;
 
@@ -47,7 +49,7 @@ class WorkflowTaskClientSubstrateTests {
             }
             taskCalls.incrementAndGet();
             JsonNode request = json.readTree(exchange.getRequestBody());
-            byte[] body = json.writeValueAsBytes(Map.of("taskKey", request.path("taskKey").asText(), "status", "SUCCEEDED", "tool", toolReceipt.get(), "output", output.get()));
+            byte[] body = json.writeValueAsBytes(Map.of("taskKey", request.path("taskKey").asText(), "status", responseStatus.get(), "reasonCode", reasonCode.get(), "tool", toolReceipt.get(), "output", output.get()));
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
@@ -80,6 +82,22 @@ class WorkflowTaskClientSubstrateTests {
         assertThat(routedActor.get()).isEqualTo("eap-demo/session-1");
         assertThat(path.get()).isEqualTo("/eap/task");
         verify(substrateClient).resume(new SubstrateActorRef("eap-demo", "session-1"));
+    }
+
+    @Test void incompleteModelOutputCannotBeHandedOffAndReasonIsSafe() {
+        responseStatus.set("FAILED");
+        output.set(Map.of("partial", "PRIVATE_CONTENT"));
+        for (String code : new String[]{"MODEL_OUTPUT_TRUNCATED", "MODEL_OUTPUT_EMPTY", "MODEL_OUTPUT_FILTERED", "MODEL_TOOL_CALL_UNSUPPORTED", "MODEL_FINISH_UNCONFIRMED"}) {
+            reasonCode.set(code);
+            var receipt = client.invoke(runtime("substrate://eap-demo/session-1"), Map.of("taskKey", "sample:1"), Instant.now().plusSeconds(30));
+            assertThat(receipt.status()).isEqualTo("FAILED");
+            assertThat(receipt.output()).isNull();
+            assertThat(receipt.reason()).contains(code).doesNotContain("PRIVATE_CONTENT");
+        }
+        reasonCode.set("PRIVATE_PROVIDER_ERROR");
+        var receipt = client.invoke(runtime("substrate://eap-demo/session-1"), Map.of("taskKey", "sample:1"), Instant.now().plusSeconds(30));
+        assertThat(receipt.reason()).isEqualTo("Runtime 已确认任务失败");
+        assertThat(taskCalls.get()).isEqualTo(6);
     }
 
     @Test
@@ -119,7 +137,7 @@ class WorkflowTaskClientSubstrateTests {
     }
 
     @Test
-    void oldOrDisabledRuntimeNeverReceivesToolTaskAndRestoresSleep() {
+    void oldOrDisabledRuntimeNeverReceivesToolTaskOrUnsafelySuspendsSharedActor() {
         var runtime = scopedRuntime();
         for (String state : new String[]{"{}", "{\"tools\":{\"enabled\":false}}", "{\"tools\":{\"enabled\":\"true\"}}", "broken"}) {
             toolState.set(state);
@@ -128,7 +146,7 @@ class WorkflowTaskClientSubstrateTests {
             assertThat(receipt.reason()).contains("未派发任务");
         }
         assertThat(taskCalls.get()).isZero();
-        verify(substrateClient, times(4)).suspend(any());
+        verify(substrateClient, never()).suspend(any());
     }
 
     @Test
@@ -174,6 +192,21 @@ class WorkflowTaskClientSubstrateTests {
         when(substrateClient.inspect(any())).thenReturn(new SubstrateClient.ActorInventory("eap-demo", "session-1", "fixture", "template", "SUSPENDED"));
         when(substrateClient.suspend(any())).thenReturn(new SubstrateClient.ActorState("SUSPENDED"));
         return runtime;
+    }
+
+    @Test void managedRunnerRequiresIsolationBeforeTaskDispatchAndRestoresSleepingInstance() {
+        var runtime=scopedRuntime();
+        var db=mock(org.springframework.jdbc.core.JdbcTemplate.class);
+        when(db.queryForObject(anyString(),eq(Long.class),any(),any(),any())).thenReturn(1L);
+        org.springframework.test.util.ReflectionTestUtils.setField(client,"db",db);
+        var prepared=new java.util.concurrent.atomic.AtomicInteger();
+        var rejected=client.invoke(runtime,Map.of("taskKey","workflow:1"),Instant.now().plusSeconds(30),prepared::incrementAndGet);
+        assertThat(rejected.status()).isEqualTo("FAILED");assertThat(rejected.reason()).contains("隔离").contains("未派发");
+        assertThat(taskCalls).hasValue(0);assertThat(prepared).hasValue(0);
+        verify(substrateClient, never()).suspend(any());
+        toolState.set("{\"conversationMode\":\"EXPLICIT_V1\"}");
+        assertThat(client.invoke(runtime,Map.of("taskKey","workflow:1"),Instant.now().plusSeconds(30),prepared::incrementAndGet).status()).isEqualTo("SUCCEEDED");
+        assertThat(taskCalls).hasValue(1);assertThat(prepared).hasValue(1);
     }
     private Map<String, Object> toolPayload() { return Map.of("taskKey", "tool-test", "context", Map.of("eapTool", Map.of("name", "calculate_sum"))); }
 

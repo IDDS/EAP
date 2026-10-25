@@ -76,6 +76,16 @@ public final class EvaluationDtos {
         }
     }
 
+    public enum DatasetLookupKind { DATASET, SAMPLE }
+    public enum DatasetLookupState { FOUND, NOT_FOUND, KEY_MISMATCH }
+
+    // Presence metadata only: no sample body, labels or caller-provided content.
+    // A match is not proof that a particular request committed or that its content matches.
+    public record DatasetLookupResponse(
+            DatasetLookupKind kind, DatasetLookupState state, String datasetKey,
+            String itemKey, Long recordId, Instant createdAt
+    ) { }
+
     public record DatasetItemCreateRequest(
             @NotBlank @Size(max = 128) String itemKey,
             @NotBlank @Size(max = 128) String evaluatorKey,
@@ -85,7 +95,8 @@ public final class EvaluationDtos {
             @Size(max = 128) String spanId,
             @NotNull JsonNode input,
             JsonNode expected,
-            @NotNull JsonNode actual
+            @NotNull JsonNode actual,
+            boolean verifySourceReference
     ) {
     }
 
@@ -114,9 +125,15 @@ public final class EvaluationDtos {
             String annotatedBy,
             Instant annotatedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            DatasetSourceReference sourceReference
     ) {
     }
+
+    /** A snapshot of matching observation metadata, not proof of payload origin or producer identity. */
+    public record DatasetSourceReference(
+            String state, Long observationId, String endpointKey, Instant observedAt, Instant checkedAt
+    ) { }
 
     public record EvaluationRequest(
             @Size(max = 128) String resultKey,

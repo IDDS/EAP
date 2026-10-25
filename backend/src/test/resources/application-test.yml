@@ -21,6 +21,8 @@ eap:
     mode: DEVELOPMENT
   discovery:
     enabled: false
+    content-retention:
+      enabled: false
     ingestion-token:
     protocol:
       enabled: false

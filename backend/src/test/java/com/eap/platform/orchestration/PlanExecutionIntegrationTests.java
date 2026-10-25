@@ -29,6 +29,7 @@ class PlanExecutionIntegrationTests {
     static HttpServer server;
     static final ObjectMapper json = new ObjectMapper();
     static final List<JsonNode> received = new CopyOnWriteArrayList<>();
+    static volatile JsonNode responseOutput;
     static volatile String reply = "SUCCEEDED";
     @Autowired OrchestrationService orchestration;
     @Autowired PlanExecutionService plans;
@@ -54,13 +55,13 @@ class PlanExecutionIntegrationTests {
             }
             var body = json.readTree(exchange.getRequestBody()); received.add(body);
             var out = json.writeValueAsBytes(Map.of("taskKey", body.path("taskKey").asText(), "status", reply,
-                    "output", "result-from-" + body.path("nodeKey").asText()));
+                    "output", responseOutput == null ? json.getNodeFactory().textNode("result-from-" + body.path("nodeKey").asText()) : responseOutput));
             exchange.sendResponseHeaders(200, out.length); exchange.getResponseBody().write(out); exchange.close();
         }); server.start();
     }
     @AfterAll static void stop() { server.stop(0); }
     @BeforeEach void setup() {
-        received.clear(); reply = "SUCCEEDED"; allow(SafetyDecision.ALLOW);
+        received.clear(); responseOutput = null; reply = "SUCCEEDED"; allow(SafetyDecision.ALLOW);
         team = orchestration.createTeam(new OrchestrationDtos.TeamRequest("PLAN-"+UUID.randomUUID(), "test", "goal", "SEQUENTIAL", "test-policy")).id();
         producer = agent(); reviewer = agent();
         for (Long id : List.of(producer, reviewer)) orchestration.addMember(team, new OrchestrationDtos.MemberRequest(id, "worker", "test responsibility"));
@@ -79,6 +80,68 @@ class PlanExecutionIntegrationTests {
         return a.getId();
     }
     PlanExecutionService.Request request(String key) { return new PlanExecutionService.Request(key, Map.of("ticket", "synthetic"), false); }
+
+    @Autowired WorkflowStopService stops;
+    @Test void stoppedPlanRemainsFrozenAndUnstartedStepsAreSkipped() {
+        var submitted = plans.submit(plan, request("stop-plan"), "operator");
+        stops.request(submitted.workflowId(), submitted.execution().runKey(), new WorkflowStopService.Request("stop"), "operator");
+        assertThat(plans.synchronize(plan).execution().status()).isEqualTo("CANCELLED");
+        assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.CANCELLED);
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).allMatch(s -> s.status == StepStatus.SKIPPED);
+        assertThat(plans.submit(plan, request("stop-plan"), "operator").execution().runKey()).isEqualTo(submitted.execution().runKey());
+        assertThatThrownBy(() -> plans.submit(plan, request("new-key"), "operator")).isInstanceOf(ConflictException.class);
+        executions.processNext(); assertThat(received).isEmpty();
+    }
+
+    @Test void globalReclaimBlockerIsReportedReadOnlyAndRejectsEntirePlanBeforeCreatingExecution() {
+        for (Long agent : List.of(producer, reviewer)) {
+            db.update("update agent_runtime_instances set protocol='SUBSTRATE',endpoint=? where agent_id=?",
+                    "substrate://plan/" + UUID.randomUUID(), agent);
+        }
+        String legacy = UUID.randomUUID().toString();
+        db.update("insert into runtime_work_claims values (?,'*','LEGACY','UNKNOWN',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", legacy);
+        long workflowsBefore = definitions.count(), executionsBefore = executionRepository.count();
+        long claimsBefore = db.queryForObject("select count(*) from runtime_work_claims", Long.class);
+        try {
+            var check = plans.reclaimReadiness(plan);
+            assertThat(check.allowed()).isFalse();
+            assertThat(check.steps()).extracting(PlanExecutionService.ReclaimStep::stepOrder).containsExactly(1, 2);
+            assertThat(check.steps()).extracting(PlanExecutionService.ReclaimStep::code).containsOnly("GLOBAL_UNRESOLVED_WORK");
+            assertThatThrownBy(() -> plans.submit(plan, new PlanExecutionService.Request("blocked", Map.of(), true), "operator"))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("历史占用");
+            assertThat(definitions.count()).isEqualTo(workflowsBefore);
+            assertThat(executionRepository.count()).isEqualTo(executionsBefore);
+            assertThat(repository.findById(plan).orElseThrow().executionRunKey).isNull();
+            assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.READY);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims", Long.class)).isEqualTo(claimsBefore);
+            assertThat(db.queryForObject("select state from runtime_work_claims where work_id=?", String.class, legacy)).isEqualTo("UNKNOWN");
+            assertThat(received).isEmpty();
+        } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
+    }
+
+    @Test void reclaimPreviewDistinguishesHttpAxAndUnassignedWithoutBlockingNormalExecution() {
+        String legacy = UUID.randomUUID().toString();
+        db.update("insert into runtime_work_claims values (?,'*','LEGACY','UNKNOWN',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", legacy);
+        try {
+            assertThat(plans.reclaimReadiness(plan).steps()).extracting(PlanExecutionService.ReclaimStep::code).containsOnly("UNSUPPORTED_PROTOCOL");
+            var request = request("ordinary-http");
+            var submitted = plans.submit(plan, request, "operator");
+            executions.processNext();
+            assertThat(plans.synchronize(plan).execution().status()).isEqualTo("SUCCEEDED");
+            assertThat(plans.submit(plan, request, "operator").execution().runKey()).isEqualTo(submitted.execution().runKey());
+            assertThat(received).hasSize(2);
+            assertThat(executions.reclaimReadiness(producer, "AX").code()).isEqualTo("AX_MANAGED");
+            assertThat(executions.reclaimReadiness(null, "AX").allowed()).isFalse();
+        } finally { db.update("delete from runtime_work_claims where work_id=?", legacy); }
+    }
+
+    @Test void reclaimPreviewMatchesSelectedRuntimeAndDetectsAxOwnedAlias() {
+        String endpoint = "substrate://plan/" + UUID.randomUUID();
+        db.update("update agent_runtime_instances set protocol='SUBSTRATE',endpoint=? where agent_id=?", endpoint, producer);
+        assertThat(plans.reclaimReadiness(plan).steps().getFirst().code()).isEqualTo("READY");
+        db.update("update agent_runtime_instances set protocol='SUBSTRATE_TASK',endpoint=? where agent_id=?", endpoint, reviewer);
+        assertThat(plans.reclaimReadiness(plan).steps().getFirst().code()).isEqualTo("AX_LIFECYCLE_OWNER");
+    }
 
     @Test void planFreezesBackendSelectionAndRollsBackIfAxUnavailable() {
         var step=stepRepository.findById(first).orElseThrow();step.executionBackend="AX";stepRepository.save(step);
@@ -136,6 +199,24 @@ class PlanExecutionIntegrationTests {
         executions.processNext(); assertThat(received).hasSize(2);
     }
 
+    @Test void concurrentMemberAssignmentAndContractEditPreserveBothChanges() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            orchestration.updateOutputContract(first, new OrchestrationDtos.OutputContractRequest(null));
+            orchestration.assignStep(first, new OrchestrationDtos.AssignRequest(producer, StepStatus.ASSIGNED));
+            var gate = new CountDownLatch(1);
+            try (var pool = Executors.newFixedThreadPool(2)) {
+                var assignment = pool.submit(() -> { gate.await(); return orchestration.assignStep(first,
+                        new OrchestrationDtos.AssignRequest(reviewer, StepStatus.ASSIGNED)); });
+                var contract = pool.submit(() -> { gate.await(); return orchestration.updateOutputContract(first,
+                        new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION)); });
+                gate.countDown(); assignment.get(15, TimeUnit.SECONDS); contract.get(15, TimeUnit.SECONDS);
+            }
+            var saved = stepRepository.findById(first).orElseThrow();
+            assertThat(saved.assignedAgentId).isEqualTo(reviewer);
+            assertThat(json.readTree(saved.outputContractJson)).isEqualTo(json.readTree(RESULT_DEFINITION));
+        }
+    }
+
     @Test void rejectsChangedRequestsFrozenEditsAndIndependentWorkflowDispatch() {
         var queued = plans.submit(plan, request("same"), "operator");
         assertThatThrownBy(() -> plans.submit(plan, request("another"), "operator")).isInstanceOf(ConflictException.class);
@@ -187,6 +268,89 @@ class PlanExecutionIntegrationTests {
         allow(SafetyDecision.ASK); plans.submit(plan, request("ask"), "operator"); executions.processNext(); plans.synchronize(plan);
         assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.WAITING_APPROVAL);
         assertThat(received).isEmpty();
+    }
+
+    static final String RESULT_DEFINITION = """
+        {"version":"EAP_JSON_V1","source":"JSON_TEXT","schema":{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}}
+        """;
+
+    @Test void planContractCanBeSavedBeforeAssignmentUpdatedAndExplicitlyCleared() {
+        var unassigned = orchestration.addStep(plan, new OrchestrationDtos.StepRequest(3,"later","review","RUNTIME",RESULT_DEFINITION));
+        assertThat(unassigned.assignedAgentId()).isNull(); assertThat(unassigned.outputContractJson()).contains("JSON_TEXT");
+        var changed = orchestration.updateOutputContract(unassigned.id(),new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION.replace("JSON_TEXT","OUTPUT")));
+        assertThat(changed.outputContractJson()).contains("OUTPUT");
+        assertThat(orchestration.getPlan(plan).steps().get(2).outputContractJson()).isEqualTo(changed.outputContractJson());
+        assertThat(orchestration.updateOutputContract(unassigned.id(),new OrchestrationDtos.OutputContractRequest(null)).outputContractJson()).isNull();
+    }
+
+    @Test void planContractRejectsAxMalformedDuplicateOrUnsupportedDefinitionsWithoutPersisting() {
+        long count = stepRepository.count();
+        assertThatThrownBy(()->orchestration.addStep(plan,new OrchestrationDtos.StepRequest(3,"ax","review","AX",RESULT_DEFINITION))).isInstanceOf(BusinessException.class);
+        assertThat(stepRepository.count()).isEqualTo(count);
+        for (String bad : List.of("", "null", "{}", RESULT_DEFINITION+"{}", RESULT_DEFINITION.replace("\"version\":", "\"version\":\"duplicate\",\"version\":"), RESULT_DEFINITION.replace("EAP_JSON_V1","unsupported"), RESULT_DEFINITION.replace("\"type\":\"string\"","\"type\":\"string\",\"pattern\":\".*\""), " ".repeat(8193))) {
+            assertThatThrownBy(()->orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(bad))).isInstanceOf(BusinessException.class);
+            assertThat(stepRepository.findById(first).orElseThrow().outputContractJson).isNull();
+        }
+        var ax = orchestration.addStep(plan,new OrchestrationDtos.StepRequest(3,"ax","review","AX"));
+        assertThatThrownBy(()->orchestration.updateOutputContract(ax.id(),new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION))).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void submittedPlanFreezesContractAndHandsOffOnlyValidatedJson() throws Exception {
+        orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION));
+        responseOutput = json.getNodeFactory().textNode("{\"summary\":\"private-result\"}");
+        var queued = plans.submit(plan,request("contract-success"),"operator");
+        var config = workflows.detail(queued.workflowId()).nodes().stream().filter(n->n.nodeKey().equals("step-"+first)).findFirst().orElseThrow().configJson();
+        assertThat(json.readTree(config).get("eapOutput")).isEqualTo(json.readTree(RESULT_DEFINITION));
+        // MySQL normalizes workflow_nodes JSON key order after this transaction. The digest
+        // binds the persisted execution snapshot, which was frozen inside the submission.
+        var snapshot = json.readTree(db.queryForObject("select snapshot_json from workflow_executions where run_key=?",
+                String.class, queued.execution().runKey())).path("nodes");
+        var frozenConfig = java.util.stream.StreamSupport.stream(snapshot.spliterator(), false)
+                .filter(n -> n.path("nodeKey").asText().equals("step-" + first))
+                .map(n -> n.path("configJson").asText()).findFirst().orElseThrow();
+        assertThat(json.readTree(frozenConfig).get("eapOutput")).isEqualTo(json.readTree(RESULT_DEFINITION));
+        assertThatThrownBy(()->orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(null))).isInstanceOf(ConflictException.class);
+        executions.processNext(); var result = plans.synchronize(plan);
+        assertThat(result.execution().status()).isEqualTo("SUCCEEDED"); assertThat(received).hasSize(2);
+        var checked = result.execution().steps().stream().filter(v->v.nodeKey().equals("step-"+first)).findFirst().orElseThrow();
+        assertThat(checked.resultValidation().status()).isEqualTo("PASSED");
+        assertThat(checked.resultValidation().contractSha256()).isEqualTo(WorkflowOutputContract.read(frozenConfig,"AGENT",producer).sha256());
+        assertThat(received.get(1).path("context").path("eapPreviousResults").path("step-"+first).path("output").path("summary").asText()).isEqualTo("private-result");
+        assertThat(checked.output()).isNull();
+        assertThat(executions.outputs(queued.workflowId(),queued.execution().runKey()).get("step-"+first)).isEqualTo(responseOutput);
+        assertThat(repository.findById(plan).orElseThrow().status).isEqualTo(PlanStatus.COMPLETED);
+    }
+
+    @Test void rejectedPlanResultPreservesReceiptButFailsStepSkipsHandoffAndNeverReplays() throws Exception {
+        orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION.replace("JSON_TEXT","OUTPUT")));
+        responseOutput = json.readTree("{\"summary\":42}");
+        var queued = plans.submit(plan,request("contract-rejected"),"operator");
+        executions.processNext(); var result = plans.synchronize(plan);
+        assertThat(result.execution().status()).isEqualTo("FAILED"); assertThat(received).hasSize(1);
+        var checked = result.execution().steps().stream().filter(v->v.nodeKey().equals("step-"+first)).findFirst().orElseThrow();
+        assertThat(checked.status()).isEqualTo("SUCCEEDED"); assertThat(checked.resultValidation().status()).isEqualTo("REJECTED");
+        assertThat(checked.resultValidation().code()).isEqualTo("TYPE_MISMATCH");
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).extracting(v->v.status).containsExactly(StepStatus.FAILED,StepStatus.SKIPPED);
+        assertThat(executions.outputs(queued.workflowId(),queued.execution().runKey()).get("step-"+first)).isEqualTo(responseOutput);
+        assertThat(plans.submit(plan,request("contract-rejected"),"operator").execution().runKey()).isEqualTo(queued.execution().runKey());
+        executions.processNext();assertThat(received).hasSize(1);
+    }
+
+    @Test void planContractNeverReclassifiesUnknownAsValidationFailure() throws Exception {
+        orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION));
+        reply="RUNNING";responseOutput=json.getNodeFactory().textNode("{\"summary\":\"unconfirmed\"}");
+        plans.submit(plan,request("contract-unknown"),"operator");executions.processNext();var result=plans.synchronize(plan);
+        assertThat(result.execution().status()).isEqualTo("EXECUTION_UNKNOWN");assertThat(received).hasSize(1);
+        var checked=result.execution().steps().stream().filter(v->v.nodeKey().equals("step-"+first)).findFirst().orElseThrow();
+        assertThat(checked.resultValidation().status()).isEqualTo("NOT_EVALUATED");
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).extracting(v->v.status).containsExactly(StepStatus.EXECUTION_UNKNOWN,StepStatus.SKIPPED);
+    }
+
+    @Test void corruptedSavedPlanContractCannotCreateWorkflowOrExecution() {
+        db.update("update agent_plan_steps set output_contract_json=? where id=?","{}",first);
+        long count=definitions.count();
+        assertThatThrownBy(()->plans.submit(plan,request("corrupt-contract"),"operator")).isInstanceOf(BusinessException.class);
+        assertThat(definitions.count()).isEqualTo(count);assertThat(repository.findById(plan).orElseThrow().executionRunKey).isNull();assertThat(received).isEmpty();
     }
 
     void allow(SafetyDecision decision) {

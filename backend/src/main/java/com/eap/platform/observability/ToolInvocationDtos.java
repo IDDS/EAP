@@ -37,7 +37,7 @@ public final class ToolInvocationDtos {
                 event.agentId, event.endpointKey, event.runtimeInstanceKey, event.taskId,
                 event.observationSource, event.toolKind, event.toolName, event.mcpServerName,
                 event.status, event.durationMs == null ? 0L : event.durationMs,
-                event.inputObservationKey, event.outputObservationKey, event.attributesJson,
+                event.inputObservationKey, event.outputObservationKey, TraceMetadata.project(event.attributesJson),
                 event.observedAt, event.createdAt, event.updatedAt
         );
     }

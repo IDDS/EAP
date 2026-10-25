@@ -16,7 +16,8 @@ class RuntimeAccessControllerTests {
     final RuntimeConnectionService connections=mock(RuntimeConnectionService.class);
     final OpenAiCompatibleGatewayService gateway=mock(OpenAiCompatibleGatewayService.class);
     final OtlpTraceIngestionService traces=mock(OtlpTraceIngestionService.class);
-    final RuntimeAccessController controller=new RuntimeAccessController(connections,gateway,traces,mock(com.eap.platform.discovery.AgentDiscoveryService.class));
+    final DiagnosticSamplingService diagnostics=mock(DiagnosticSamplingService.class);
+    final RuntimeAccessController controller=new RuntimeAccessController(connections,gateway,traces,mock(com.eap.platform.discovery.AgentDiscoveryService.class),diagnostics);
     final RuntimeConnectionService.Access access=new RuntimeConnectionService.Access("eap-agents/external",71L,"generation","runtime-901");
     final ObjectMapper json=new ObjectMapper();
     MockHttpServletRequest request(){
@@ -42,6 +43,6 @@ class RuntimeAccessControllerTests {
         assertThatThrownBy(()->controller.ingest(json.createObjectNode(),new MockHttpServletRequest())).isInstanceOf(UnauthorizedException.class);
         var payload=json.readTree("{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"agent.id\",\"value\":{\"intValue\":72}}]},\"scopeSpans\":[]}]}");
         assertThatThrownBy(()->controller.ingest(payload,request())).isInstanceOf(BusinessException.class);
-        verifyNoInteractions(traces);
+        verifyNoInteractions(traces,diagnostics);
     }
 }

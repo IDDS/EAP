@@ -2,12 +2,20 @@
 
 平台参考运行程序，支持模型任务及显式启用的受控计算工具。旧镜像、旧模板和平台默认Runner不会因为源码变更自动升级。
 
+可信 MCP 宿主可使用镜像内 `/opt/eap-mcp/services.json` 声明服务，再调用 `startMCPService`。配置启动时冻结；`GET /eap/mcp/profile` 需任务认证，仅返回服务和摘要。未配置的普通 Runner 保持关闭。参见 [配置合同](../../docs/MCP_SERVICE_MANIFEST.md)；这不自动开启模型或 Kagent 的 MCP 工具调用。
+
 ## 模型与接入
 
 - AGENT_SYSTEM_PROMPT、AGENT_MODEL、AGENT_MAX_TOKENS配置模型任务；模型只通过EAP网关调用。
 - 普通平台实例沿用EAP_TASK_TOKEN、EAP_GATEWAY_TOKEN。外部受控实例使用EAP_RUNTIME_KEY、EAP_RUNTIME_TOKEN；后者不发送旧平台机器凭证。
 - /eap/task、/chat、/eap/state需要任务认证。/eap/integration返回签名挑战；/eap/integration/configure仅显式开启独立所有者配置入口时可用；/readyz为健康探针。
 - 模型会话和旧模型任务缓存仍在内存；不将新增工具的持久化语义推广到模型任务。
+
+零代码部署可通过 `maxTokens`（1–8192，Runner 默认1024）和 `thinkingMode` 冻结模型参数。思考模式默认 `PROVIDER_DEFAULT`；`DISABLED` 仅支持 deepseek-flash/deepseek-pro，向网关传递 `thinking.type=disabled`。这不会增加平台预算；用户环境变量不能覆盖这些参数。
+
+普通任务只接受单个 `finish_reason=stop` 且非空的文本选择。截断、过滤、空正文、未确认结束或工具调用返回失败码，不进入历史和下游；无法解析或确认的响应保持 UNKNOWN。同 taskKey 的成功、失败及未知回执在内存复用，变参返回409，不自动再次调用模型。进程重建后的防重放仍依赖网关任务身份。
+
+Agent Span 记录 `eap.model.finish_reason`、`eap.model.response_state`、请求上限及思考模式，不包含被拒绝的正文。`stop` 只代表模型正常结束，不能证明 JSON 格式、事实或业务质量合格。
 
 ## 实例内工具
 
@@ -36,16 +44,16 @@
 在PoC节点执行，不在本机安装依赖或构建：
 
 ```bash
-GO111MODULE=off /usr/local/go/bin/go test -count=1 -race -v main.go main_test.go tools.go tools_test.go experiments.go experiments_test.go
-CGO_ENABLED=0 GO111MODULE=off /usr/local/go/bin/go build -trimpath -o runner main.go tools.go experiments.go
+GO111MODULE=off /usr/local/go/bin/go test -count=1 -race -v .
+CGO_ENABLED=0 GO111MODULE=off /usr/local/go/bin/go build -trimpath -o runner .
 ```
 
-必须同时编译main.go、tools.go、experiments.go，不能继续使用只列两个文件的旧构建步骤。2026-10-02在远程独立Pod配置C编译器运行-race：13项顶层/18含子用例通过；节点本身仍没有gcc。K8Substrate旧actor-tools/build.sh是历史两文件验收脚本，不应用来构建当前Runner。
+必须编译整个目录，不能使用只列少量文件的旧构建步骤。2026-10-02在远程独立Pod配置C编译器运行-race：13项顶层/18含子用例通过；节点本身仍没有gcc。K8Substrate旧actor-tools/build.sh是历史两文件验收脚本，不应用来构建当前Runner。
 
 
 ## 无状态提示词对照实验（2026-10-02）
 
-GET /eap/experiments/profile和POST /eap/experiments/run需要现有任务认证；协议EAP_STATELESS_PROMPT_V1。模型通过现有受管网关，温度0、空会话、工具禁用；不读取/修改聊天历史。开启工具的实例拒绝实验入口。EAP_EXPERIMENT_JOURNAL_DIR默认/data/eap-experiments，需实例独享、持久且不可回滚的目录；只能供一个Runner进程使用。
+GET /eap/experiments/profile和POST /eap/experiments/run需要现有任务认证；协议EAP_STATELESS_PROMPT_V1。模型通过现有受管网关，温度0、空会话、工具禁用；不读取/修改聊天历史。受控任务工具与实验入口相互独立，实验不提供工具定义。显式关闭思考时，该设置计入 profile 摘要并实际传给模型；默认设置保留旧 profile 摘要。EAP_EXPERIMENT_JOURNAL_DIR默认/data/eap-experiments，需实例独享、持久且不可回滚的目录；只能供一个Runner进程使用。
 
 输出上限1–256且不超过AGENT_MAX_TOKENS。稳定taskKey、Trace、profileDigest、候选提示词和输入被一起指纹化，先持久UNKNOWN再发模型请求。相同键重放原结果，变参409；意图未完成时不再次执行。最多256条日志，不自动回收。未知/失败回执不代表上游没有花费；删除日志、克隆/回滚快照或多进程共享不在保证范围内。日志0600、目录0700，但不是加密存储。
 

@@ -26,7 +26,7 @@ export type GovernanceDataAction = 'ALLOW' | 'WARN' | 'REDACT' | 'BLOCK' | 'APPR
 export type GovernanceGatewayDirective = 'PROCEED' | 'PROCEED_WITH_WARNING' | 'REDACT_AND_RECHECK' | 'REQUEST_APPROVAL' | 'BLOCK'
 export type GovernanceApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED'
 export type TeamStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED'
-export type PlanStatus = 'DRAFT' | 'READY' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'WAITING_APPROVAL' | 'EXECUTION_UNKNOWN'
+export type PlanStatus = 'CANCELLED' | 'DRAFT' | 'READY' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'WAITING_APPROVAL' | 'EXECUTION_UNKNOWN'
 export type StepStatus = 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' | 'WAITING_APPROVAL' | 'FAILED' | 'EXECUTION_UNKNOWN' | 'SKIPPED'
 export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
 export type WorkItemSeverity = 'P0' | 'P1' | 'P2' | 'P3'
@@ -286,6 +286,7 @@ export interface AgentRequest {
 
 export interface GovernancePolicy {
   id: number
+  revision: number
   name: string
   policyType: PolicyType
   scopeType: string
@@ -1074,6 +1075,7 @@ export interface GovernanceDataSummary {
 
 export interface GovernanceMatchedPolicy {
   id: number
+  revision?: number | null
   name: string
   policyType: PolicyType
   enforcementMode: EnforcementMode
@@ -1094,6 +1096,7 @@ export interface GovernancePreflightDecision {
   provider?: string
   modelName?: string
   approvalStatus: GovernanceApprovalStatus
+  approvalContextState?: 'CURRENT' | 'CHANGED' | 'UNRECORDED' | 'NOT_APPLICABLE'
   approvedBy?: string
   approvalReason?: string
   approvedAt?: string
@@ -1173,6 +1176,7 @@ export interface AgentPlan {
 }
 
 export interface AgentPlanStep {
+  outputContractJson?: string | null
   executionBackend?: string
   id: number
   planId: number
@@ -1267,7 +1271,8 @@ export interface WorkflowExecution {
   objective: string
   requester: string
   steps: { sequence: number; nodeKey: string; label: string; agentId?: number; taskKey?: string;
-    runtimeInstanceKey?: string; status: string; safetyDecision: string; reason: string; httpStatus?: number }[]
+    runtimeInstanceKey?: string; status: string; safetyDecision: string; reason: string; httpStatus?: number; reclaimStatus?: string | null;
+    resultValidation?: { contract: string; source: string; contractSha256: string; status: string; code: string } | null }[]
   reason?: string
   createdAt: string
   startedAt?: string
@@ -1316,6 +1321,13 @@ export interface EvaluationDatasetItem {
   agentId?: number
   traceId?: string
   spanId?: string
+  sourceReference?: {
+    state: 'MANUAL_UNVERIFIED' | 'OBSERVATION_MATCHED'
+    observationId?: number
+    endpointKey?: string
+    observedAt?: string
+    checkedAt?: string
+  }
   input: Record<string, unknown>
   expected?: unknown
   actual: Record<string, unknown>

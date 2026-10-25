@@ -3761,13 +3761,13 @@ body {
   font-weight: 600;
 }
 
-.el-button--primary {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)) {
   border-color: var(--eap-blue);
   background: var(--eap-blue);
   box-shadow: 0 4px 12px rgba(49, 103, 232, 0.18);
 }
 
-.el-button--primary:hover {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)):hover {
   border-color: #2659d0;
   background: #2659d0;
 }
@@ -4426,13 +4426,13 @@ body {
   z-index: 1;
 }
 
-.el-button--primary {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)) {
   border-color: var(--eap-blue);
   background: linear-gradient(135deg, #4169f5, #3277e8);
   box-shadow: 0 7px 16px rgba(65, 105, 245, .20);
 }
 
-.el-button--primary:hover {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)):hover {
   border-color: #315de1;
   background: linear-gradient(135deg, #315de1, #286bcf);
 }
@@ -5211,13 +5211,13 @@ body,
   font-size: 12px;
 }
 
-.el-button--primary {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)) {
   border-color: var(--soc-blue);
   background: var(--soc-blue);
   box-shadow: 0 4px 10px rgba(40, 100, 232, .18);
 }
 
-.el-button--primary:hover {
+.el-button--primary:where(:not(.is-plain, .is-text, .is-link, .is-disabled)):hover {
   border-color: #1e53c9;
   background: #1e53c9;
 }

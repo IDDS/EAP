@@ -21,6 +21,7 @@
       <div><h3>{{ selected.span.spanName }}</h3><button @click="selectedId = undefined">关闭详情</button></div>
       <dl><dt>Span ID</dt><dd>{{ selected.span.spanId }}</dd><dt>父 Span</dt><dd>{{ selected.span.parentSpanId || '未提供' }}</dd><dt>生产端开始</dt><dd>{{ selected.span.startedAt || '未知' }}</dd><dt>生产端结束</dt><dd>{{ selected.span.endedAt || '未知' }}</dd><dt>上报耗时</dt><dd>{{ selected.span.durationMs }} ms（可能与时间戳口径不同）</dd><dt>工具 / 操作</dt><dd>{{ selected.span.toolName || selected.span.operation || '未提供' }}</dd></dl>
       <p>此处展示运行元数据；失败原因需要结合已有治理与内容观测证据核对。</p>
+      <RuntimeDiagnostics :attributes-json="selected.span.attributesJson" />
     </div>
   </section>
 </template>
@@ -28,6 +29,7 @@
 import { computed, ref, watch } from 'vue'
 import type { TraceSpanObservation } from '@/types/domain'
 import { traceDiagnostics } from './trace-diagnostics'
+import RuntimeDiagnostics from './RuntimeDiagnostics.vue'
 const props = defineProps<{ spans: TraceSpanObservation[]; possiblyTruncated?: boolean; traceId: string }>()
 const failuresOnly = ref(false)
 const selectedId = ref<number>()

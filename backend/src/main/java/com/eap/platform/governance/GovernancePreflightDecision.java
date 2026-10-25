@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -18,6 +19,14 @@ public class GovernancePreflightDecision {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
+
+    @Version
+    @Column(nullable = false)
+    long revision;
+
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.CHAR)
+    @Column(name = "policy_context_digest", length = 64)
+    String policyContextDigest;
 
     @Column(name = "decision_key", nullable = false, unique = true, length = 128)
     String decisionKey;
@@ -123,4 +132,5 @@ public class GovernancePreflightDecision {
     }
 
     public String getDecisionKey() { return decisionKey; }
+    public Long getId() { return id; }
 }

@@ -3,14 +3,15 @@
     <slot :rows="rows" />
     <div v-if="data.length" class="list-pagination" aria-label="列表分页">
       <span class="list-range" aria-live="polite">已加载 {{ data.length }} 条 · 显示 {{ start + 1 }}–{{ Math.min(start + pageSize, data.length) }} 条</span>
-      <el-pagination v-if="data.length > 10" v-model:current-page="page" v-model:page-size="pageSize"
-        :total="data.length" :page-sizes="[10, 20, 50]" :pager-count="5" layout="sizes, prev, pager, next"
-        size="small" @size-change="page = 1" />
+      <PageControls v-if="data.length > 10" v-model:current-page="page" v-model:page-size="pageSize"
+        :total="data.length" :page-sizes="[10, 20, 50]"
+         />
     </div>
   </div>
 </template>
 
 <script setup lang="ts" generic="T">
+import PageControls from '@/components/common/PageControls.vue'
 import { computed, ref, watch } from 'vue'
 const props = defineProps<{ data: T[]; resetKey?: unknown }>()
 const page = ref(1)

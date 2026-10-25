@@ -1,0 +1,6 @@
+{
+  "passed": true,
+  "tests": 13,
+  "actualDigest": "10.186.133.66:5001/eap-handoff-sample@sha256:c6e53ce1f97d109a0a2af46045928171b72245d2e42b5a2b21d33b90871bae09",
+  "realChildProcesses": true
+}

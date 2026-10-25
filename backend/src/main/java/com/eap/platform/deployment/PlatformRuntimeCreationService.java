@@ -92,5 +92,8 @@ public class PlatformRuntimeCreationService {
         identity(client.inspect(ref),ref,d.atespace+"/"+d.templateName,intent.uid());
         delivery.connectCreated(intent.key(),intent.deliveryRequest(),subject);
         if(!"READY".equals(connections.status(intent.key()).connection()))throw new BusinessException("专属身份尚未确认，实例不可派发；保持原接入请求");
+        var actual=client.inspect(ref);
+        identity(actual,ref,d.atespace+"/"+d.templateName,intent.uid());
+        if(!"SUSPENDED".equals(actual.state()))throw new BusinessException("专属身份已确认，但原实例尚未恢复休眠；请核对状态后重试原请求");
     }
 }

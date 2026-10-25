@@ -43,6 +43,19 @@ public class EvaluationDatasetItem {
     @Column(name = "span_id", length = 128)
     String spanId;
 
+    // Frozen on creation. No FK: retention/deletion of telemetry must not erase this snapshot.
+    @Column(name = "source_observation_id", updatable = false)
+    Long sourceObservationId;
+
+    @Column(name = "source_endpoint_key", length = 128, updatable = false)
+    String sourceEndpointKey;
+
+    @Column(name = "source_observed_at", updatable = false)
+    Instant sourceObservedAt;
+
+    @Column(name = "source_checked_at", updatable = false)
+    Instant sourceCheckedAt;
+
     @Column(name = "input_json", columnDefinition = "text")
     String inputJson;
 

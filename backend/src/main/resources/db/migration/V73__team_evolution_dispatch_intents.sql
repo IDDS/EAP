@@ -1,0 +1,40 @@
+-- Prospective original-slot responsibility only; never enroll or replay old work.
+CREATE TABLE team_evolution_executions (
+ evaluation_id VARCHAR(36) PRIMARY KEY,
+ request_key VARCHAR(64) NOT NULL,
+ fingerprint VARCHAR(64) NOT NULL,
+ principal_digest VARCHAR(64) NOT NULL,
+ workflow_key VARCHAR(96) NOT NULL UNIQUE,
+ holder VARCHAR(36) NOT NULL,
+ deadline TIMESTAMP(6) NOT NULL,
+ state VARCHAR(32) NOT NULL,
+ reason_code VARCHAR(64),
+ started_at TIMESTAMP(6) NOT NULL,
+ finished_at TIMESTAMP(6),
+ CONSTRAINT fk_team_execution_evaluation FOREIGN KEY(evaluation_id) REFERENCES team_evolution_evaluations(id)
+);
+CREATE TABLE team_evolution_dispatches (
+ operation_key VARCHAR(128) PRIMARY KEY,
+ evaluation_id VARCHAR(36) NOT NULL,
+ trace_id VARCHAR(32) NOT NULL UNIQUE,
+ agent_id BIGINT NOT NULL,
+ runtime_id BIGINT NOT NULL,
+ instance_key VARCHAR(128) NOT NULL,
+ actor_uid VARCHAR(128) NOT NULL,
+ actor_template VARCHAR(256) NOT NULL,
+ endpoint VARCHAR(512) NOT NULL,
+ profile_digest VARCHAR(64) NOT NULL,
+ body_json MEDIUMTEXT NOT NULL,
+ model_request_digest VARCHAR(64) NOT NULL,
+ holder VARCHAR(36) NOT NULL,
+ state VARCHAR(32) NOT NULL,
+ output_json MEDIUMTEXT,
+ reservation_id BIGINT UNIQUE,
+ gateway_output_digest VARCHAR(64),
+ gateway_finish_reason VARCHAR(16),
+ started_at TIMESTAMP(6) NOT NULL,
+ finished_at TIMESTAMP(6),
+ CONSTRAINT fk_team_dispatch_slot FOREIGN KEY(operation_key) REFERENCES team_evolution_slots(operation_key),
+ CONSTRAINT fk_team_dispatch_execution FOREIGN KEY(evaluation_id) REFERENCES team_evolution_executions(evaluation_id),
+ CONSTRAINT fk_team_dispatch_reservation FOREIGN KEY(reservation_id) REFERENCES budget_reservations(id)
+);

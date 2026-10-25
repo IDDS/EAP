@@ -1,0 +1,24 @@
+{"Time":"2026-10-25T13:55:55.723343751Z","Action":"start","Package":"github.com/eap/agent-runner"}
+{"Time":"2026-10-25T13:55:55.745579931Z","Action":"run","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput"}
+{"Time":"2026-10-25T13:55:55.74569301Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput","Output":"=== RUN   TestHandoffGovernedExecutionReplayAndChangedInput\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.74572758Z","Action":"run","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/success"}
+{"Time":"2026-10-25T13:55:55.745734713Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/success","Output":"=== RUN   TestHandoffGovernedExecutionReplayAndChangedInput/success\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.783950815Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/success","Output":"--- PASS: TestHandoffGovernedExecutionReplayAndChangedInput/success (0.04s)\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.784000116Z","Action":"pass","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/success","Elapsed":0.04}
+{"Time":"2026-10-25T13:55:55.786687209Z","Action":"run","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/unknown"}
+{"Time":"2026-10-25T13:55:55.786708427Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/unknown","Output":"=== RUN   TestHandoffGovernedExecutionReplayAndChangedInput/unknown\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.80360987Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/unknown","Output":"--- PASS: TestHandoffGovernedExecutionReplayAndChangedInput/unknown (0.02s)\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.803640921Z","Action":"pass","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput/unknown","Elapsed":0.02}
+{"Time":"2026-10-25T13:55:55.80366783Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput","Output":"--- PASS: TestHandoffGovernedExecutionReplayAndChangedInput (0.06s)\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.803696126Z","Action":"pass","Package":"github.com/eap/agent-runner","Test":"TestHandoffGovernedExecutionReplayAndChangedInput","Elapsed":0.06}
+{"Time":"2026-10-25T13:55:55.803744112Z","Action":"run","Package":"github.com/eap/agent-runner","Test":"TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool"}
+{"Time":"2026-10-25T13:55:55.803748996Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool","Output":"=== RUN   TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.809016448Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool","Output":"--- PASS: TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool (0.01s)\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.809043445Z","Action":"pass","Package":"github.com/eap/agent-runner","Test":"TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool","Elapsed":0.01}
+{"Time":"2026-10-25T13:55:55.809099191Z","Action":"run","Package":"github.com/eap/agent-runner","Test":"TestHandoffProcessFailuresAreBoundedAndRedacted"}
+{"Time":"2026-10-25T13:55:55.809104148Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffProcessFailuresAreBoundedAndRedacted","Output":"=== RUN   TestHandoffProcessFailuresAreBoundedAndRedacted\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.809740091Z","Action":"output","Package":"github.com/eap/agent-runner","Test":"TestHandoffProcessFailuresAreBoundedAndRedacted","Output":"--- PASS: TestHandoffProcessFailuresAreBoundedAndRedacted (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:55.809771711Z","Action":"pass","Package":"github.com/eap/agent-runner","Test":"TestHandoffProcessFailuresAreBoundedAndRedacted","Elapsed":0}
+{"Time":"2026-10-25T13:55:55.80997411Z","Action":"output","Package":"github.com/eap/agent-runner","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-10-25T13:55:56.814028935Z","Action":"output","Package":"github.com/eap/agent-runner","Output":"ok  \tgithub.com/eap/agent-runner\t1.087s\n"}
+{"Time":"2026-10-25T13:55:56.814085726Z","Action":"pass","Package":"github.com/eap/agent-runner","Elapsed":1.091}

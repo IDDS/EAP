@@ -2,13 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import ts from 'typescript'
+import {routeStubs} from './learning-test-support.mjs'
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}}
 function mount(overrides={}){
  const source=readFileSync(new URL('../src/components/PromptOptimizationPanel.vue',import.meta.url),'utf8').split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,'')
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText
  const watchers=[];let unmount
  const permission={state:{user:{subject:'a'}},can:()=>true},messages=[]
- const values={ref:value=>({value}),computed:fn=>({get value(){return fn()}}),watch:(_s,fn)=>watchers.push(fn),onMounted:()=>{},onBeforeUnmount:fn=>unmount=fn,usePermissions:()=>permission,MagicStick:null,EapApi:{listAgents:async()=>[],...overrides.EapApi},ExperimentApi:{targets:async()=>({instances:[]}),...overrides.ExperimentApi},OptimizationApi:{status:async()=>({enabled:true}),list:async()=>[],...overrides.OptimizationApi},ElMessage:{warning:v=>messages.push(v),success:v=>messages.push(v)}}
+ const values={...routeStubs().values,ref:value=>({value}),computed:fn=>({get value(){return fn()}}),watch:(_s,fn)=>watchers.push(fn),onMounted:()=>{},onBeforeUnmount:fn=>unmount=fn,usePermissions:()=>permission,MagicStick:null,EapApi:{listAgents:async()=>[],...overrides.EapApi},ExperimentApi:{targets:async()=>({instances:[]}),...overrides.ExperimentApi},OptimizationApi:{status:async()=>({enabled:true}),list:async()=>[],...overrides.OptimizationApi},ElMessage:{warning:v=>messages.push(v),success:v=>messages.push(v)}}
  const scope=new Function(...Object.keys(values),code+';return {draft,profile,submit,busy,loading,submitUnknown,load,select,loadContent,content,selected,runs,chooseAgent,readProfile,targets,usageText,holdoutCards,plannedCalls,plannedOutputTokens,addSample,sampleLimit,totalTokens}')(...Object.values(values))
  return{...scope,permission,messages,reset:()=>watchers.forEach(fn=>fn()),unmount:()=>unmount?.()}
 }

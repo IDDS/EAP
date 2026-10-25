@@ -13,6 +13,8 @@ public interface WorkflowExecutionRepository extends JpaRepository<WorkflowExecu
     Optional<WorkflowExecution> lockById(Long id);
     Optional<WorkflowExecution> findByWorkflowIdAndSubmissionKey(Long workflowId, String submissionKey);
     Optional<WorkflowExecution> findByWorkflowIdAndRunKey(Long workflowId, String runKey);
+    @Query("select e.id from WorkflowExecution e where e.workflowId = :workflowId and e.runKey = :runKey")
+    Optional<Long> findExecutionId(Long workflowId, String runKey);
     List<WorkflowExecution> findByWorkflowIdOrderByCreatedAtDescIdDesc(Long workflowId, Pageable page);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<WorkflowExecution> findFirstByStatusOrderByCreatedAtAscIdAsc(String status);

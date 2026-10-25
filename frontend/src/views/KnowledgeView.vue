@@ -3,11 +3,11 @@
     <div class="toolbar">
       <div class="toolbar-title">
         <span class="interface-eyebrow">知识 · 追踪</span>
-        <strong>知识调用链路</strong>
+        <h2>知识调用链路</h2>
         <span>分析输入知识、检索与处理过程、输出知识，以及知识采用和复用情况</span>
       </div>
       <div class="button-row">
-        <el-select v-model="windowHours" style="width: 150px" @change="load">
+        <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
           <el-option label="最近 7 天" :value="168" />
@@ -17,13 +17,10 @@
       </div>
     </div>
 
-    <div class="interface-tabs interface-tabs-top" role="tablist" aria-label="知识界面分区">
-      <el-tag :class="{ 'is-active': activeSection === 'overview' }" :effect="activeSection === 'overview' ? 'dark' : 'plain'" @click="activeSection = 'overview'">知识总览</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'ingest' }" :effect="activeSection === 'ingest' ? 'dark' : 'plain'" @click="activeSection = 'ingest'">交互接入</el-tag>
-      <el-tag :class="{ 'is-active': activeSection === 'trace' }" :effect="activeSection === 'trace' ? 'dark' : 'plain'" @click="activeSection = 'trace'">过程追踪</el-tag>
-    </div>
+    <SectionNavigation v-model="activeSection" label="知识界面分区" :items="sectionItems" />
 
-    <div class="analysis-hero knowledge-hero">
+
+    <div v-show="activeSection === 'overview'" class="analysis-hero knowledge-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">知识流转 / 最近 {{ windowHours }} 小时</span>
         <h2>知识流转链路</h2>
@@ -41,7 +38,7 @@
       </div>
     </div>
 
-    <div class="knowledge-stage-board">
+    <div v-show="activeSection === 'overview'" class="knowledge-stage-board">
       <div class="knowledge-stage">
         <span class="knowledge-stage-index">01</span>
         <div><span class="knowledge-stage-label">输入知识</span><strong>{{ formatNumber(summary.inputSourceCount) }} <small>来源</small></strong><p>{{ formatNumber(summary.inputTokens) }} 输入 Token</p></div>
@@ -281,6 +278,7 @@
 </template>
 
 <script setup lang="ts">
+import SectionNavigation from '@/components/common/SectionNavigation.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Collection, DataAnalysis, Refresh, Select } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -316,6 +314,11 @@ const emptySummary: KnowledgeSummary = {
 }
 
 const windowHours = ref(24)
+const sectionItems = [
+  { value: 'overview', label: '知识总览' },
+  { value: 'ingest', label: '交互接入' },
+  { value: 'trace', label: '过程追踪' },
+] as const
 const activeSection = ref<'overview' | 'ingest' | 'trace'>('overview')
 const loading = ref(false)
 const saving = ref(false)

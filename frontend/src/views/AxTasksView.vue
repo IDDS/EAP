@@ -20,6 +20,17 @@
         <el-table-column label="业务状态" min-width="155"><template #default="{ row }"><el-tag :type="tagType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
         <el-table-column prop="sandboxPhase" label="沙箱状态" min-width="115" /><el-table-column prop="reason" label="执行说明" min-width="250" />
       </el-table>
+      <div class="ax-mobile-records">
+        <article v-for="row in rows" :key="row.taskKey" class="ax-mobile-record">
+          <header><el-tag :type="tagType(row.status)">{{ statusLabel(row.status) }}</el-tag><span>{{ row.sandboxPhase || '沙箱状态未知' }}</span></header>
+          <button type="button" class="task-link" @click="select(row)">{{ row.taskKey }}</button>
+          <p>Agent {{ row.agentId }} · {{ agentName(row.agentId) }}</p>
+          <el-tag :type="identityTag(row.identityStatus)">{{ identityLabel(row) }}</el-tag>
+          <p>{{ row.reason || '尚无执行说明' }}</p>
+          <el-button @click="select(row)">查看任务详情</el-button>
+        </article>
+        <p v-if="!rows.length && !loading" class="muted">暂无异步任务</p>
+      </div>
     </el-card>
     <el-drawer v-model="detailOpen" append-to-body :z-index="4000" title="任务详情" size="min(680px, 96vw)" @closed="clearContent">
       <template v-if="selected"><dl class="ax-detail"><dt>任务标识</dt><dd>{{ selected.taskKey }}</dd><dt>执行来源</dt><dd>{{ selected.workflowRunKey ? `工作流 ${selected.workflowId} / ${selected.workflowNodeKey}` : '独立任务' }}</dd><dt v-if="selected.workflowRunKey">执行标识</dt><dd v-if="selected.workflowRunKey">{{ selected.workflowRunKey }}</dd><dt>业务状态</dt><dd>{{ statusLabel(selected.status) }}</dd><dt>沙箱状态</dt><dd>{{ selected.sandboxPhase }}</dd><dt>运行实例</dt><dd>{{ selected.actor }}</dd><dt>实例身份</dt><dd>{{ identityLabel(selected) }}</dd><dt v-if="selected.actorUid">创建 UID</dt><dd v-if="selected.actorUid">{{ selected.actorUid }}</dd><dt v-if="selected.identityExpiresAt">接入授权期</dt><dd v-if="selected.identityExpiresAt">{{ new Date(selected.identityExpiresAt).toLocaleString('zh-CN') }}</dd><dt>说明</dt><dd>{{ selected.reason }}</dd><dt>创建时间</dt><dd>{{ selected.createdAt }}</dd></dl>

@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "image": "10.186.133.66:5001/eap-handoff-sample@sha256:c6e53ce1f97d109a0a2af46045928171b72245d2e42b5a2b21d33b90871bae09",
+  "baseImage": "10.186.133.66:5001/eap-framework-runner@sha256:155c6cf52557a95b8d3c2c5ffaead590cd9ae2c14e272c4fafc8903f8a0cf529",
+  "payload": {
+    "opt/eap-handoff/eap_execution.py": "63527bba0e4e465af6640df4f52078ca8f8c32d5047d287b3df5af656c864947",
+    "opt/eap-handoff/eap_links.py": "b5860eca93e144e13dc7d9b98f5f3c9931e3dea7795d54143be6be8b9d7369c8",
+    "opt/eap-handoff/handoff_worker.py": "82f6bacb37d98e435e127a9901a5f5dbd58e0fbfa82988dfa0ff8696fbfe346e",
+    "usr/local/bin/eap-handoff-source": "31a32bb69fbe9d03a2af3bb00e1440116286db9284c2aa5e5a14efa96d02a3e0",
+    "usr/local/bin/eap-handoff-target": "68d6b702778296f0a17008dbe70ca412d0c3592eb4af9d1fec71770ce4e8d8a9"
+  },
+  "compressedBytes": 94468451,
+  "defaultFrameworkImageChanged": false
+}

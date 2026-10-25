@@ -1,0 +1,14 @@
+{
+  "nodefs": {
+    "availableBytes": 18467794944,
+    "capacityBytes": 104960913408,
+    "evictionThreshold": "10%",
+    "marginBytes": 7971703603
+  },
+  "imagefs": {
+    "availableBytes": 18467794944,
+    "capacityBytes": 104960913408,
+    "evictionThreshold": "15%",
+    "marginBytes": 2723657932
+  }
+}

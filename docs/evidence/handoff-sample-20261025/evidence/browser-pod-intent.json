@@ -1,0 +1,81 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "eap-handoff-browser",
+    "namespace": "eap"
+  },
+  "spec": {
+    "nodeName": "ate-node2",
+    "hostname": "eap-handoff-browser",
+    "restartPolicy": "Never",
+    "automountServiceAccountToken": false,
+    "activeDeadlineSeconds": 7200,
+    "containers": [
+      {
+        "name": "browser",
+        "image": "docker.m.daocloud.io/library/node@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402",
+        "command": [
+          "sh",
+          "-c",
+          "sh /contract/ui-install.sh; printf \"%s\" \"$?\" > /out/install-exit-code; exec tail -f /dev/null"
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "512Mi"
+          },
+          "limits": {
+            "cpu": "2",
+            "memory": "1536Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "contract",
+            "mountPath": "/contract",
+            "readOnly": true
+          },
+          {
+            "name": "out",
+            "mountPath": "/out",
+            "readOnly": false
+          },
+          {
+            "name": "work",
+            "mountPath": "/work",
+            "readOnly": false
+          },
+          {
+            "name": "shm",
+            "mountPath": "/dev/shm",
+            "readOnly": false
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "contract",
+        "configMap": {
+          "name": "eap-handoff-browser"
+        }
+      },
+      {
+        "name": "out",
+        "emptyDir": {}
+      },
+      {
+        "name": "work",
+        "emptyDir": {}
+      },
+      {
+        "name": "shm",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "512Mi"
+        }
+      }
+    ]
+  }
+}

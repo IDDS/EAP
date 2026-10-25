@@ -88,9 +88,12 @@ public class SubstrateDeploymentService {
     private final ImageBuilder builder;
     private final ObjectMapper mapper;
     private final TransactionTemplate transaction;
+    private final com.eap.platform.registry.RuntimeWorkService work;
     private final PlatformRuntimeCreationService owned;
     private final com.eap.platform.registry.RuntimeConnectionProperties identityConfig;
     private final com.eap.platform.registry.RuntimeConnectionService connections;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.eap.platform.observability.ObservationCoverageService coverage;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
             .followRedirects(HttpClient.Redirect.NEVER).build();
 
@@ -101,10 +104,10 @@ public class SubstrateDeploymentService {
                                       AuditLogRepository audits, ImageBuilder builder, ObjectMapper mapper,
                                       PlatformTransactionManager manager, PlatformRuntimeCreationService owned,
                                       com.eap.platform.registry.RuntimeConnectionProperties identityConfig,
-                                      com.eap.platform.registry.RuntimeConnectionService connections) {
+                                      com.eap.platform.registry.RuntimeConnectionService connections, com.eap.platform.registry.RuntimeWorkService work) {
         this.repository = repository; this.agents = agents; this.runtimes = runtimes; this.registry = registry;
         this.client = client; this.properties = properties; this.workflow = workflow; this.observation = observation; this.safety = safety;
-        this.owned=owned;this.identityConfig=identityConfig;this.connections=connections;
+        this.owned=owned;this.identityConfig=identityConfig;this.connections=connections;this.work=work;
         this.audits = audits; this.builder = builder; this.mapper = mapper;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -113,12 +116,47 @@ public class SubstrateDeploymentService {
     public SubstrateDeploymentDtos.CapabilityResponse capabilities() {
         return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank() && identityConfig.deliveryReady(),
                 !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
-                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled(), identityConfig.deliveryReady());
+                properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled(), identityConfig.deliveryReady(),
+                properties.kagentRunnerAvailable() && identityConfig.deliveryReady(),
+                FrameworkSamples.ALL.stream().map(sample -> new SubstrateDeploymentDtos.FrameworkSampleCapability(
+                        sample.key(), sample.label(), sample.frameworkVersion(), frameworkSampleUnavailable() == null,
+                        frameworkSampleUnavailable())).toList());
+    }
+
+    private String frameworkSampleUnavailable() {
+        if (!properties.isEnabled()) return "托管运行环境未启用";
+        if (!identityConfig.deliveryReady()) return "专属实例身份配送未就绪";
+        if (!workflow.isEnabled() || workflow.hosts().isEmpty()) return "任务派发未就绪";
+        if (properties.getGatewayUrl().isBlank() || properties.getGatewayHost().isBlank()) return "治理网关未配置";
+        if (!properties.frameworkSampleAvailable()) return "管理员尚未配置按摘要固定的样例镜像";
+        return null;
     }
 
     @Transactional(readOnly = true)
     public List<SubstrateDeploymentDtos.DeploymentResponse> list(Long agentId) {
         return repository.findTop20ByAgentIdOrderByVersionDesc(agentId).stream().map(this::response).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public SubstrateDeploymentDtos.DeploymentContent content(Long agentId, Integer version) {
+        SubstrateDeployment deployment = repository.findByAgentIdAndVersion(agentId, version)
+                .orElseThrow(() -> new BusinessException("部署版本不存在"));
+        Object prompt = config(deployment).get("systemPrompt");
+        return new SubstrateDeploymentDtos.DeploymentContent(deployment.deploymentKey, deployment.agentId,
+                deployment.version, prompt instanceof String value ? value : null);
+    }
+
+    @Transactional(readOnly = true)
+    public SubstrateDeploymentDtos.DeploymentReceipt receipt(Long agentId, String requestKey) {
+        if (requestKey == null || !REQUEST_KEY.matcher(requestKey).matches())
+            throw new BusinessException("requestKey 必须是 1–64 位字母、数字、下划线或短横线");
+        // Query the durable key directly, including versions outside the latest-20 list.
+        // Absence is only a snapshot: an earlier POST can still be committing.
+        return repository.findByAgentIdAndSubmissionKey(agentId, requestKey)
+                .map(d -> new SubstrateDeploymentDtos.DeploymentReceipt(requestKey, agentId, d.deploymentKey,
+                        d.version, d.status, d.instanceKey))
+                .orElseGet(() -> new SubstrateDeploymentDtos.DeploymentReceipt(requestKey, agentId, null, null,
+                        "NOT_FOUND", null));
     }
 
     @Transactional
@@ -150,9 +188,12 @@ public class SubstrateDeploymentService {
             throw new BusinessException("专属实例身份接入需要程序监听端口 80；请调整镜像或源码后发布");
         }
         boolean source = "SOURCE".equals(config.get("sourceType"));
+        boolean sample = "TEMPLATE".equals(config.get("sourceType"));
+        if (sample && frameworkSampleUnavailable() != null) throw new BusinessException(frameworkSampleUnavailable());
         // A source build is pinned to the digest it pushes; there is nothing to resolve before it runs.
         String image = source ? null
-                : resolveImage("RUNNER".equals(config.get("sourceType")) ? properties.getRunnerImage() : (String) config.get("image"));
+                : resolveImage(sample ? properties.getFrameworkSampleImage()
+                        : "RUNNER".equals(config.get("sourceType")) ? runnerImage(config) : (String) config.get("image"));
         int version = repository.findFirstByAgentIdOrderByVersionDesc(agentId).map(d -> d.version + 1).orElse(1);
         SubstrateDeployment deployment = new SubstrateDeployment();
         deployment.deploymentKey = "dep-" + UUID.randomUUID();
@@ -373,43 +414,98 @@ public class SubstrateDeploymentService {
         audit(requester, "DELETE_SUBSTRATE_INSTANCE", agentId, runtime.getInstanceKey(), true);
     }
 
-    /** Console trial run: one message into the instance's ongoing conversation (platform runner agents). */
+    /** Console history is explicit and belongs to this request, never to the shared actor. */
     public SubstrateDeploymentDtos.ChatResponse chat(Long agentId, String name, String message) {
+        return chat(agentId, name, message, List.of());
+    }
+
+    public SubstrateDeploymentDtos.ChatResponse chat(Long agentId, String name, String message,
+            List<SubstrateDeploymentDtos.ChatMessage> history) {
+        return chatOnce(agentId, name, message, history, trace -> {});
+    }
+
+    // Console HTTP callers must enter via ChatSubmissionService's durable admission.
+    SubstrateDeploymentDtos.ChatResponse chatOnce(Long agentId, String name, String message,
+            List<SubstrateDeploymentDtos.ChatMessage> history, java.util.function.Consumer<String> beforeDispatch) {
+        history = validateChatHistory(history);
         AgentRuntimeInstance runtime = substrateRuntime(agentId, name);
         SubstrateActorRef ref = SubstrateActorRef.parse(runtime.getEndpoint());
         if(runtime.hasBoundIdentity()) {
             if(!connections.executable(runtime))throw new BusinessException("实例接入已撤销或授权期已过，未派发对话");
             connections.checkIdentity(runtime);
         }
-        try {
-            client.resume(ref);
-        } catch (SubstrateClient.SubstrateException exception) {
-            throw new BusinessException("RESOURCE_EXHAUSTED".equals(exception.code())
-                    ? "没有空闲 worker，请先挂起其他实例或扩容" : "唤醒实例失败（" + exception.code() + "）");
-        }
-        try {
-            String dispatchToken=runtime.hasBoundIdentity()?connections.dispatchToken(runtime):workflow.getToken();
-            HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getRouterUrl().replaceAll("/+$", "") + "/chat"))
-                    .timeout(Duration.ofSeconds(150))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + dispatchToken)
-                    .header(SubstrateActorRef.ROUTING_HEADER, ref.routingValue())
-                    .POST(HttpRequest.BodyPublishers.ofString(json(Map.of("message", message)))).build();
-            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 404) throw new BusinessException("该实例不支持对话试运行（仅平台通用 Agent 提供 /chat）");
-            if (response.statusCode() != 200) {
-                throw new BusinessException("Agent 返回 HTTP " + response.statusCode() + "，请核对接入状态");
+        try (var occupancy = work.start(runtime.getEndpoint(), "CHAT")) {
+            boolean known = true;
+            try {
+            String observation = coverage == null ? null : coverage.enrollChat(runtime);
+            try {
+                client.resume(ref);
+            } catch (SubstrateClient.SubstrateException exception) {
+                if (observation != null) coverage.runtimeReceipt(observation, "FAILED", null);
+                throw new BusinessException("RESOURCE_EXHAUSTED".equals(exception.code())
+                        ? "没有空闲 worker，请先挂起其他实例或扩容" : "唤醒实例失败（" + exception.code() + "）");
             }
-            JsonNode body = mapper.readTree(response.body());
-            return new SubstrateDeploymentDtos.ChatResponse(body.path("reply").asText(), body.path("turns").asInt(), runtime.getInstanceKey());
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new BusinessException("试运行被中断");
-        } catch (Exception exception) {
-            throw new BusinessException("试运行请求失败：" + truncate(String.valueOf(exception.getMessage()), 200));
+            boolean dispatched = false;
+            try {
+                String dispatchToken=runtime.hasBoundIdentity()?connections.dispatchToken(runtime):workflow.getToken();
+                HttpRequest stateRequest = HttpRequest.newBuilder(URI.create(properties.getRouterUrl().replaceAll("/+$", "") + "/eap/state"))
+                        .timeout(Duration.ofSeconds(10)).header("Authorization", "Bearer " + dispatchToken)
+                        .header(SubstrateActorRef.ROUTING_HEADER, ref.routingValue()).GET().build();
+                HttpResponse<String> state = http.send(stateRequest, HttpResponse.BodyHandlers.ofString());
+                if (state.statusCode() != 200 || !"EXPLICIT_V1".equals(mapper.readTree(state.body()).path("conversationMode").asText()))
+                    throw new BusinessException("此实例尚未支持对话隔离，请发布新版 Runner 后使用新实例试运行；未调用模型");
+                String rawTrace = observation == null ? null : coverage.runtimeDispatch(observation, runtime, Instant.now().plusSeconds(150));
+                Map<String,Object> envelope = new LinkedHashMap<>(); envelope.put("message", message);
+                envelope.put("history", history);
+                if (rawTrace != null) envelope.put("traceId", rawTrace);
+                HttpRequest request = HttpRequest.newBuilder(URI.create(properties.getRouterUrl().replaceAll("/+$", "") + "/chat"))
+                        .timeout(Duration.ofSeconds(150))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + dispatchToken)
+                        .header(SubstrateActorRef.ROUTING_HEADER, ref.routingValue())
+                        .POST(HttpRequest.BodyPublishers.ofString(json(envelope))).build();
+                beforeDispatch.accept(rawTrace != null && runtime.supportsMachineIdentity()
+                        ? com.eap.platform.registry.RuntimeScopedTelemetry.trace(runtime.getInstanceKey(), rawTrace) : rawTrace);
+                dispatched = true; known = false;
+                HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 404) throw new BusinessException("该实例不支持对话试运行（仅平台通用 Agent 提供 /chat）");
+                if (response.statusCode() != 200) {
+                    throw new BusinessException("Agent 返回 HTTP " + response.statusCode() + "，请核对接入状态");
+                }
+                JsonNode body = mapper.readTree(response.body());
+                if (!body.path("reply").isTextual() || body.path("reply").asText().isBlank()
+                        || !body.path("turns").isIntegralNumber() || body.path("turns").asInt() != history.size() / 2 + 1)
+                    throw new BusinessException("实例返回的对话回执不完整，请查询原提交");
+                if (observation != null) coverage.runtimeReceipt(observation, "SUCCEEDED", body.path("traceId").isTextual() ? body.path("traceId").asText() : null);
+                known = true;
+                return new SubstrateDeploymentDtos.ChatResponse(body.path("reply").asText(), body.path("turns").asInt(), runtime.getInstanceKey());
+            } catch (BusinessException exception) {
+                if (observation != null) coverage.runtimeReceipt(observation, dispatched ? "EXECUTION_UNKNOWN" : "FAILED", null);
+                throw exception;
+            } catch (InterruptedException exception) {
+                if (observation != null) coverage.runtimeReceipt(observation, dispatched ? "EXECUTION_UNKNOWN" : "FAILED", null);
+                Thread.currentThread().interrupt();
+                throw new BusinessException("试运行被中断");
+            } catch (Exception exception) {
+                if (observation != null) coverage.runtimeReceipt(observation, dispatched ? "EXECUTION_UNKNOWN" : "FAILED", null);
+                throw new BusinessException("试运行请求失败：" + truncate(String.valueOf(exception.getMessage()), 200));
+            }
+            } finally { occupancy.complete(known); }
         }
+    }
+
+    static List<SubstrateDeploymentDtos.ChatMessage> validateChatHistory(List<SubstrateDeploymentDtos.ChatMessage> input) {
+        if (input == null) return List.of();
+        if (input.size() > 40 || input.size() % 2 != 0) throw new BusinessException("对话历史必须为完整问答，最多20轮");
+        int bytes = 0;
+        for (int i = 0; i < input.size(); i++) {
+            var item = input.get(i);
+            if (item == null || !(i % 2 == 0 ? "user" : "assistant").equals(item.role())
+                    || item.content() == null || item.content().isBlank()) throw new BusinessException("对话历史格式无效");
+            bytes += item.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (bytes > 65536) throw new BusinessException("对话历史超过64KB，请开始新对话");
+        }
+        return List.copyOf(input);
     }
 
     private String createActor(SubstrateDeployment deployment) {
@@ -440,22 +536,64 @@ public class SubstrateDeploymentService {
     private Map<String, Object> normalize(SubstrateDeploymentDtos.DeployRequest request) {
         Map<String, Object> config = new LinkedHashMap<>();
         String source = upper(request.sourceType());
-        if (!Set.of("RUNNER", "IMAGE", "SOURCE").contains(source)) {
-            throw new BusinessException("部署来源只能是 RUNNER（零代码）、IMAGE（已有镜像）或 SOURCE（源码构建）");
+        if (!Set.of("RUNNER", "IMAGE", "SOURCE", "TEMPLATE").contains(source)) {
+            throw new BusinessException("部署来源只能是 RUNNER、IMAGE、SOURCE 或 TEMPLATE（受控框架样例）");
         }
         config.put("sourceType", source);
-        if ("RUNNER".equals(source)) {
-            if (properties.getRunnerImage().isBlank()) throw new BusinessException("平台通用 Agent 镜像未配置");
+        if ("TEMPLATE".equals(source)) {
+            var sample = FrameworkSamples.require(upper(request.runnerFramework()));
+            if (request.image() != null || request.command() != null || request.port() != null || request.readinessPath() != null
+                    || request.systemPrompt() != null || request.model() != null || request.maxTokens() != null
+                    || request.thinkingMode() != null || request.runnerToolMode() != null || request.gitUrl() != null
+                    || request.gitRef() != null || request.contextPath() != null || request.dockerfile() != null
+                    || request.env() != null && !request.env().isEmpty()
+                    || request.egressHosts() != null && !request.egressHosts().isEmpty())
+                throw new BusinessException("受控框架样例的镜像、命令、模型、环境变量和出站配置由平台固定");
+            if (request.sandboxClass() != null && !"GVISOR".equals(upper(request.sandboxClass())))
+                throw new BusinessException("受控框架样例当前仅支持 gVisor");
+            config.put("runnerFramework", sample.key());
+            config.put("frameworkVersion", sample.frameworkVersion());
+            config.put("port", 80);
+            config.put("readinessPath", "/readyz");
+            config.put("command", List.of(sample.command()));
+        } else if ("RUNNER".equals(source)) {
+            String framework = request.runnerFramework() == null ? "EAP_NATIVE" : upper(request.runnerFramework());
+            if (!Set.of("EAP_NATIVE", "KAGENT_ADK").contains(framework)) throw new BusinessException("运行框架无效");
+            // Keep the old shape for native callers and existing submission keys.
+            if ("KAGENT_ADK".equals(framework)) config.put("runnerFramework", framework);
+            else if (properties.getRunnerImage().isBlank()) throw new BusinessException("平台通用 Agent 镜像未配置");
+            if (request.runnerToolMode() != null) {
+                String mode = upper(request.runnerToolMode());
+                if (!"KAGENT_ADK".equals(framework) || !Set.of("NONE", "CALCULATE_SUM_V1").contains(mode))
+                    throw new BusinessException("工具模式仅支持 Kagent 的受控求和");
+                if (!"NONE".equals(mode)) config.put("runnerToolMode", mode);
+            }
             String prompt = request.systemPrompt() == null ? "" : request.systemPrompt().trim();
             if (prompt.isEmpty()) throw new BusinessException("请填写系统提示词");
             String model = request.model() == null ? "" : request.model().trim();
             if (!MODEL.matcher(model).matches()) throw new BusinessException("模型名称无效");
             config.put("systemPrompt", prompt);
             config.put("model", model);
+            // Omitted fields retain the legacy config shape, including idempotent request comparison.
+            if (request.maxTokens() != null) {
+                if (request.maxTokens() < 1 || request.maxTokens() > 8192) throw new BusinessException("输出上限必须在 1–8192 之间");
+                config.put("maxTokens", request.maxTokens());
+            }
+            if (request.thinkingMode() != null) {
+                String thinking = upper(request.thinkingMode());
+                if (!Set.of("PROVIDER_DEFAULT", "DISABLED").contains(thinking)) throw new BusinessException("思考模式无效");
+                if ("DISABLED".equals(thinking) && !Set.of("deepseek-flash", "deepseek-pro").contains(model)) {
+                    throw new BusinessException("关闭思考仅支持 deepseek-flash 和 deepseek-pro");
+                }
+                config.put("thinkingMode", thinking);
+            }
             config.put("port", 80);
             config.put("readinessPath", "/readyz");
             config.put("command", List.of());
         } else {
+            if (request.runnerToolMode() != null) throw new BusinessException("工具模式仅适用于 Kagent 零代码配置");
+            if (request.runnerFramework() != null) throw new BusinessException("运行框架仅适用于零代码配置");
+            if (request.maxTokens() != null || request.thinkingMode() != null) throw new BusinessException("模型参数仅适用于零代码配置");
             if ("SOURCE".equals(source)) {
                 if (!builder.enabled()) throw new BusinessException("源码构建未启用");
                 String gitUrl = request.gitUrl() == null ? "" : request.gitUrl().trim().replaceAll("/+$", "");
@@ -562,7 +700,10 @@ public class SubstrateDeploymentService {
         }
         if ("RUNNER".equals(deployment.sourceType)) {
             env.put("AGENT_MODEL", (String) config.get("model"));
+            if (config.containsKey("runnerToolMode")) env.put("EAP_KAGENT_TOOL_MODE", (String) config.get("runnerToolMode"));
             env.put("AGENT_SYSTEM_PROMPT", (String) config.get("systemPrompt"));
+            if (config.containsKey("maxTokens")) env.put("AGENT_MAX_TOKENS", String.valueOf(config.get("maxTokens")));
+            if (config.containsKey("thinkingMode")) env.put("AGENT_THINKING_MODE", (String) config.get("thinkingMode"));
         }
         String[] size = SIZES.get((String) config.get("size"));
         @SuppressWarnings("unchecked") List<String> command = (List<String>) config.getOrDefault("command", List.of());
@@ -576,6 +717,14 @@ public class SubstrateDeploymentService {
     private String creationRequest(SubstrateDeployment d) { return UUID.fromString(d.deploymentKey.substring(4)).toString(); }
     private Map<String,Object> callerConfig(SubstrateDeployment d) {
         var c=new LinkedHashMap<>(config(d));c.remove("identityMode");c.remove("identityPublicKey");return c;
+    }
+
+    private String runnerImage(Map<String, Object> config) {
+        if ("KAGENT_ADK".equals(config.get("runnerFramework"))) {
+            if (!properties.kagentRunnerAvailable()) throw new BusinessException("Kagent ADK 运行程序尚未配置固定镜像");
+            return properties.getKagentRunnerImage();
+        }
+        return properties.getRunnerImage();
     }
 
     private List<String> egressHosts(Map<String, Object> config) {
@@ -677,7 +826,19 @@ public class SubstrateDeploymentService {
     private SubstrateDeploymentDtos.DeploymentResponse response(SubstrateDeployment deployment) {
         return new SubstrateDeploymentDtos.DeploymentResponse(deployment.deploymentKey, deployment.agentId, deployment.version,
                 deployment.sourceType, deployment.status, deployment.imageRef, deployment.templateName, deployment.instanceKey,
-                deployment.reason, deployment.requestedBy, steps(deployment), config(deployment), deployment.createdAt, deployment.updatedAt);
+                deployment.reason, deployment.requestedBy, steps(deployment), metadata(deployment), deployment.createdAt, deployment.updatedAt);
+    }
+
+    private Map<String, Object> metadata(SubstrateDeployment deployment) {
+        Map<String, Object> stored = config(deployment);
+        Map<String, Object> visible = new LinkedHashMap<>();
+        // Configuration is retained intact for execution; general responses expose only console metadata.
+        for (String key : List.of("sourceType", "runnerFramework", "frameworkVersion", "runnerToolMode",
+                "model", "maxTokens", "thinkingMode", "port", "sandboxClass", "size", "identityMode")) {
+            Object value = stored.get(key);
+            if (value instanceof String || value instanceof Number || value instanceof Boolean) visible.put(key, value);
+        }
+        return visible;
     }
 
     private void audit(String actor, String action, Long agentId, String detail, boolean success) {

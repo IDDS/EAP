@@ -18,6 +18,9 @@ import java.util.*;
 
 @Service
 public class WorkflowExecutionService {
+    @org.springframework.beans.factory.annotation.Autowired private WorkflowStopService stops;
+    @org.springframework.beans.factory.annotation.Autowired private com.eap.platform.observability.ObservationCoverageService coverage;
+    @org.springframework.beans.factory.annotation.Autowired private WorkflowExecutionConfigurationService configurations;
     private final WorkflowExecutionRepository repository;
     private final WorkflowService workflows;
     private final WorkflowDefinitionRepository definitions;
@@ -26,6 +29,7 @@ public class WorkflowExecutionService {
     private final com.eap.platform.registry.RuntimeConnectionService connections;
     private final RuntimeLeaseProperties lease;
     private final WorkflowExecutionProperties properties;
+    private final RuntimeWorkService work;
     private final WorkflowTaskClient client;
     private final WorkflowToolRecoveryService toolRecovery;
     private final WorkflowSchedulingService scheduling;
@@ -37,7 +41,8 @@ public class WorkflowExecutionService {
     public WorkflowExecutionService(WorkflowExecutionRepository repository, WorkflowService workflows, WorkflowDefinitionRepository definitions,
             AgentRepository agents, AgentRuntimeInstanceRepository runtimes, com.eap.platform.registry.RuntimeConnectionService connections, RuntimeLeaseProperties lease,
             WorkflowExecutionProperties properties, WorkflowTaskClient client, GenseeSafetyService safety,
-            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax, WorkflowToolRecoveryService toolRecovery, WorkflowSchedulingService scheduling) {
+            ObjectMapper mapper, PlatformTransactionManager manager, com.eap.platform.ax.AxService ax, WorkflowToolRecoveryService toolRecovery, WorkflowSchedulingService scheduling, RuntimeWorkService work) {
+        this.work = work;
         this.scheduling = scheduling;
         this.toolRecovery = toolRecovery;
         this.ax = ax;
@@ -50,13 +55,44 @@ public class WorkflowExecutionService {
     public record Snapshot(List<WorkflowDtos.NodeResponse> nodes, List<WorkflowDtos.EdgeResponse> edges, Map<String, Object> context) {}
     public record Step(int sequence, String nodeKey, String label, Long agentId, String taskKey,
                        String runtimeInstanceKey, String status, String safetyDecision, String reason, Integer httpStatus,
-                       com.fasterxml.jackson.databind.JsonNode output, String outputSha256) {
+                       com.fasterxml.jackson.databind.JsonNode output, String outputSha256, String reclaimStatus,
+                       WorkflowExecutionConfigurationService.RuntimeBinding runtimeBinding, WorkflowOutputContract.Validation resultValidation) {
+        public Step(int sequence, String nodeKey, String label, Long agentId, String taskKey,
+                    String runtimeInstanceKey, String status, String safetyDecision, String reason, Integer httpStatus,
+                    com.fasterxml.jackson.databind.JsonNode output, String outputSha256, String reclaimStatus,
+                    WorkflowExecutionConfigurationService.RuntimeBinding runtimeBinding) {
+            this(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision, reason, httpStatus,
+                    output, outputSha256, reclaimStatus, runtimeBinding, null);
+        }
+        public Step(int sequence, String nodeKey, String label, Long agentId, String taskKey,
+                    String runtimeInstanceKey, String status, String safetyDecision, String reason, Integer httpStatus,
+                    com.fasterxml.jackson.databind.JsonNode output, String outputSha256, String reclaimStatus) {
+            this(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision, reason, httpStatus,
+                    output, outputSha256, reclaimStatus, null);
+        }
+        public Step(int sequence, String nodeKey, String label, Long agentId, String taskKey,
+                    String runtimeInstanceKey, String status, String safetyDecision, String reason, Integer httpStatus,
+                    com.fasterxml.jackson.databind.JsonNode output, String outputSha256) {
+            this(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision, reason, httpStatus, output, outputSha256, null);
+        }
+        Step reclaimed(String state) {
+            return new Step(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision,
+                    reason, httpStatus, output, outputSha256, state, runtimeBinding, resultValidation);
+        }
+        Step bound(WorkflowExecutionConfigurationService.RuntimeBinding binding) {
+            return new Step(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision,
+                    reason, httpStatus, output, outputSha256, reclaimStatus, binding, resultValidation);
+        }
         public Step(int sequence, String nodeKey, String label, Long agentId, String taskKey,
                     String runtimeInstanceKey, String status, String safetyDecision, String reason, Integer httpStatus) {
             this(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision, reason, httpStatus, null, null);
         }
+        Step validated(WorkflowOutputContract.Validation validation) {
+            return new Step(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey, status, safetyDecision,
+                    reason, httpStatus, output, outputSha256, reclaimStatus, runtimeBinding, validation);
+        }
         Step metadata() { return new Step(sequence, nodeKey, label, agentId, taskKey, runtimeInstanceKey,
-                status, safetyDecision, reason, httpStatus, null, outputSha256); }
+                status, safetyDecision, reason, httpStatus, null, outputSha256, reclaimStatus, runtimeBinding, resultValidation); }
     }
     public record Response(String runKey, Long workflowId, String status, String executionMode, String objective,
                            String requester, List<Step> steps, String reason, Instant createdAt, Instant startedAt, Instant completedAt) {}
@@ -104,6 +140,8 @@ public class WorkflowExecutionService {
         for (var node : path) {
             taskObjective(node, "validation");
             WorkflowToolConfig.read(node);
+            WorkflowOutputContract.read(node);
+            WorkflowObservationContract.expectedModels(node);
             for (String source : inputFrom(node)) {
                 if (!previousTasks.contains(source)) throw new BusinessException("inputFrom 必须引用所选路径中已在前面的任务节点：" + source);
             }
@@ -112,6 +150,7 @@ public class WorkflowExecutionService {
                 if (runtime == null || !com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())) {
                     throw new BusinessException("suspendAfterTask 仅支持绑定可用 Substrate Runtime 的任务节点");
                 }
+                work.requireReclaimable(runtime.getEndpoint());
             }
             if (isTaskNode(node)) previousTasks.add(node.nodeKey());
             if (!Set.of("START", "END", "DECISION", "AGENT", "ARTIFACT").contains(node.nodeType().toUpperCase(Locale.ROOT))) {
@@ -129,10 +168,17 @@ public class WorkflowExecutionService {
         run.requester = requester == null || requester.isBlank() ? "console" : requester.substring(0, Math.min(requester.length(), 128));
         run.snapshotJson = json(new Snapshot(path, List.of(), context));
         if (run.snapshotJson.getBytes(StandardCharsets.UTF_8).length > 60000) throw new BusinessException("工作流快照超过 60KB，请精简配置");
-        run.createdAt = Instant.now(); run.recoveryVersion = 1;
+        run.createdAt = Instant.now(); run.recoveryVersion = 1; run.stopVersion = 1;
         scheduling.lockEnrollment();
         repository.saveAndFlush(run);
         scheduling.enroll(run, requester == null || requester.isBlank() ? "console" : requester);
+        coverage.enrollControls(run.id,run.runKey,path);
+        for (int i = 0; i < path.size(); i++) {
+            var node = path.get(i);
+            if (isTaskNode(node) && !usesAx(node) && WorkflowToolConfig.read(node) == null)
+                coverage.enrollRuntimeTask(run.id, i, run.runKey + ":" + i, node.agentId(),
+                        WorkflowObservationContract.expectedModels(node));
+        }
         return response(run);
     }
 
@@ -157,6 +203,7 @@ public class WorkflowExecutionService {
             safety.createSession(new SafetyDtos.SessionRequest(run.runKey, null, run.objective));
             for (var node : snapshot.nodes()) {
                 if (!progress(run, steps, "RUNNING", null, false)) return;
+                if (!stops.checkpoint(run)) return;
                 boolean axNode = usesAx(node);
                 AgentRuntimeInstance runtime = isTaskNode(node) && !axNode ? selectRuntime(node) : null;
                 if (isTaskNode(node) && !axNode && runtime == null) {
@@ -165,6 +212,7 @@ public class WorkflowExecutionService {
                 String objective = taskObjective(node, run.objective);
                 Map<String, Object> context = new LinkedHashMap<>(snapshot.context());
                 var tool = WorkflowToolConfig.read(node);
+                var outputContract = WorkflowOutputContract.read(node);
                 if (tool != null) context.put("eapTool", tool);
                 Map<String, Object> previous = new LinkedHashMap<>();
                 for (String source : inputFrom(node)) {
@@ -173,8 +221,15 @@ public class WorkflowExecutionService {
                     if (result == null || result.output() == null || result.output().isNull()) {
                         progress(run, steps, "FAILED", "上游节点未提供 output，未派发下一节点：" + source, true); return;
                     }
+                    var sourceNode = snapshot.nodes().stream().filter(n -> n.nodeKey().equals(source)).findFirst().orElseThrow();
+                    var accepted = WorkflowOutputContract.check(WorkflowOutputContract.read(sourceNode), result.status(), result.output());
+                    if (accepted.validation() != null && (!"PASSED".equals(accepted.validation().status())
+                            || !accepted.validation().equals(result.resultValidation()))) {
+                        progress(run, steps, "FAILED", "上游结果未通过原契约核验，未派发下一节点", true); return;
+                    }
                     previous.put(source, Map.of("taskKey", result.taskKey(), "agentId", result.agentId(),
-                            "output", result.output(), "outputSha256", result.outputSha256()));
+                            "output", accepted.accepted(), "outputSha256", digest(json(accepted.accepted())),
+                            "originalOutputSha256", result.outputSha256()));
                 }
                 if (!previous.isEmpty()) context.put("eapPreviousResults", previous);
                 int sequence = steps.size();
@@ -205,6 +260,15 @@ public class WorkflowExecutionService {
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                     continue;
                 }
+                // Runtime selection happens again after queueing. Never silently downgrade a frozen
+                // reclaim requirement when a registry update or fallback selects an HTTP instance.
+                if (!axNode && suspendAfterTask(node)
+                        && !com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())) {
+                    String reason = "当前所选 Runtime 不支持完成后休眠，未派发此任务；请核对实例绑定后另建执行";
+                    steps.add(new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey,
+                            runtime.getInstanceKey(), "FAILED", "ALLOW", reason, null).bound(configurations.capture(runtime)));
+                    progress(run, steps, "FAILED", reason, true); return;
+                }
                 if (axNode) {
                     // Durable task includes workflow/node linkage before the AX worker can create any sandbox.
                     scheduling.begin(run, sequence, "ASYNC_WAIT");
@@ -232,7 +296,8 @@ public class WorkflowExecutionService {
                     }
                     continue;
                 }
-                steps.add(new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(), "DISPATCHING", "ALLOW", "已记录派发意图", null));
+                var binding = configurations.capture(runtime);
+                steps.add(new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(), "DISPATCHING", "ALLOW", "已记录派发意图", null).bound(binding));
                 if (!progress(run, steps, "RUNNING", null, false)) return;
                 if (run.recoveryVersion == 1 && tool != null && ScopedToolService.TOOL.equals(tool.path("name").asText())) {
                     var args = tool.path("arguments");
@@ -242,34 +307,53 @@ public class WorkflowExecutionService {
                     // Ownership may expire while binding the intent; never dispatch after losing it.
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                 }
-                scheduling.begin(run, sequence, "PREPARATION");
-                boolean[] dispatched = {false};
-                var receipt = client.invoke(runtime, payload, run.startedAt.plusSeconds(properties.getTimeoutSeconds()), () -> {
-                    scheduling.finish(run, sequence, "PREPARATION", "CONFIRMED");
-                    scheduling.begin(run, sequence, "TASK_WAIT");
-                    dispatched[0] = true;
-                });
-                scheduling.finish(run, sequence, dispatched[0] ? "TASK_WAIT" : "PREPARATION", receipt.status());
-                steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(),
-                        receipt.status(), "ALLOW", receipt.reason(), receipt.httpStatus(), receipt.output(),
-                        receipt.output() == null ? null : digest(json(receipt.output()))));
-                boolean terminal = !"SUCCEEDED".equals(receipt.status());
-                if (!progress(run, steps, terminal ? receipt.status() : "RUNNING", receipt.reason(), terminal) || terminal) return;
-                if (suspendAfterTask(node) && !usesAx(node)) {
-                    scheduling.begin(run, sequence, "RECLAIM");
-                    try { client.suspend(runtime); scheduling.finish(run, sequence, "RECLAIM", "CONFIRMED"); }
-                    catch (RuntimeException exception) {
-                        scheduling.finish(run, sequence, "RECLAIM", "UNCONFIRMED");
-                        progress(run, steps, "FAILED", "任务已完成并保存结果，但 Actor 休眠未确认；未派发下一节点，请核对实例", true); return;
+                RuntimeWorkService.Ticket admission;
+                try {
+                    admission = com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol())
+                            ? work.start(runtime.getEndpoint(), "WORKFLOW", suspendAfterTask(node)) : null;
+                } catch (BusinessException rejected) {
+                    String reason = "派发前检查未通过，未派发此任务：" + rejected.getMessage();
+                    steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey,
+                            runtime.getInstanceKey(), "FAILED", "ALLOW", reason, null).bound(binding));
+                    progress(run, steps, "FAILED", reason, true); return;
+                }
+                try (var occupancy = admission) {
+                    scheduling.begin(run, sequence, "PREPARATION");
+                    boolean[] dispatched = {false};
+                    var receipt = client.invoke(runtime, payload, run.startedAt.plusSeconds(properties.getTimeoutSeconds()), () -> {
+                        scheduling.finish(run, sequence, "PREPARATION", "CONFIRMED");
+                        scheduling.begin(run, sequence, "TASK_WAIT");
+                        dispatched[0] = true;
+                    });
+                    scheduling.finish(run, sequence, dispatched[0] ? "TASK_WAIT" : "PREPARATION", receipt.status());
+                    var validation = WorkflowOutputContract.check(outputContract, receipt.status(), receipt.output());
+                    steps.set(sequence, new Step(sequence, node.nodeKey(), node.label(), node.agentId(), taskKey, runtime.getInstanceKey(),
+                            receipt.status(), "ALLOW", receipt.reason(), receipt.httpStatus(), receipt.output(),
+                            receipt.output() == null ? null : digest(json(receipt.output()))).bound(binding).validated(validation.validation()));
+                    boolean known = Set.of("SUCCEEDED", "FAILED").contains(receipt.status());
+                    if (occupancy != null) occupancy.complete(known);
+                    if (!known) { progress(run, steps, receipt.status(), receipt.reason(), true); return; }
+                    // Save the business receipt while responsibility remains RUNNING so RECLAIM can be audited separately.
+                    if (!progress(run, steps, "RUNNING", receipt.reason(), false)) return;
+                    if (suspendAfterTask(node) && occupancy != null && dispatched[0] && Integer.valueOf(200).equals(receipt.httpStatus())) {
+                        scheduling.begin(run, sequence, "RECLAIM");
+                        String reclaimed = scheduling.reclaim(run, sequence, () -> occupancy.reclaim(() -> client.suspend(runtime)));
+                        steps.set(sequence, steps.get(sequence).reclaimed(reclaimed));
+                        if (!"CONFIRMED".equals(reclaimed)) {
+                            String reason = "FAILED".equals(receipt.status()) ? receipt.reason()
+                                    : "任务已完成并保存结果，但 Actor 休眠未确认；未派发下一节点，请核对实例";
+                            progress(run, steps, "FAILED", reason, true); return;
+                        }
                     }
-                    Step completed = steps.get(sequence);
-                    steps.set(sequence, new Step(sequence, completed.nodeKey(), completed.label(), completed.agentId(),
-                            taskKey, completed.runtimeInstanceKey(), completed.status(), completed.safetyDecision(),
-                            "Runtime 已确认任务完成，Actor 已休眠", completed.httpStatus(), completed.output(), completed.outputSha256()));
+                    if (!"SUCCEEDED".equals(receipt.status())) { progress(run, steps, receipt.status(), receipt.reason(), true); return; }
+                    if (validation.validation() != null && !"PASSED".equals(validation.validation().status())) {
+                        progress(run, steps, "FAILED", "任务已完成，但结果未通过结构契约；原始结果已保存，未派发下一节点", true); return;
+                    }
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                 }
             }
-            progress(run, steps, "SUCCEEDED", "所选路径全部完成；所有任务均已收到匹配标识的业务终态", true);
+            if (stops.checkpoint(run))
+                progress(run, steps, "SUCCEEDED", "所选路径全部完成；所有任务均已收到匹配标识的业务终态", true);
         } catch (Exception exception) {
             progress(run, steps, "EXECUTION_UNKNOWN", "执行中断，已发生的外部效果未回滚；请按任务标识核对", true);
         }
@@ -288,14 +372,28 @@ public class WorkflowExecutionService {
     }
 
     private int updateProgress(WorkflowExecution run,List<Step> steps,String status,String reason,Instant completedAt) {
-        return run.recoveryVersion == 1
+        int updated = run.recoveryVersion == 1
                 ? repository.progressOwned(run.id,run.ownerEpoch,run.ownerId,json(steps),status,reason,completedAt)
                 : repository.progress(run.id,json(steps),status,reason,completedAt);
+        if (updated == 1) coverage.controlsProgress(run.id,run.ownerEpoch,steps);
+        return updated;
     }
 
     private AgentRuntimeInstance selectRuntime(WorkflowDtos.NodeResponse node) {
-        Long id = node.agentId();
-        boolean tool = WorkflowToolConfig.read(node) != null;
+        return selectRuntime(node.agentId(), WorkflowToolConfig.read(node) != null);
+    }
+
+    public RuntimeWorkService.ReclaimReadiness reclaimReadiness(Long agentId, String backend) {
+        if (agentId == null) return new RuntimeWorkService.ReclaimReadiness(false, "UNASSIGNED", "请先为步骤分配团队成员");
+        if ("AX".equals(backend)) return new RuntimeWorkService.ReclaimReadiness(true, "AX_MANAGED", "AX 沙箱由独立生命周期负责收尾");
+        var runtime = selectRuntime(agentId, false);
+        if (runtime == null) return new RuntimeWorkService.ReclaimReadiness(false, "NO_RUNTIME", "未找到可用实例，请检查成员分配、实例连接与运行状态");
+        if (!com.eap.platform.substrate.SubstrateActorRef.isSubstrate(runtime.getProtocol()))
+            return new RuntimeWorkService.ReclaimReadiness(false, "UNSUPPORTED_PROTOCOL", "所选实例不支持自动休眠；请选择 Substrate 实例或关闭自动休眠");
+        return work.reclaimReadiness(runtime.getEndpoint());
+    }
+
+    private AgentRuntimeInstance selectRuntime(Long id, boolean tool) {
         if (id == null || agents.findById(id).filter(agent -> agent.getLifecycleStatus() == AgentLifecycleStatus.ACTIVE).isEmpty()) return null;
         Instant cutoff = lease.cutoff();
         // Suspended Substrate actors send no heartbeats; the task client wakes them before dispatch.
@@ -361,7 +459,8 @@ public class WorkflowExecutionService {
                 .orElseThrow(() -> new BusinessException("执行记录不存在"));
         try {
             Map<String, com.fasterxml.jackson.databind.JsonNode> outputs = new LinkedHashMap<>();
-            for (Step step : mapper.readValue(run.stepsJson, new TypeReference<List<Step>>() {})) {
+            for (Step step : mapper.readerFor(new TypeReference<List<Step>>() {})
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).<List<Step>>readValue(run.stepsJson)) {
                 if ("SUCCEEDED".equals(step.status()) && step.output() != null && !step.output().isNull()) outputs.put(step.nodeKey(), step.output());
             }
             return outputs;

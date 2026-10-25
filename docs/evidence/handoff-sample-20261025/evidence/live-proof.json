@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "workflowId": 58,
+  "runKey": "wf-exec-87f83762-eadb-4f63-ac58-5a572c01f51c",
+  "streams": [
+    {
+      "agentId": 116,
+      "streamKey": "a0786b8917e66b2cb7dcd37548335dd2522c3f799cb1cf5e3a89b6aba6973c70",
+      "runs": 2
+    },
+    {
+      "agentId": 117,
+      "streamKey": "dc154f5bae3cac02b6d8ca2d1781bb40ecef72a74daeea3c1de5ca3d8de3a7ab",
+      "runs": 3
+    }
+  ],
+  "links": {
+    "items": [
+      {
+        "id": 1,
+        "linkId": "a30b62b9-1740-46f5-a5f4-5aa9bc72f486",
+        "relation": "DELEGATE",
+        "sourceStream": "a0786b8917e66b2cb7dcd37548335dd2522c3f799cb1cf5e3a89b6aba6973c70",
+        "sourceRun": "ba742d2e-0a17-41f0-b60c-c9f85e9a6a7b",
+        "sourceAgentId": 116,
+        "sourceRuntimeKey": "eap-agents/a116-v1-efc446a588ce",
+        "targetStream": "dc154f5bae3cac02b6d8ca2d1781bb40ecef72a74daeea3c1de5ca3d8de3a7ab",
+        "targetRun": "e08ee7ac-665b-4201-927c-2a2ebe9ee692",
+        "targetAgentId": 117,
+        "targetRuntimeKey": "eap-agents/a117-v1-f03270090769",
+        "artifactDigest": null,
+        "artifactSize": null,
+        "artifactLanguage": null,
+        "offeredMs": 1792936825137,
+        "confirmedMs": 1792936826265,
+        "state": "CONFIRMED",
+        "evidenceKind": "TWO_AUTHENTICATED_PRODUCER_REPORTS",
+        "executionPermissionGranted": false
+      },
+      {
+        "id": 2,
+        "linkId": "4fdb9f74-e04a-426c-a005-c1b88cc5335b",
+        "relation": "CODE_HANDOFF",
+        "sourceStream": "a0786b8917e66b2cb7dcd37548335dd2522c3f799cb1cf5e3a89b6aba6973c70",
+        "sourceRun": "ba742d2e-0a17-41f0-b60c-c9f85e9a6a7b",
+        "sourceAgentId": 116,
+        "sourceRuntimeKey": "eap-agents/a116-v1-efc446a588ce",
+        "targetStream": "dc154f5bae3cac02b6d8ca2d1781bb40ecef72a74daeea3c1de5ca3d8de3a7ab",
+        "targetRun": "d2e8afbc-bfc4-4271-89a6-b4db1052221d",
+        "targetAgentId": 117,
+        "targetRuntimeKey": "eap-agents/a117-v1-f03270090769",
+        "artifactDigest": "f06ab2f6c8511807542a4897840539c5d25568e4009f786af36d609d1e9e2c1b",
+        "artifactSize": 134,
+        "artifactLanguage": "PYTHON",
+        "offeredMs": 1792936825184,
+        "confirmedMs": 1792936826306,
+        "state": "CONFIRMED",
+        "evidenceKind": "TWO_AUTHENTICATED_PRODUCER_REPORTS",
+        "executionPermissionGranted": false
+      }
+    ],
+    "hasMore": false,
+    "nextAfterId": 2
+  },
+  "roles": [
+    {
+      "user": "viewer",
+      "realConfirmedRelationsRead": 2,
+      "passed": true
+    },
+    {
+      "user": "operator",
+      "realConfirmedRelationsRead": 2,
+      "passed": true
+    },
+    {
+      "user": "governance",
+      "realConfirmedRelationsRead": 2,
+      "passed": true
+    },
+    {
+      "user": "admin",
+      "realConfirmedRelationsRead": 2,
+      "passed": true
+    }
+  ],
+  "events": 14,
+  "tools": 1,
+  "models": 0,
+  "metadataResends": 4,
+  "reclaimed": true
+}

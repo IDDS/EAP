@@ -146,7 +146,7 @@ public class OtlpTraceIngestionService {
     public com.eap.platform.common.HistoryPage<OtlpTraceIngestionDtos.TraceSpanResponse> page(com.eap.platform.common.ObservationHistoryQuery query) {
         if(query.getEventKey()!=null && !query.getEventKey().isBlank()) throw new com.eap.platform.common.BusinessException("此类记录不支持eventKey筛选，请使用Trace ID");
         var pageable=query.pageable();
-        var selected=query.enumStatus(com.eap.platform.telemetry.ModelInvocationStatus.class);
+        var selected=query.enumStatus(TraceStatus.class);
         var spec=query.<TraceSpanObservation>specification("status", selected==null?null:selected.name(), "traceId", "spanId", "spanName", "toolName", "mcpServerName").and(query.observationContext());
         return com.eap.platform.common.HistoryPage.from(traceSpanRepository.findAll(spec,pageable).map(this::toResponse));
     }
@@ -201,7 +201,8 @@ public class OtlpTraceIngestionService {
         observation.toolName = firstText(attrs, "gen_ai.tool.name", "gen_ai.tool.call.name", "tool.name", "function.name");
         observation.mcpServerName = firstText(attrs, "mcp.server.name", "mcp.server", "server.address");
         observation.ragSource = firstText(attrs, "rag.source", "retrieval.source", "db.namespace", "vector_db.namespace");
-        observation.status = status(span, attrs).name();
+        observation.status = McpProtocolObservation.applies(spanKind, attrs)
+                ? McpProtocolObservation.status(span, attrs) : status(span, attrs).name();
         observation.durationMs = durationMillis(span, attrs);
         observation.attributesJson = traceAttributesJson(attrs);
         observation.observedAt = observedAt(span);
@@ -256,11 +257,11 @@ public class OtlpTraceIngestionService {
         knowledgeService.record(new KnowledgeDtos.KnowledgeInteractionRequest(
                 normalize("otlp-knowledge-" + traceId + "-" + spanId, 128),
                 traceId, agentId, endpointKey, null,
-                "RAG_QUERY", sourceCount, estimateTokens(query), textValue(query), refs,
-                "RAG_CONTEXT", sourceCount, estimateTokens(documents), textValue(documents), refs,
+                "RAG_QUERY", sourceCount, estimateTokens(query), null, refs.stream().map(TraceMetadata::reference).toList(),
+                "RAG_CONTEXT", sourceCount, estimateTokens(documents), null, refs.stream().map(TraceMetadata::reference).toList(),
                 List.of(new KnowledgeDtos.KnowledgeStepRequest(
                         0, KnowledgeStepType.RETRIEVAL, "OTLP RAG span", KnowledgeStepStatus.SUCCEEDED,
-                        sourceCount, estimateTokens(query), estimateTokens(documents), durationMs, refs,
+                        sourceCount, estimateTokens(query), estimateTokens(documents), durationMs, refs.stream().map(TraceMetadata::reference).toList(),
                         Map.of("inferenceSource", "OTLP_TRACE", "modelInSameTrace", modelInTrace)
                 )),
                 KnowledgeInteractionStatus.SUCCEEDED, adopted, reused, null, observedAt, observedAt
@@ -373,32 +374,14 @@ public class OtlpTraceIngestionService {
     }
 
     private String traceAttributesJson(Map<String, JsonNode> attrs) {
-        Map<String, Object> safe = new LinkedHashMap<>();
-        attrs.entrySet().stream().limit(128).forEach(entry -> {
-            String key = entry.getKey();
-            String normalized = key.toLowerCase(Locale.ROOT);
-            if (normalized.contains("secret") || normalized.contains("token") || normalized.contains("password")
-                    || normalized.contains("api_key") || normalized.contains("apikey")) {
-                safe.put(key, "[REDACTED]");
-            } else if (containsAny(normalized, "input", "output", "prompt", "completion", "arguments", "result", "documents")) {
-                safe.put(key, "[CONTENT_CAPTURED_SEPARATELY]");
-            } else {
-                JsonNode value = entry.getValue();
-                safe.put(key, value == null ? null : value.isValueNode() ? value.asText() : value.toString());
-            }
-        });
-        try {
-            return normalize(objectMapper.writeValueAsString(safe), 32768);
-        } catch (Exception ignored) {
-            return "{}";
-        }
+        return TraceMetadata.from(attrs);
     }
 
     private OtlpTraceIngestionDtos.TraceSpanResponse toResponse(TraceSpanObservation item) {
         return new OtlpTraceIngestionDtos.TraceSpanResponse(
                 item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.agentId, item.spanName,
                 item.spanKind, item.operation, item.toolName, item.mcpServerName, item.ragSource,
-                item.status, item.durationMs == null ? 0L : item.durationMs, item.attributesJson, item.observedAt, item.startedAt, item.endedAt
+                item.status, item.durationMs == null ? 0L : item.durationMs, TraceMetadata.project(item.attributesJson), item.observedAt, item.startedAt, item.endedAt
         );
     }
 
@@ -617,6 +600,8 @@ public class OtlpTraceIngestionService {
         Instant start = producerTime(span, "startTimeUnixNano");
         return start == null ? Instant.now() : start;
     }
+
+    private enum TraceStatus { STARTED, SUCCEEDED, FAILED, CANCELLED, UNKNOWN }
 
     private ModelInvocationStatus status(JsonNode span, Map<String, JsonNode> attrs) {
         String responseStatus = firstText(attrs, "gen_ai.response.status");

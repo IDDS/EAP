@@ -51,6 +51,7 @@ import java.util.stream.Stream;
 
 @Service
 public class WorkItemService {
+    private static final int SIGNAL_BATCH_SIZE = 500;
     private static final Set<WorkItemStatus> OPEN_STATUSES = EnumSet.of(
             WorkItemStatus.OPEN, WorkItemStatus.CLAIMED, WorkItemStatus.IN_PROGRESS, WorkItemStatus.WAITING);
     private static final Set<WorkItemType> AUTO_SIGNAL_TYPES = EnumSet.of(
@@ -238,8 +239,13 @@ public class WorkItemService {
             }
         }
 
-        for (GovernancePreflightDecision decision : governanceDecisionRepository.findTop500ByOrderByDecidedAtDesc()) {
-            if (decision.getApprovalStatus() != GovernanceApprovalStatus.PENDING) continue;
+        // Freeze each cycle's ceiling; new arrivals cannot starve updates to older records.
+        if (syncState.approvalUpperBound == 0) syncState.approvalUpperBound = governanceDecisionRepository.signalUpperBound();
+        List<GovernancePreflightDecision> approvals = governanceDecisionRepository.scanSignals(
+                GovernanceApprovalStatus.PENDING, syncState.approvalCursor, syncState.approvalUpperBound,
+                org.springframework.data.domain.PageRequest.of(0, SIGNAL_BATCH_SIZE));
+        for (GovernancePreflightDecision decision : approvals) {
+            syncState.approvalCursor = decision.getId();
             GovernanceDataEvent event = governanceEventRepository.findById(decision.getDataEventId()).orElse(null);
             if (event != null && event.getAgentId() != null && !visibleAgentIds.contains(event.getAgentId())) continue;
             WorkItemSeverity severity = event != null && event.isCompanySecret() ? WorkItemSeverity.P0 : WorkItemSeverity.P1;
@@ -254,6 +260,10 @@ public class WorkItemService {
                             "model", Objects.toString(decision.getModelName(), ""),
                             "companySecret", event != null && event.isCompanySecret()), now
             ));
+        }
+        if (approvals.size() < SIGNAL_BATCH_SIZE || syncState.approvalCursor >= syncState.approvalUpperBound) {
+            syncState.approvalCursor = 0;
+            syncState.approvalUpperBound = 0;
         }
 
         for (ManagementValueConnector connector : connectorRepository.findAll()) {
@@ -274,8 +284,12 @@ public class WorkItemService {
             }
         }
 
-        List<EvaluationResult> failedEvaluations = evaluationResultRepository.findTop500ByOrderByEvaluatedAtDesc().stream()
-                .filter(item -> item.getStatus() == EvaluationStatus.COMPLETED && !item.isPassed())
+        if (syncState.evaluationUpperBound == 0) syncState.evaluationUpperBound = evaluationResultRepository.signalUpperBound();
+        List<EvaluationResult> evaluationBatch = evaluationResultRepository.scanSignals(
+                EvaluationStatus.COMPLETED, syncState.evaluationCursor, syncState.evaluationUpperBound,
+                org.springframework.data.domain.PageRequest.of(0, SIGNAL_BATCH_SIZE));
+        if (!evaluationBatch.isEmpty()) syncState.evaluationCursor = evaluationBatch.get(evaluationBatch.size() - 1).getId();
+        List<EvaluationResult> failedEvaluations = evaluationBatch.stream()
                 .filter(item -> item.getAgentId() == null || visibleAgentIds.contains(item.getAgentId()))
                 .toList();
         Map<Long, EvaluatorDefinition> evaluatorById = evaluatorDefinitionRepository.findAllById(
@@ -285,9 +299,21 @@ public class WorkItemService {
             EvaluatorDefinition evaluator = evaluatorById.get(result.getEvaluatorId());
             if (evaluator == null) continue;
             String target = blank(result.getTraceId()) ? String.valueOf(result.getId()) : result.getTraceId();
+            String itemKey = "EVALUATION:" + evaluator.getEvaluatorKey() + ":" + target;
+            // A cycle revisits old failures. Do not replace newer evidence for the same trace.
+            AgentWorkItem previous = repository.findByItemKey(itemKey).orElse(null);
+            if (previous != null && !Objects.equals(previous.sourceId, result.getResultKey())) {
+                EvaluationResult priorResult = evaluationResultRepository.findByResultKey(previous.sourceId).orElse(null);
+                if (priorResult != null && (priorResult.getEvaluatedAt().isAfter(result.getEvaluatedAt())
+                        || priorResult.getEvaluatedAt().equals(result.getEvaluatedAt())
+                        && priorResult.getId() > result.getId())) {
+                    detectedKeys.add(itemKey);
+                    continue;
+                }
+            }
             WorkItemSeverity severity = evaluationSeverity(evaluator.getEvaluatorKey());
             created[0] += registerSignal(detectedKeys, new Signal(
-                    "EVALUATION:" + evaluator.getEvaluatorKey() + ":" + target,
+                    itemKey,
                     WorkItemType.EVALUATION_FAILURE,
                     "评估未通过：" + evaluator.getName(),
                     blank(result.getRationale()) ? "请检查关联 Trace、Span 和 Agent 运行轨迹。" : result.getRationale(),
@@ -299,6 +325,10 @@ public class WorkItemService {
                             "spanId", Objects.toString(result.getSpanId(), ""),
                             "rationale", Objects.toString(result.getRationale(), "")), now
             ));
+        }
+        if (evaluationBatch.size() < SIGNAL_BATCH_SIZE || syncState.evaluationCursor >= syncState.evaluationUpperBound) {
+            syncState.evaluationCursor = 0;
+            syncState.evaluationUpperBound = 0;
         }
         resolveClearedSignals(detectedKeys, now);
         syncState.lastCompletedAt = Instant.now();
@@ -358,7 +388,9 @@ public class WorkItemService {
         } else if (request.status() == WorkItemStatus.CLOSED) {
             item.closedAt = Instant.now();
         }
-        repository.save(item);
+        // Detect a stale transition before inserting events whose FK would lock the same item.
+        // The item, event and audit remain one transaction; a conflict never retries the action.
+        repository.saveAndFlush(item);
         appendEvent(item, "STATUS_CHANGED", actor, before, item.status, request.reason(), request.resolutionEvidenceJson());
         writeAudit(item, actor, before, item.status, request.reason());
         return AgentOpsDtos.from(item, Instant.now());
