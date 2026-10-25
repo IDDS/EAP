@@ -90,6 +90,95 @@ class SubstrateDeploymentServiceTests {
                 properties, workflow, observation, safety, mock(AuditLogRepository.class), builder, new ObjectMapper().registerModule(new JavaTimeModule()), transactions,owned,identity,mock(com.eap.platform.registry.RuntimeConnectionService.class), work);
     }
 
+    private SubstrateDeploymentDtos.DeployRequest sampleRequest(String key, String requestKey, Map<String, Object> extra) {
+        var fields = new java.util.LinkedHashMap<String, Object>();
+        fields.put("sourceType", "TEMPLATE"); fields.put("runnerFramework", key); fields.put("requestKey", requestKey);
+        fields.putAll(extra);
+        return new ObjectMapper().convertValue(fields, SubstrateDeploymentDtos.DeployRequest.class);
+    }
+
+    @Test void sampleCatalogExplainsConfigurationAndDispatchPrerequisites() {
+        var catalog = service.capabilities().frameworkSamples();
+        assertThat(catalog).hasSize(2).allSatisfy(sample -> {
+            assertThat(sample.available()).isFalse(); assertThat(sample.reason()).contains("固定");
+        });
+        properties.setFrameworkSampleImage("registry.example.com/framework:latest");
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> assertThat(sample.available()).isFalse());
+        properties.setFrameworkSampleImage(RUNNER);
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> {
+            assertThat(sample.available()).isTrue(); assertThat(sample.reason()).isNull();
+        });
+        workflow.setEnabled(false);
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> {
+            assertThat(sample.available()).isFalse(); assertThat(sample.reason()).contains("派发");
+        });
+        workflow.setEnabled(true); identity.setDeliveryPrivateKey("");
+        assertThat(service.capabilities().frameworkSamples()).allSatisfy(sample -> assertThat(sample.available()).isFalse());
+        verifyNoInteractions(client, owned, repository);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"LANGGRAPH_SUM_V1", "AUTOGEN_SUM_V1"})
+    void samplePinsEntryPointAndUsesInstanceIdentityWithoutModelConfiguration(String key) {
+        properties.setFrameworkSampleImage(RUNNER);
+        var response = service.submit(7L, sampleRequest(key, "sample-original", Map.of()), "operator");
+        assertThat(response.sourceType()).isEqualTo("TEMPLATE"); assertThat(response.imageRef()).isEqualTo(RUNNER);
+        var sample = FrameworkSamples.require(key);
+        assertThat(response.config()).containsEntry("runnerFramework", key).containsEntry("frameworkVersion", sample.frameworkVersion())
+                .containsEntry("port", 80).containsEntry("readinessPath", "/readyz").containsEntry("command", List.of(sample.command()))
+                .doesNotContainKeys("image", "model", "systemPrompt", "maxTokens");
+        when(repository.findFirstByStatusInOrderByUpdatedAtAscIdAsc(any())).thenAnswer(call -> Optional.of(stored));
+        service.processNext();
+        var spec = ArgumentCaptor.forClass(SubstrateClient.TemplateSpec.class); verify(client).createTemplate(spec.capture());
+        assertThat(spec.getValue().command()).containsExactly(sample.command());
+        assertThat(spec.getValue().env()).containsEntry("EAP_TOOLS_ENABLED", "true").containsEntry("EAP_IDENTITY_PUBLIC_KEY", "synthetic-test-public")
+                .doesNotContainKeys("AGENT_MODEL", "AGENT_SYSTEM_PROMPT", "EAP_TASK_TOKEN", "EAP_GATEWAY_TOKEN");
+        assertThat(spec.getValue().projectIdentity()).isTrue();
+        when(client.goldenStatus("eap-agents", "eap-a7-v1")).thenReturn(new SubstrateClient.GoldenStatus(true, null));
+        service.processNext(); service.processNext(); service.processNext();
+        assertThat(stored.status).isEqualTo("READY");
+        verify(owned).create(eq(stored), eq(stored.deploymentKey.substring(4)), eq(List.of("backend.eap.svc.cluster.local")));
+    }
+
+    @Test void sampleOriginalIntentSurvivesImageRotationAndTemporaryUnavailability() {
+        properties.setFrameworkSampleImage(RUNNER);
+        var request = sampleRequest("LANGGRAPH_SUM_V1", "original-sample", Map.of());
+        var first = service.submit(7L, request, "operator");
+        when(repository.findByAgentIdAndSubmissionKey(7L, "original-sample")).thenAnswer(call -> Optional.of(stored));
+        clearInvocations(repository, client, owned, safety);
+        for (String image : List.of("registry.example.com/framework@sha256:" + "b".repeat(64), "")) {
+            properties.setFrameworkSampleImage(image);
+            var replay = service.submit(7L, request, "operator");
+            assertThat(replay.deploymentKey()).isEqualTo(first.deploymentKey()); assertThat(replay.imageRef()).isEqualTo(RUNNER);
+        }
+        assertThatThrownBy(() -> service.submit(7L, sampleRequest("AUTOGEN_SUM_V1", "original-sample", Map.of()), "operator"))
+                .isInstanceOf(com.eap.platform.common.ConflictException.class);
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void sampleRejectsCallerOverridesBeforeCreatingAnIntent() {
+        properties.setFrameworkSampleImage(RUNNER);
+        var overrides = new java.util.LinkedHashMap<String, Object>();
+        overrides.put("image", RUNNER); overrides.put("command", List.of("/bin/sh")); overrides.put("port", 80);
+        overrides.put("readinessPath", "/readyz"); overrides.put("systemPrompt", "x"); overrides.put("model", "test-model");
+        overrides.put("maxTokens", 1); overrides.put("thinkingMode", "PROVIDER_DEFAULT"); overrides.put("runnerToolMode", "NONE");
+        overrides.put("gitUrl", "https://example.com/code.git"); overrides.put("gitRef", "main"); overrides.put("contextPath", "");
+        overrides.put("dockerfile", "Dockerfile"); overrides.put("env", Map.of("PATH", "/tmp"));
+        overrides.put("egressHosts", List.of("example.com")); overrides.put("sandboxClass", "MICROVM");
+        overrides.forEach((field, value) -> assertThatThrownBy(() -> service.submit(7L,
+                sampleRequest("LANGGRAPH_SUM_V1", "rejected", Map.of(field, value)), "operator"))
+                .as(field).isInstanceOf(BusinessException.class));
+        for (String key : List.of("", "CREWAI", "EAP_NATIVE", "KAGENT_ADK"))
+            assertThatThrownBy(() -> service.submit(7L, sampleRequest(key, "rejected", Map.of()), "operator")).isInstanceOf(BusinessException.class);
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
+    @Test void unconfiguredSampleDoesNotFallBackToNativeRunner() {
+        assertThatThrownBy(() -> service.submit(7L, sampleRequest("LANGGRAPH_SUM_V1", "unavailable", Map.of()), "operator"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("样例镜像");
+        verify(repository, never()).save(any()); verifyNoInteractions(client, owned, safety);
+    }
+
     @Test void missingReceiptIsReadOnlyAndDoesNotMeanTheOriginalPostCannotCommit() {
         var receipt = service.receipt(7L, "original-key");
         assertThat(receipt.status()).isEqualTo("NOT_FOUND");

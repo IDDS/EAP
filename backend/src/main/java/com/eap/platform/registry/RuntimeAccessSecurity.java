@@ -14,7 +14,7 @@ public class RuntimeAccessSecurity {
     SecurityFilterChain runtimeAccessChain(HttpSecurity http)throws Exception{
         return http.securityMatcher("/api/runtime-access/v1/**").csrf(c->c.disable())
                 .sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(a->a.requestMatchers(HttpMethod.POST,"/api/runtime-access/v1/chat/completions","/api/runtime-access/v1/traces","/api/runtime-access/v1/execution-events","/api/runtime-access/v1/tools/check","/api/runtime-access/v1/tools/claim","/api/runtime-access/v1/tools/receipt","/api/runtime-access/v1/tools/scoped/delegate","/api/runtime-access/v1/tools/scoped/execute").permitAll()
+                .authorizeHttpRequests(a->a.requestMatchers(HttpMethod.POST,"/api/runtime-access/v1/chat/completions","/api/runtime-access/v1/traces","/api/runtime-access/v1/execution-events","/api/runtime-access/v1/execution-delivery","/api/runtime-access/v1/tools/check","/api/runtime-access/v1/tools/claim","/api/runtime-access/v1/tools/receipt","/api/runtime-access/v1/tools/scoped/delegate","/api/runtime-access/v1/tools/scoped/execute").permitAll()
                 .requestMatchers(HttpMethod.GET,"/api/runtime-access/v1/tools/scoped/operations").permitAll().anyRequest().denyAll()).build();
     }
 }

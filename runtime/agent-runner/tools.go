@@ -36,13 +36,14 @@ type toolJournal struct {
 	Observation      *toolObservation `json:"observation,omitempty"`
 }
 type toolObservation struct {
-	Framework        string `json:"framework"`
-	ProducerID       string `json:"producerId"`
-	StreamKey        string `json:"streamKey,omitempty"`
-	Events           int    `json:"events"`
-	Pending          int    `json:"pending"`
-	DeliveryState    string `json:"deliveryState,omitempty"`
-	DeliveryAttempts int    `json:"deliveryAttempts,omitempty"`
+	Framework               string `json:"framework"`
+	ProducerID              string `json:"producerId"`
+	StreamKey               string `json:"streamKey,omitempty"`
+	Events                  int    `json:"events"`
+	Pending                 int    `json:"pending"`
+	DeliveryState           string `json:"deliveryState,omitempty"`
+	DeliveryAttempts        int    `json:"deliveryAttempts,omitempty"`
+	BackgroundDeliveryState string `json:"backgroundDeliveryState,omitempty"`
 }
 type guardView struct {
 	CallID string `json:"callId"`

@@ -32,7 +32,7 @@ function allowed() { return alive && permissions.can('viewConsole') }
 function bindingLabel(state: string) { return ({ DEPLOYMENT_RECORDED: '已记录原部署版本', RUNTIME_RECORDED: '已记录实例，部署未确认', NOT_RECORDED: '实例版本未记录', AX_NOT_CAPTURED: '异步任务版本未记录', NOT_APPLICABLE: '控制节点' } as Record<string, string>)[state] || '未确认' }
 function missingLabel(state: string) { return state === 'NOT_APPLICABLE' ? '控制节点不绑定运行实例。' : state === 'AX_NOT_CAPTURED' ? '本期不采集 AX 沙箱版本；原任务与执行证据仍可查看。' : '没有派发前的版本记录，可能尚未派发或属于旧记录。请结合步骤回执核对。' }
 function backendLabel(value: string) { return ({ RUNTIME: '运行实例', AX: '异步沙箱', CONTROL: '流程控制' } as Record<string, string>)[value] || value }
-function sourceLabel(value: string) { return ({ RUNNER: '配置式智能体', IMAGE: '镜像部署', SOURCE: '源码构建' } as Record<string, string>)[value] || value }
+function sourceLabel(value: string) { return ({ RUNNER: '配置式智能体', IMAGE: '镜像部署', SOURCE: '源码构建', TEMPLATE: '受控框架样例' } as Record<string, string>)[value] || value }
 async function load() {
   clear()
   if (!allowed()) return

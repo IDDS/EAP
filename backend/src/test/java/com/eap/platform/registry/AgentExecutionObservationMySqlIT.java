@@ -7,7 +7,7 @@ class AgentExecutionObservationMySqlIT extends AgentExecutionObservationIntegrat
     @Override protected String migrationJdbcUrl() {
         String url=System.getenv("EAP_ISOLATED_MYSQL_URL");
         if(url==null||!url.startsWith("jdbc:mysql://127.0.0.1:3306/eap_holdout_fixture?"))throw new IllegalStateException("Isolated loopback MySQL required");
-        return url.replace("/eap_holdout_fixture?","/eap_execution_upgrade_fixture?");
+        return url.replace("/eap_holdout_fixture?","/eap_execution_upgrade_"+java.util.UUID.randomUUID().toString().replace("-","")+"?");
     }
     @DynamicPropertySource static void isolatedMySql(DynamicPropertyRegistry p) {
         String url=System.getenv("EAP_ISOLATED_MYSQL_URL");

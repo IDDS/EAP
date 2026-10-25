@@ -34,6 +34,8 @@ var runnerEngineVersion = ""
 var generateModel = (*runner).gatewayCompletion
 var serveTask = (*runner).task
 var configureEngine = func(*runner) {}
+var runEngine = func(context.Context, *runner) {}
+var engineState = func(*runner) map[string]any { return nil }
 
 type message struct {
 	Role    string `json:"role"`
@@ -52,6 +54,7 @@ type runner struct {
 	experimentMu     sync.Mutex
 	experimentDir    string
 	mu               sync.Mutex
+	engineHealth     map[string]any
 	taskMu           cancellableMutex
 	conversationMu   cancellableMutex
 	taskReceipts     map[string]modelTaskReceipt
@@ -119,6 +122,7 @@ func main() {
 		log.Fatal("invalid MCP service manifest")
 	}
 	configureEngine(r)
+	go runEngine(context.Background(), r)
 	http.HandleFunc("/eap/identity/challenge", r.identityChallenge)
 	http.HandleFunc("/eap/identity/install", r.identityInstall)
 	http.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -296,7 +300,11 @@ func (r *runner) state(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	handled := len(r.handled)
 	r.mu.Unlock()
-	writeJSON(w, map[string]any{"turns": 0, "conversationMode": "EXPLICIT_V1", "tasksHandled": handled, "model": r.model, "tools": r.toolStats(), "runnerFramework": runnerFramework, "engineVersion": runnerEngineVersion, "kagentToolMode": r.kagentToolMode})
+	state := map[string]any{"turns": 0, "conversationMode": "EXPLICIT_V1", "tasksHandled": handled, "model": r.model, "tools": r.toolStats(), "runnerFramework": runnerFramework, "engineVersion": runnerEngineVersion, "kagentToolMode": r.kagentToolMode}
+	if delivery := engineState(r); delivery != nil {
+		state["executionDelivery"] = delivery
+	}
+	writeJSON(w, state)
 }
 
 // Internal compatibility helpers are stateless as well.

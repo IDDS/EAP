@@ -110,7 +110,7 @@ public class SecurityConfig {
                             .hasAnyRole(PlatformPermission.REVIEW_EXPERIMENT_UNKNOWNS.roles())
                         .requestMatchers(HttpMethod.POST, "/api/observability/diagnostics/policy")
                             .hasAnyRole(PlatformPermission.GOVERNANCE.roles())
-                        .requestMatchers(HttpMethod.GET, "/api/observability/agent-executions", "/api/observability/agent-executions/*/graph")
+                        .requestMatchers(HttpMethod.GET, "/api/observability/agent-executions", "/api/observability/agent-executions/*/graph", "/api/observability/agent-executions/deliveries")
                             .hasAnyRole(PlatformPermission.VIEW_CONSOLE.roles())
                         .requestMatchers("/api/observability/agent-executions", "/api/observability/agent-executions/**").denyAll()
                         .requestMatchers(HttpMethod.GET, "/api/observability/logs")

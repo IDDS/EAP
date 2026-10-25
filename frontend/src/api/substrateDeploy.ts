@@ -1,10 +1,12 @@
 // Pure helpers for console deployment onto Agent Substrate; no imports so node tests can load them directly.
 
-export type DeploySource = 'RUNNER' | 'IMAGE' | 'SOURCE'
+export type DeploySource = 'RUNNER' | 'IMAGE' | 'SOURCE' | 'TEMPLATE'
+export type FrameworkSampleKey = 'LANGGRAPH_SUM_V1' | 'AUTOGEN_SUM_V1'
 export type EnvRow = { name: string; value: string }
 export type DeployForm = {
   sourceType: DeploySource
   runnerFramework: 'EAP_NATIVE' | 'KAGENT_ADK'
+  frameworkSample: FrameworkSampleKey
   runnerToolMode: 'NONE' | 'CALCULATE_SUM_V1'
   systemPrompt: string
   model: string
@@ -26,7 +28,7 @@ export type DeployForm = {
 
 export type DeployPayload = {
   sourceType: DeploySource
-  runnerFramework?: 'KAGENT_ADK'
+  runnerFramework?: 'KAGENT_ADK' | FrameworkSampleKey
   runnerToolMode?: 'CALCULATE_SUM_V1'
   systemPrompt?: string
   model?: string
@@ -51,7 +53,7 @@ export const ACTIVE_DEPLOYMENT_STATUSES = ['BUILDING_IMAGE', 'QUEUED', 'BUILDING
 
 export function defaultDeployForm(): DeployForm {
   return {
-    sourceType: 'RUNNER', runnerFramework: 'EAP_NATIVE', runnerToolMode: 'NONE', systemPrompt: '', model: 'deepseek-flash', image: '', gitUrl: '', gitRef: 'main', contextPath: '',
+    sourceType: 'RUNNER', runnerFramework: 'EAP_NATIVE', frameworkSample: 'LANGGRAPH_SUM_V1', runnerToolMode: 'NONE', systemPrompt: '', model: 'deepseek-flash', image: '', gitUrl: '', gitRef: 'main', contextPath: '',
     dockerfile: 'Dockerfile', port: 80, readinessPath: '/readyz', maxTokens: 1024, thinkingMode: 'PROVIDER_DEFAULT',
     command: '', sandboxClass: 'GVISOR', size: 'SMALL', env: [], egressHosts: '',
   }
@@ -59,6 +61,10 @@ export function defaultDeployForm(): DeployForm {
 
 /** Only fields of the chosen source are sent; blank env rows and blank host lines are dropped. */
 export function buildDeployPayload(form: DeployForm, requestKey: string): DeployPayload {
+  if (form.sourceType === 'TEMPLATE') return {
+    sourceType: 'TEMPLATE', runnerFramework: form.frameworkSample, sandboxClass: 'GVISOR', size: form.size,
+    env: {}, egressHosts: [], requestKey,
+  }
   const env: Record<string, string> = {}
   for (const row of form.env) {
     const name = row.name.trim()
@@ -98,6 +104,9 @@ export function buildDeployPayload(form: DeployForm, requestKey: string): Deploy
 
 /** Client-side checks that mirror the server so users see problems before submitting. */
 export function validateDeployForm(form: DeployForm): string | null {
+  if (!['RUNNER', 'IMAGE', 'SOURCE', 'TEMPLATE'].includes(form.sourceType)) return '请选择有效部署方式'
+  if (form.sourceType === 'TEMPLATE') return ['LANGGRAPH_SUM_V1', 'AUTOGEN_SUM_V1'].includes(form.frameworkSample)
+    ? null : '请选择已支持的受控框架样例'
   if (form.sourceType === 'RUNNER') {
     if (!['EAP_NATIVE', 'KAGENT_ADK'].includes(form.runnerFramework)) return '请选择有效运行框架'
     if (form.runnerFramework === 'KAGENT_ADK' && !['NONE', 'CALCULATE_SUM_V1'].includes(form.runnerToolMode)) return '请选择有效工具模式'

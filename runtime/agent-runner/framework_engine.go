@@ -25,6 +25,8 @@ func init() {
 	runnerEngineVersion = "1"
 	serveTask = frameworkTask
 	configureEngine = func(r *runner) { r.sumExecutor = r.frameworkSum }
+	runEngine = runFrameworkDelivery
+	engineState = frameworkDeliveryState
 	generateModel = func(*runner, context.Context, []message, string, string) (string, error) {
 		return "", errors.New("model execution is unavailable in this fixed framework template")
 	}
@@ -55,14 +57,15 @@ func frameworkTask(r *runner, w http.ResponseWriter, req *http.Request) {
 }
 
 type frameworkInput struct {
-	Framework  string    `json:"framework"`
-	Numbers    []float64 `json:"numbers"`
-	CallID     string    `json:"callId"`
-	TraceID    string    `json:"traceId"`
-	RuntimeKey string    `json:"runtimeKey"`
-	Credential string    `json:"credential"`
-	Gateway    string    `json:"gateway"`
-	Directory  string    `json:"directory"`
+	Framework        string                     `json:"framework"`
+	Numbers          []float64                  `json:"numbers"`
+	CallID           string                     `json:"callId"`
+	TraceID          string                     `json:"traceId"`
+	RuntimeKey       string                     `json:"runtimeKey"`
+	Credential       string                     `json:"credential"`
+	Gateway          string                     `json:"gateway"`
+	Directory        string                     `json:"directory"`
+	DeliveryIdentity *frameworkDeliveryIdentity `json:"deliveryIdentity"`
 }
 type frameworkOutput struct {
 	Sum         float64         `json:"sum"`
@@ -80,7 +83,11 @@ func (b *boundedWorkerOutput) Write(p []byte) (int, error) {
 }
 
 func runFrameworkWorker(ctx context.Context, input []byte) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "/usr/bin/python3", "-s", "/opt/eap-framework/worker.py")
+	return runFrameworkProcess(ctx, "/opt/eap-framework/worker.py", input)
+}
+
+func runFrameworkProcess(ctx context.Context, script string, input []byte) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "/usr/bin/python3", "-s", script)
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "PYTHONPATH=/opt/eap-framework:/opt/eap-framework/site", "PYTHONDONTWRITEBYTECODE=1", "LANGSMITH_TRACING=false", "LANGCHAIN_TRACING_V2=false", "OTEL_SDK_DISABLED=true"}
 	cmd.Stdin = bytes.NewReader(input)
 	var output boundedWorkerOutput
@@ -106,8 +113,12 @@ func (r *runner) frameworkSumWith(numbers []float64, journal *toolJournal, run f
 	}
 	r.mu.Lock()
 	key, credential := r.runtimeKey, r.runtimeToken
+	binding := r.frameworkDeliveryIdentityLocked()
 	r.mu.Unlock()
-	body, err := json.Marshal(frameworkInput{frameworkEngine, numbers, journal.CallID, journal.TraceID, key, credential, r.gateway, directory})
+	if !r.frameworkDeliveryProjectionMatches(key, binding) {
+		binding = nil
+	}
+	body, err := json.Marshal(frameworkInput{frameworkEngine, numbers, journal.CallID, journal.TraceID, key, credential, r.gateway, directory, binding})
 	if err != nil {
 		return 0, errors.New("invalid framework input")
 	}
@@ -124,6 +135,14 @@ func (r *runner) frameworkSumWith(numbers []float64, journal *toolJournal, run f
 		return 0, errors.New("invalid framework result")
 	}
 	o := output.Observation
+	switch o.BackgroundDeliveryState {
+	case "", "NOT_ENROLLED", "WAITING", "COMPLETED", "BLOCKED", "CANCELLED", "UNAVAILABLE":
+	default:
+		return 0, errors.New("invalid background enrollment state")
+	}
+	if binding != nil && (o.BackgroundDeliveryState == "" || o.BackgroundDeliveryState == "NOT_ENROLLED") {
+		return 0, errors.New("missing background enrollment outcome")
+	}
 	validDelivery := o.DeliveryState == "ACKNOWLEDGED" && o.Pending == 0 && o.DeliveryAttempts >= 1
 	if o.Pending == o.Events {
 		switch o.DeliveryState {
@@ -136,7 +155,7 @@ func (r *runner) frameworkSumWith(numbers []float64, journal *toolJournal, run f
 	if !validDelivery || o.DeliveryAttempts > 3 {
 		return 0, errors.New("invalid framework delivery status")
 	}
-	if o.Framework != frameworkEngine || !canonicalUUID(o.ProducerID) || o.Events != 9 || (o.Pending != 0 && o.Pending != o.Events) || (o.Pending == 0 && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(o.StreamKey)) || (o.Pending != 0 && o.StreamKey != "") {
+	if o.Framework != frameworkEngine || !canonicalUUID(o.ProducerID) || o.Events != 12 || (o.Pending != 0 && o.Pending != o.Events) || (o.Pending == 0 && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(o.StreamKey)) || (o.Pending != 0 && o.StreamKey != "") {
 		return 0, errors.New("invalid framework observation receipt")
 	}
 	journal.Observation = &o

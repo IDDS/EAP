@@ -169,6 +169,7 @@ eap:
     snapshot-location: ${EAP_SUBSTRATE_SNAPSHOT_LOCATION:gs://ate-snapshots/eap/}
     runner-image: ${EAP_SUBSTRATE_RUNNER_IMAGE:}
     kagent-runner-image: ${EAP_SUBSTRATE_KAGENT_RUNNER_IMAGE:}
+    framework-sample-image: ${EAP_SUBSTRATE_FRAMEWORK_SAMPLE_IMAGE:}
     local-registry-prefix: ${EAP_SUBSTRATE_LOCAL_REGISTRY_PREFIX:localhost:5001/}
     local-registry-url: ${EAP_SUBSTRATE_LOCAL_REGISTRY_URL:}
     gateway-url: ${EAP_SUBSTRATE_GATEWAY_URL:}

@@ -117,7 +117,19 @@ public class SubstrateDeploymentService {
         return new SubstrateDeploymentDtos.CapabilityResponse(properties.isEnabled(), !properties.getRunnerImage().isBlank() && identityConfig.deliveryReady(),
                 !properties.getGatewayUrl().isBlank() && !properties.getGatewayToken().isBlank(),
                 properties.getDeployAtespace(), properties.getGatewayHost(), List.copyOf(SIZES.keySet()), builder.enabled(), identityConfig.deliveryReady(),
-                properties.kagentRunnerAvailable() && identityConfig.deliveryReady());
+                properties.kagentRunnerAvailable() && identityConfig.deliveryReady(),
+                FrameworkSamples.ALL.stream().map(sample -> new SubstrateDeploymentDtos.FrameworkSampleCapability(
+                        sample.key(), sample.label(), sample.frameworkVersion(), frameworkSampleUnavailable() == null,
+                        frameworkSampleUnavailable())).toList());
+    }
+
+    private String frameworkSampleUnavailable() {
+        if (!properties.isEnabled()) return "托管运行环境未启用";
+        if (!identityConfig.deliveryReady()) return "专属实例身份配送未就绪";
+        if (!workflow.isEnabled() || workflow.hosts().isEmpty()) return "任务派发未就绪";
+        if (properties.getGatewayUrl().isBlank() || properties.getGatewayHost().isBlank()) return "治理网关未配置";
+        if (!properties.frameworkSampleAvailable()) return "管理员尚未配置按摘要固定的样例镜像";
+        return null;
     }
 
     @Transactional(readOnly = true)
@@ -167,9 +179,12 @@ public class SubstrateDeploymentService {
             throw new BusinessException("专属实例身份接入需要程序监听端口 80；请调整镜像或源码后发布");
         }
         boolean source = "SOURCE".equals(config.get("sourceType"));
+        boolean sample = "TEMPLATE".equals(config.get("sourceType"));
+        if (sample && frameworkSampleUnavailable() != null) throw new BusinessException(frameworkSampleUnavailable());
         // A source build is pinned to the digest it pushes; there is nothing to resolve before it runs.
         String image = source ? null
-                : resolveImage("RUNNER".equals(config.get("sourceType")) ? runnerImage(config) : (String) config.get("image"));
+                : resolveImage(sample ? properties.getFrameworkSampleImage()
+                        : "RUNNER".equals(config.get("sourceType")) ? runnerImage(config) : (String) config.get("image"));
         int version = repository.findFirstByAgentIdOrderByVersionDesc(agentId).map(d -> d.version + 1).orElse(1);
         SubstrateDeployment deployment = new SubstrateDeployment();
         deployment.deploymentKey = "dep-" + UUID.randomUUID();
@@ -512,11 +527,27 @@ public class SubstrateDeploymentService {
     private Map<String, Object> normalize(SubstrateDeploymentDtos.DeployRequest request) {
         Map<String, Object> config = new LinkedHashMap<>();
         String source = upper(request.sourceType());
-        if (!Set.of("RUNNER", "IMAGE", "SOURCE").contains(source)) {
-            throw new BusinessException("部署来源只能是 RUNNER（零代码）、IMAGE（已有镜像）或 SOURCE（源码构建）");
+        if (!Set.of("RUNNER", "IMAGE", "SOURCE", "TEMPLATE").contains(source)) {
+            throw new BusinessException("部署来源只能是 RUNNER、IMAGE、SOURCE 或 TEMPLATE（受控框架样例）");
         }
         config.put("sourceType", source);
-        if ("RUNNER".equals(source)) {
+        if ("TEMPLATE".equals(source)) {
+            var sample = FrameworkSamples.require(upper(request.runnerFramework()));
+            if (request.image() != null || request.command() != null || request.port() != null || request.readinessPath() != null
+                    || request.systemPrompt() != null || request.model() != null || request.maxTokens() != null
+                    || request.thinkingMode() != null || request.runnerToolMode() != null || request.gitUrl() != null
+                    || request.gitRef() != null || request.contextPath() != null || request.dockerfile() != null
+                    || request.env() != null && !request.env().isEmpty()
+                    || request.egressHosts() != null && !request.egressHosts().isEmpty())
+                throw new BusinessException("受控框架样例的镜像、命令、模型、环境变量和出站配置由平台固定");
+            if (request.sandboxClass() != null && !"GVISOR".equals(upper(request.sandboxClass())))
+                throw new BusinessException("受控框架样例当前仅支持 gVisor");
+            config.put("runnerFramework", sample.key());
+            config.put("frameworkVersion", sample.frameworkVersion());
+            config.put("port", 80);
+            config.put("readinessPath", "/readyz");
+            config.put("command", List.of(sample.command()));
+        } else if ("RUNNER".equals(source)) {
             String framework = request.runnerFramework() == null ? "EAP_NATIVE" : upper(request.runnerFramework());
             if (!Set.of("EAP_NATIVE", "KAGENT_ADK").contains(framework)) throw new BusinessException("运行框架无效");
             // Keep the old shape for native callers and existing submission keys.

@@ -21,6 +21,7 @@
         <el-form-item label="部署方式">
           <el-radio-group v-model="form.sourceType">
             <el-radio-button value="RUNNER" :disabled="capabilities ? !capabilities.runnerAvailable && !capabilities.kagentRunnerAvailable : false">零代码配置</el-radio-button>
+            <el-radio-button value="TEMPLATE">受控框架样例</el-radio-button>
             <el-radio-button value="IMAGE">已有镜像</el-radio-button>
             <el-radio-button value="SOURCE" :disabled="capabilities ? !capabilities.sourceBuildAvailable : false">源码构建</el-radio-button>
           </el-radio-group>
@@ -63,6 +64,8 @@
             </el-select>
           </el-form-item>
         </template>
+        <FrameworkSamplePicker v-else-if="form.sourceType === 'TEMPLATE'" v-model="form.frameworkSample"
+          :samples="capabilities?.frameworkSamples ?? []" :disabled="!actions.deploy || submitting" />
         <template v-else>
           <el-alert class="identity-hint" type="info" :closable="false" show-icon
             title="镜像和源码也使用专属实例身份"
@@ -96,7 +99,7 @@
           </el-form-item>
         </template>
 
-        <el-form-item label="沙箱">
+        <el-form-item v-if="form.sourceType !== 'TEMPLATE'" label="沙箱">
           <el-radio-group v-model="form.sandboxClass">
             <el-radio value="GVISOR">gVisor（默认）</el-radio>
             <el-radio value="MICROVM">microVM（隔离更强）</el-radio>
@@ -109,7 +112,7 @@
             <el-radio-button value="LARGE">大 · 2 核 / 1Gi</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="环境变量">
+        <el-form-item v-if="form.sourceType !== 'TEMPLATE'" label="环境变量">
           <div class="env-rows">
             <div v-for="(row, index) in form.env" :key="index" class="env-row">
               <el-input v-model="row.name" placeholder="名称" />
@@ -119,13 +122,13 @@
             <el-button link type="primary" @click="form.env.push({ name: '', value: '' })">添加变量</el-button>
           </div>
         </el-form-item>
-        <el-form-item label="出站访问">
+        <el-form-item v-if="form.sourceType !== 'TEMPLATE'" label="出站访问">
           <el-input v-model="form.egressHosts" type="textarea" :rows="2"
             placeholder="额外允许访问的主机名，每行一个；每一项都进入治理审批" />
           <span class="field-hint">默认只允许访问 EAP 网关{{ capabilities?.gatewayHost ? `（${capabilities.gatewayHost}）` : '' }}</span>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="submitting" :disabled="!actions.deploy || !capabilities?.enabled || !capabilities?.instanceIdentityAvailable" @click="submit">{{ pendingDeployment ? '按原编号提交' : '发布部署' }}</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!actions.deploy || !capabilities?.enabled || !capabilities?.instanceIdentityAvailable || sampleUnavailable" @click="submit">{{ pendingDeployment ? '按原编号提交' : '发布部署' }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -140,6 +143,7 @@
           <el-tag size="small" effect="plain">{{ sourceLabel(deployment.sourceType) }}</el-tag>
           <el-tag v-if="deployment.config.runnerToolMode === 'CALCULATE_SUM_V1'" size="small" effect="plain">受控求和 · 单次</el-tag>
           <el-tag v-if="deployment.config.runnerFramework === 'KAGENT_ADK'" size="small" effect="plain">Kagent Go ADK</el-tag>
+          <el-tag v-if="deployment.sourceType === 'TEMPLATE'" size="small" effect="plain">{{ frameworkSampleLabel(deployment) }}</el-tag>
           <el-tag size="small" :type="deployment.config.identityMode === 'PER_INSTANCE_V1' ? 'success' : 'warning'" effect="plain">
             {{ deployment.config.identityMode === 'PER_INSTANCE_V1' ? '专属实例身份' : '旧身份版本 · 待迁移' }}
           </el-tag>
@@ -198,7 +202,8 @@
         </el-table-column>
         <el-table-column label="操作" min-width="300">
           <template #default="{ row }">
-            <el-button v-if="row.version != null" link type="primary" :disabled="!actions.chat" @click="openChat(row)">试运行</el-button>
+            <span v-if="isFrameworkSample(row)" class="small">通过工作流执行求和</span>
+            <el-button v-else-if="row.version != null" link type="primary" :disabled="!actions.chat" @click="openChat(row)">试运行</el-button>
             <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'RESUME'" @click="control(row, 'RESUME')">唤醒</el-button>
             <el-button link :disabled="!actions.control" :loading="busy === row.instanceKey + 'PAUSE'" @click="control(row, 'PAUSE')">休眠</el-button>
             <el-button v-if="row.version != null && row.state === 'CRASHED'" link type="warning" :disabled="!actions.control" :loading="busy === row.instanceKey + 'REVERT'" @click="control(row, 'REVERT')">回退</el-button>
@@ -238,6 +243,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { SubstrateApi } from '@/api/substrate'
+import FrameworkSamplePicker from './FrameworkSamplePicker.vue'
 import { substrateActions } from '@/api/capabilities'
 import { usePermissions } from '@/stores/permissions'
 import type { DeploymentReceipt, ChatReply, ChatHistory, SubstrateCapabilities, SubstrateDeployment, SubstrateInstance } from '@/api/substrate'
@@ -254,6 +260,8 @@ const buildLogs = reactive<Record<number, string>>({})
 const logLoading = ref<number>()
 const capabilities = ref<SubstrateCapabilities>()
 const form = reactive(defaultDeployForm())
+const sampleUnavailable = computed(() => form.sourceType === 'TEMPLATE'
+  && !capabilities.value?.frameworkSamples?.some(sample => sample.key === form.frameworkSample && sample.available))
 const deployments = ref<SubstrateDeployment[]>([])
 const instances = ref<SubstrateInstance[]>([])
 const submitting = ref(false)
@@ -366,6 +374,7 @@ function schedulePolling() {
 
 async function submit() {
   if (!actions.value.deploy || submitting.value || !permissions.state.user?.subject) return
+  if (sampleUnavailable.value) { ElMessage.warning('当前框架样例暂不可部署，请核对配置状态'); return }
   const problem = validateDeployForm(form)
   if (problem) { ElMessage.warning(problem); return }
   const generation = deploymentGeneration, agentId = props.agentId, storageKey = deploymentStorageKey()
@@ -418,7 +427,16 @@ async function queryDeploymentReceipt() {
 }
 
 function sourceLabel(source: string) {
-  return source === 'RUNNER' ? '零代码' : source === 'SOURCE' ? '源码' : '镜像'
+  return source === 'RUNNER' ? '零代码' : source === 'SOURCE' ? '源码' : source === 'TEMPLATE' ? '受控框架样例' : '镜像'
+}
+
+function frameworkSampleLabel(deployment: SubstrateDeployment) {
+  return (deployment.config.runnerFramework === 'LANGGRAPH_SUM_V1' ? 'LangGraph' : 'AutoGen Core')
+    + ' ' + String(deployment.config.frameworkVersion ?? '')
+}
+
+function isFrameworkSample(instance: SubstrateInstance) {
+  return deployments.value.some(deployment => deployment.version === instance.version && deployment.sourceType === 'TEMPLATE')
 }
 
 async function loadLog(deployment: SubstrateDeployment) {

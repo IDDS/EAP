@@ -38,6 +38,7 @@ class CodeSnapshot:
     digest: str
     language: str
     data: bytes = field(repr=False)
+    captured_in: RunContext | None = field(default=None, repr=False)
 
     def __post_init__(self):
         if not isinstance(self.data, bytes) or hashlib.sha256(self.data).hexdigest() != self.digest:
@@ -83,6 +84,7 @@ class Journal:
         self.lock = threading.RLock()
         self.flush_lock = threading.RLock()
         self.closed = False
+        self.delivery_sealed = False
         fd = os.open(path, (0 if existing_only else os.O_CREAT) | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         try:
             mode = os.fstat(fd)
@@ -93,41 +95,44 @@ class Journal:
             os.close(fd)
             raise
         self.fd = fd
+        self.db = None
         try:
             self.db = sqlite3.connect(path, check_same_thread=False, timeout=5)
-            if (os.lstat(path).st_dev, os.lstat(path).st_ino) != (mode.st_dev, mode.st_ino):
-                self.db.close()
+            current = os.lstat(path)
+            if (current.st_dev, current.st_ino) != (mode.st_dev, mode.st_ino):
                 raise ValueError("journal path changed")
+            if existing_only:
+                try:
+                    if not dict(self.db.execute("select key,value from metadata")):
+                        raise ValueError("empty journal")
+                    self.db.execute("select sequence,event,acknowledged from events limit 1")
+                except Exception:
+                    raise ObservationError("existing execution journal unavailable") from None
+            self.db.execute("pragma journal_mode=DELETE")
+            self.db.execute("pragma synchronous=FULL")
+            self.db.execute("create table if not exists metadata (key text primary key, value text not null)")
+            self.db.execute("create table if not exists events (sequence integer primary key, event text not null, acknowledged integer not null default 0)")
+            meta = dict(self.db.execute("select key,value from metadata"))
+            self.reopened = bool(meta)
+            if meta:
+                if (meta.get("runtimeKey"), meta.get("framework"), meta.get("version")) != (runtime_key, framework, version):
+                    raise ValueError("journal identity differs")
+                self.producer_id = meta["producerId"]
+            else:
+                self.producer_id = str(uuid.uuid4())
+                self.db.executemany("insert into metadata values(?,?)", {"runtimeKey": runtime_key, "framework": framework,
+                    "version": version, "producerId": self.producer_id}.items())
+                self.db.commit()
+            self.artifacts = set()
         except BaseException:
-            os.close(fd)
-            raise
-        if existing_only:
+            # Failed construction must not retain SQLite handles or the exclusive file lock.
             try:
-                if not dict(self.db.execute("select key,value from metadata")):
-                    raise ValueError("empty journal")
-                self.db.execute("select sequence,event,acknowledged from events limit 1")
-            except Exception:
-                self.db.close()
+                if self.db is not None:
+                    self.db.close()
+            finally:
                 os.close(fd)
-                raise ObservationError("existing execution journal unavailable") from None
-        self.db.execute("pragma journal_mode=DELETE")
-        self.db.execute("pragma synchronous=FULL")
-        self.db.execute("create table if not exists metadata (key text primary key, value text not null)")
-        self.db.execute("create table if not exists events (sequence integer primary key, event text not null, acknowledged integer not null default 0)")
-        meta = dict(self.db.execute("select key,value from metadata"))
-        self.reopened = bool(meta)
-        if meta:
-            if (meta.get("runtimeKey"), meta.get("framework"), meta.get("version")) != (runtime_key, framework, version):
-                self.db.close()
-                os.close(self.fd)
-                raise ValueError("journal identity differs")
-            self.producer_id = meta["producerId"]
-        else:
-            self.producer_id = str(uuid.uuid4())
-            self.db.executemany("insert into metadata values(?,?)", {"runtimeKey": runtime_key, "framework": framework,
-                "version": version, "producerId": self.producer_id}.items())
-            self.db.commit()
-        self.artifacts = set()
+                self.closed = True
+            raise
 
     def emit(self, kind, context, **extra):
         if kind not in _KINDS or context.producer_id != self.producer_id:
@@ -146,7 +151,7 @@ class Journal:
         if kind == "ARTIFACT_REGISTERED" and (type(extra.get("sizeBytes")) is not int or not 0 <= extra["sizeBytes"] <= 1048576 or extra.get("language") not in {"PYTHON", "JAVASCRIPT", "SHELL", "OTHER"}):
             raise ValueError("invalid artifact metadata")
         with self.lock:
-            if self.closed or self.reopened or os.getpid() != self.process_id:
+            if self.closed or self.reopened or self.delivery_sealed or os.getpid() != self.process_id:
                 raise ObservationError("journal cannot accept new events")
             sequence = self.db.execute("select coalesce(max(sequence),0)+1 from events").fetchone()[0]
             if sequence > self.capacity:
@@ -193,6 +198,51 @@ class Journal:
                 saved["lastAcknowledgedAt"] = now
             with self.db:
                 self.db.execute("insert or replace into metadata values('delivery',?)", (json.dumps(saved),))
+
+    def report_status(self, transport):
+        """One metadata-only report of the current snapshot. Never flush or execute work.
+
+        Persist a monotonically increasing report number before sending. A newer call supersedes
+        a lost response; the receiver rejects late older reports. This is not a live queue feed.
+        """
+        with self.flush_lock:
+            with self.lock:
+                status = self.delivery_status()
+                old = self.db.execute("select value from metadata where key='deliveryReportSequence'").fetchone()
+                sequence = int(old[0]) + 1 if old else 1
+                if sequence > 9007199254740991:
+                    raise ObservationError("delivery report sequence exhausted")
+                body = dict(schemaVersion=1, producerId=self.producer_id, framework=self.framework,
+                            frameworkVersion=self.version, reportSequence=sequence,
+                            **{k: status[k] for k in ("total", "acknowledged", "pending", "attempts", "state")})
+                with self.db:
+                    self.db.execute("insert or replace into metadata values('deliveryReportSequence',?)", (str(sequence),))
+            result = {"state": "ACKNOWLEDGED", "reportSequence": sequence}
+            try:
+                receipt = transport.report_delivery(self.runtime_key, body)
+                if (not isinstance(receipt, dict) or set(receipt) != {"streamKey", "reportSequence", "duplicate"}
+                        or type(receipt["reportSequence"]) is not int or receipt["reportSequence"] != sequence
+                        or type(receipt["duplicate"]) is not bool or not isinstance(receipt["streamKey"], str)
+                        or not re.fullmatch(r"[a-f0-9]{64}", receipt["streamKey"])):
+                    raise ExportError("BLOCKED_RECEIPT")
+                with self.lock:
+                    old_stream = self.db.execute("select value from metadata where key='streamKey'").fetchone()
+                    if old_stream and old_stream[0] != receipt["streamKey"]:
+                        raise ExportError("BLOCKED_CONFLICT")
+                    with self.db:
+                        self.db.execute("insert or ignore into metadata values('streamKey',?)", (receipt["streamKey"],))
+                result["streamKey"] = receipt["streamKey"]
+            except Exception as error:
+                result["state"] = error.code if isinstance(error, ExportError) else "BLOCKED_TRANSPORT"
+            with self.lock, self.db:
+                self.db.execute("insert or replace into metadata values('deliveryReport',?)", (json.dumps(result),))
+            return result
+
+    def delivery_report_status(self):
+        with self.lock:
+            self.delivery_status()  # Same closed/fork ownership checks; no network or event mutation.
+            row = self.db.execute("select value from metadata where key='deliveryReport'").fetchone()
+            return json.loads(row[0]) if row else {"state": "NOT_REPORTED", "reportSequence": 0}
 
     def flush(self, transport):
         """One HTTP attempt per batch. Retry explicitly with the same stored events."""
@@ -342,10 +392,30 @@ class Journal:
             raise ValueError("invalid code snapshot")
         digest = hashlib.sha256(source).hexdigest()
         with self.lock:
+            if self.closed or self.reopened or self.delivery_sealed or os.getpid() != self.process_id:
+                raise ObservationError("journal cannot accept new events")
             if (ctx.run_id, digest) not in self.artifacts:
                 self.emit("ARTIFACT_REGISTERED", ctx, artifactDigest=digest, sizeBytes=len(source), language=language)
                 self.artifacts.add((ctx.run_id, digest))
-        return CodeSnapshot(digest, language, source)
+        return CodeSnapshot(digest, language, source, ctx)
+
+    def bind_code(self, snapshot):
+        """Register captured bytes for another run in the same journal and trace.
+
+        This records the consumer's artifact association; it does not claim a cross-stream
+        generation edge, store source text, or execute code.
+        """
+        ctx = self.current()
+        if not isinstance(snapshot, CodeSnapshot) or snapshot.captured_in is None:
+            raise ValueError("code snapshot has no capture context")
+        origin = snapshot.captured_in
+        if not isinstance(origin, RunContext):
+            raise ValueError("invalid code capture context")
+        with self.lock:
+            if (origin.producer_id != self.producer_id or origin.trace_id != ctx.trace_id
+                    or (origin.run_id, snapshot.digest) not in self.artifacts):
+                raise ValueError("code snapshot capture context differs")
+            return self.capture_code(snapshot.data, language=snapshot.language)
 
 
 class HttpTransport:
@@ -361,13 +431,19 @@ class HttpTransport:
         self.credential, self.timeout = credential, timeout
 
     def send(self, runtime_key, body):
+        return self._post("/api/runtime-access/v1/execution-events", runtime_key, body)
+
+    def report_delivery(self, runtime_key, body):
+        return self._post("/api/runtime-access/v1/execution-delivery", runtime_key, body)
+
+    def _post(self, path, runtime_key, body):
         token = self.credential()
         if not isinstance(token, str) or not re.fullmatch(r"eap_rt_[A-Za-z0-9_-]{43}", token):
             raise ExportError("BLOCKED_AUTH")
         cls = http.client.HTTPSConnection if self.scheme == "https" else http.client.HTTPConnection
         conn = cls(self.host, self.port, timeout=self.timeout)
         try:
-            conn.request("POST", "/api/runtime-access/v1/execution-events", json.dumps(body, separators=(",", ":")).encode(),
+            conn.request("POST", path, json.dumps(body, separators=(",", ":")).encode(),
                          {"Content-Type": "application/json", "X-EAP-Runtime-Key": runtime_key, "X-EAP-Runtime-Token": token})
             response = conn.getresponse()
             if response.status != 200:

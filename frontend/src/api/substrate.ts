@@ -1,6 +1,8 @@
 import { http } from './http'
 import type { ApiResponse, AgentControlCommand } from '@/types/domain'
-import type { DeployPayload } from './substrateDeploy'
+import type { DeployPayload, DeploySource, FrameworkSampleKey } from './substrateDeploy'
+
+export type FrameworkSampleCapability = { key: FrameworkSampleKey; label: string; frameworkVersion: string; available: boolean; reason: string | null }
 
 export type SubstrateCapabilities = {
   enabled: boolean
@@ -12,6 +14,7 @@ export type SubstrateCapabilities = {
   sizes: string[]
   sourceBuildAvailable: boolean
   instanceIdentityAvailable: boolean
+  frameworkSamples?: FrameworkSampleCapability[]
 }
 export type DeploymentStep = { step: string; status: string; detail: string; at: string }
 export type DeploymentReceipt = { requestKey: string; agentId: number; deploymentKey?: string | null; version?: number | null; status: string; instanceKey?: string | null }
@@ -19,7 +22,7 @@ export type SubstrateDeployment = {
   deploymentKey: string
   agentId: number
   version: number
-  sourceType: 'RUNNER' | 'IMAGE' | 'SOURCE'
+  sourceType: DeploySource
   status: string
   imageRef?: string
   templateName: string

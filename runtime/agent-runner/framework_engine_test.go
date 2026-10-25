@@ -28,9 +28,9 @@ func TestFrameworkBridgePreservesTaskTraceAndPendingObservation(t *testing.T) {
 		if input.Credential != r.runtimeToken || input.TraceID != j.TraceID || input.CallID != j.CallID || input.Framework != frameworkEngine {
 			t.Fatal("incorrect task attribution")
 		}
-		return json.Marshal(frameworkOutput{Sum: 42, Count: 2, Observation: toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), Events: 9, Pending: 9, DeliveryState: "RETRY_EXHAUSTED", DeliveryAttempts: 3}})
+		return json.Marshal(frameworkOutput{Sum: 42, Count: 2, Observation: toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), Events: 12, Pending: 12, DeliveryState: "RETRY_EXHAUSTED", DeliveryAttempts: 3}})
 	})
-	if err != nil || result != 42 || j.Observation == nil || j.Observation.Pending != 9 {
+	if err != nil || result != 42 || j.Observation == nil || j.Observation.Pending != 12 {
 		t.Fatal("upload outage changed successful tool result")
 	}
 	raw, _ := json.Marshal(j)
@@ -42,20 +42,22 @@ func TestFrameworkBridgePreservesTaskTraceAndPendingObservation(t *testing.T) {
 func TestFrameworkBridgeRejectsUnconfirmedOrForeignResult(t *testing.T) {
 	r := &runner{toolDir: t.TempDir()}
 	j := &toolJournal{CallID: toolID("test", "one"), TraceID: strings.Repeat("1", 32)}
-	valid := frameworkOutput{Sum: 42, Count: 2, Observation: toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), StreamKey: strings.Repeat("a", 64), Events: 9, DeliveryState: "ACKNOWLEDGED", DeliveryAttempts: 1}}
-	for _, name := range []string{"process-error", "wrong-sum", "wrong-framework", "unconfirmed-stream", "trailing-json", "too-large", "unknown-delivery-state", "false-delivery-success", "excessive-attempts"} {
+	valid := frameworkOutput{Sum: 42, Count: 2, Observation: toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), StreamKey: strings.Repeat("a", 64), Events: 12, DeliveryState: "ACKNOWLEDGED", DeliveryAttempts: 1}}
+	for _, name := range []string{"process-error", "wrong-sum", "wrong-framework", "unconfirmed-stream", "trailing-json", "too-large", "unknown-delivery-state", "false-delivery-success", "excessive-attempts", "old-event-count"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := r.frameworkSumWith([]float64{20, 22}, j, func(context.Context, []byte) ([]byte, error) {
 				out := valid
 				switch name {
 				case "process-error":
 					return nil, errors.New("private-worker-failure")
+				case "old-event-count":
+					out.Observation.Events = 9
 				case "wrong-sum":
 					out.Sum = 41
 				case "unknown-delivery-state":
 					out.Observation.DeliveryState = "invented"
 				case "false-delivery-success":
-					out.Observation.Pending = 9
+					out.Observation.Pending = 12
 					out.Observation.StreamKey = ""
 				case "excessive-attempts":
 					out.Observation.DeliveryAttempts = 4
@@ -111,7 +113,7 @@ func TestFrameworkGovernedExecutionIsNotRepeatedAfterSuccessOrUnknown(t *testing
 					if uncertain {
 						return 0, errors.New("uncertain")
 					}
-					j.Observation = &toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), Events: 9, Pending: 9, DeliveryState: "RETRY_EXHAUSTED", DeliveryAttempts: 3}
+					j.Observation = &toolObservation{Framework: frameworkEngine, ProducerID: toolID("producer", "one"), Events: 12, Pending: 12, DeliveryState: "RETRY_EXHAUSTED", DeliveryAttempts: 3}
 					return calculateSum(numbers), nil
 				}}
 			}

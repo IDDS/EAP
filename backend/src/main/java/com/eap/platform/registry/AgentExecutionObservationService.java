@@ -53,21 +53,8 @@ public class AgentExecutionObservationService {
         check(body.path("schemaVersion").isIntegralNumber() && body.path("schemaVersion").canConvertToInt() && body.path("schemaVersion").intValue()==1);
         String producer=uuid(body,"producerId"), framework=slug(body,"framework",64), version=slug(body,"frameworkVersion",32);
         JsonNode input=body.path("events");check(input.isArray() && !input.isEmpty() && input.size()<=64);
-        // Serialize writes with the same lock order as the existing scoped runtime tools.
-        var lease=leases.lockForToolAccess(access.instanceKey()).orElseThrow(()->new UnauthorizedException("实例身份不可用"));
-        entities.refresh(lease, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
-        var runtime=runtimes.lockForScopedTools(access.instanceKey()).orElseThrow(()->new UnauthorizedException("实例身份不可用"));
-        entities.refresh(runtime, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
-        if (!Objects.equals(runtime.agentId,access.agentId()) || runtime.status==RuntimeStatus.OFFLINE
-                || !Objects.equals(lease.generation,access.generation()) || lease.verifiedAt==null
-                || lease.expiresAt==null || !lease.expiresAt.isAfter(Instant.now())
-                || lease.automaticDelivery && (lease.identityExpiresAt==null || !lease.identityExpiresAt.isAfter(Instant.now()))) throw new UnauthorizedException("实例身份已失效");
-        String stream=hash(access.instanceKey()+"|"+access.generation()+"|"+producer);
-        var original=db.queryForList("select stream_key from agent_execution_events where runtime_instance_key=? and producer_id=? limit 1",String.class,access.instanceKey(),producer);
-        if(!original.isEmpty()&&!original.getFirst().equals(stream)) conflict();
+        String stream=lockStream(access,producer,framework,version);
         var existing=streamEvents(stream);var staged=new ArrayList<ObjectNode>();
-        if(!existing.isEmpty() && (!existing.getFirst().event().path("framework").asText().equals(framework)
-                || !existing.getFirst().event().path("frameworkVersion").asText().equals(version))) conflict();
         var byId=new HashMap<String,JsonNode>();var bySequence=new HashMap<Long,String>();var bySlot=new HashMap<String,String>();
         for(var e:existing) index(e.event(),byId,bySequence,bySlot);
         int duplicates=0;
@@ -86,6 +73,30 @@ public class AgentExecutionObservationService {
                 stream,event.path("eventId").asText(),event.path("sequence").longValue(),hash(event.toString()),slot(event),
                 access.agentId(),access.instanceKey(),producer,event.path("kind").asText(),event.path("runId").asText(),event.toString(),Timestamp.from(Instant.now()));
         return new Receipt(stream,input.size(),staged.size(),duplicates);
+    }
+    /** Called only inside an ingestion transaction; all stream writers use lease -> runtime locks. */
+    String lockStream(RuntimeConnectionService.Access access,String producer,String framework,String version) {
+        // Both event and status writes share the same identity lock and producer binding.
+        var lease=leases.lockForToolAccess(access.instanceKey()).orElseThrow(()->new UnauthorizedException("实例身份不可用"));
+        entities.refresh(lease, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        var runtime=runtimes.lockForScopedTools(access.instanceKey()).orElseThrow(()->new UnauthorizedException("实例身份不可用"));
+        entities.refresh(runtime, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+        if (!Objects.equals(runtime.agentId,access.agentId()) || runtime.status==RuntimeStatus.OFFLINE
+                || !Objects.equals(lease.generation,access.generation()) || lease.verifiedAt==null
+                || lease.expiresAt==null || !lease.expiresAt.isAfter(Instant.now())
+                || lease.automaticDelivery && (lease.identityExpiresAt==null || !lease.identityExpiresAt.isAfter(Instant.now()))) throw new UnauthorizedException("实例身份已失效");
+        String stream=hash(access.instanceKey()+"|"+access.generation()+"|"+producer);
+        var original=db.queryForList("select stream_key from agent_execution_events where runtime_instance_key=? and producer_id=? limit 1",String.class,access.instanceKey(),producer);
+        if(!original.isEmpty()&&!original.getFirst().equals(stream)) conflict();
+        var first=streamEvents(stream);
+        if(!first.isEmpty() && (!first.getFirst().event().path("framework").asText().equals(framework)
+                || !first.getFirst().event().path("frameworkVersion").asText().equals(version))) conflict();
+        var reports=db.queryForList("select stream_key,framework,framework_version from execution_delivery_reports where runtime_instance_key=? and producer_id=?",access.instanceKey(),producer);
+        if(!reports.isEmpty()) {
+            var report=reports.getFirst();
+            if(!stream.equals(report.get("stream_key")) || !framework.equals(report.get("framework")) || !version.equals(report.get("framework_version")))conflict();
+        }
+        return stream;
     }
     private ObjectNode normalize(JsonNode value, RuntimeConnectionService.Access access, String framework, String version) {
         check(value.isObject());String kind=value.path("kind").asText();check(EXTRA.containsKey(kind));

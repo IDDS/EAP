@@ -1,48 +1,48 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261024-execution-console-r2",
+  "releaseId": "private-pilot-20261025-background-delivery-r1",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
-  "schema": 91,
+  "schema": 92,
   "applications": {
-    "backend": "registry.example.com/eap-backend@sha256:410da077d576067a1c93b729a44fbc65773714547923de3eced57b53b186e7bd",
-    "frontend": "registry.example.com/eap-frontend@sha256:f4a223e35e39b8e0e13606ebfaef54e5e2a8ef808f8af14eab706f39d92c9a27"
+    "backend": "registry.example.com/eap-backend@sha256:ecde8d5f2fc231ab7109fdb79ff1db3b25c4aec6164e8b6c6f01ebd7ab4329ba",
+    "frontend": "registry.example.com/eap-frontend@sha256:4a61943ace4cf63abf189fda839c7283a313ad81e439e739bf410ec9ff6ab59d"
   },
   "capabilities": [
     {
       "id": "native-runner",
       "status": "BOUNDED",
-      "scope": "EAP \u7ba1\u7406\u7684\u4efb\u52a1\u6267\u884c\u3001\u8eab\u4efd\u3001\u6a21\u578b\u51c6\u5165\u3001\u9884\u7b97\u548c\u89c2\u6d4b\uff1b\u65e7\u5b9e\u4f8b\u4e0d\u4f1a\u81ea\u52a8\u91c7\u7528\u65b0\u955c\u50cf"
+      "scope": "EAP 管理的任务执行、身份、模型准入、预算和观测；旧实例不会自动采用新镜像"
     },
     {
       "id": "kagent-adk",
       "status": "BOUNDED",
-      "scope": "\u6587\u672c\u8f6e\u6b21\u53ca CALCULATE_SUM_V1\uff1b\u65e0\u591a\u8f6e\u5de5\u5177\u5faa\u73af\u3001MCP \u6267\u884c\u3001\u5b50\u667a\u80fd\u4f53\u6216\u6301\u4e45\u5ba1\u6279\u6062\u590d"
+      "scope": "文本轮次及 CALCULATE_SUM_V1；无多轮工具循环、MCP 执行、子智能体或持久审批恢复"
     },
     {
       "id": "mcp-observation",
       "status": "BOUNDED",
-      "scope": "\u53d7\u4fe1\u4efb\u5bbf\u4e3b\u7684 stdio/HTTP \u89c2\u6d4b\uff1b\u9700\u8981\u63a5\u5165\u914d\u7f6e\uff0c\u4e0d\u662f\u4efb\u610f\u7a0b\u5e8f\u96f6\u914d\u7f6e\u8ffd\u8e2a"
+      "scope": "受信任宿主的 stdio/HTTP 观测；需要接入配置，不是任意程序零配置追踪"
     },
     {
       "id": "structured-results",
       "status": "BOUNDED",
-      "scope": "\u5de5\u4f5c\u6d41 RUNTIME AGENT/ARTIFACT \u4e0e\u56e2\u961f\u8ba1\u5212\u6b65\u9aa4\u7684\u6709\u754c JSON \u7ed3\u6784\u5951\u7ea6\uff1b\u63d0\u4ea4\u540e\u51bb\u7ed3\uff0c\u62d2\u7edd\u65f6\u505c\u6b62\u4ea4\u63a5\uff1b\u4e0d\u8bc1\u660e\u4e1a\u52a1\u6b63\u786e\u6027"
+      "scope": "工作流 RUNTIME AGENT/ARTIFACT 与团队计划步骤的有界 JSON 结构契约；提交后冻结，拒绝时停止交接；不证明业务正确性"
     },
     {
       "id": "tool-recovery",
       "status": "BOUNDED",
-      "scope": "\u53d7\u63a7\u8ba1\u6570\u539f\u6548\u679c\u67e5\u8be2\uff1b\u4e0d\u81ea\u52a8\u7ee7\u7eed\u5de5\u4f5c\u6d41\u3001\u8865\u507f\u6216\u91cd\u6d3e\u666e\u901a\u4e1a\u52a1\u5de5\u5177"
+      "scope": "受控计数原效果查询；不自动继续工作流、补偿或重派普通业务工具"
     },
     {
       "id": "project-isolation",
       "status": "NOT_VERIFIED",
-      "scope": "\u5e73\u53f0\u89d2\u8272\u6743\u9650\u5df2\u5b9e\u73b0\uff1b\u8de8\u9879\u76ee\u8d44\u6e90\u9694\u79bb\u5c1a\u672a\u5b8c\u6210\u751f\u4ea7\u9a8c\u6536"
+      "scope": "平台角色权限已实现；跨项目资源隔离尚未完成生产验收"
     },
     {
       "id": "production-operations",
       "status": "NOT_VERIFIED",
-      "scope": "\u8de8\u96c6\u7fa4\u707e\u5907\u3001\u751f\u4ea7\u8ba4\u8bc1 HA/TLS\u3001\u5bb9\u91cf\u53ca\u957f\u7a33\u9a8c\u6536\u5c1a\u672a\u5b8c\u6210"
+      "scope": "跨集群灾备、生产认证 HA/TLS、容量及长稳验收尚未完成"
     }
   ]
 }

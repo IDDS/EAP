@@ -32,6 +32,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 class AgentExecutionObservationIntegrationTests {
     @Autowired AgentExecutionObservationController controller;
     @Autowired AgentExecutionObservationService service;
+    @Autowired ExecutionDeliveryService delivery;
+    @Autowired ExecutionDeliveryController deliveryController;
     @Autowired RuntimeConnectionService connections;
     @Autowired RuntimeConnectionProperties config;
     @Autowired RuntimeConnectionRepository leases;
@@ -178,11 +180,128 @@ class AgentExecutionObservationIntegrationTests {
         try(var c=java.sql.DriverManager.getConnection(url,user,"");var s=c.createStatement()) {
             s.executeUpdate("insert into agent_work_items(item_key,item_type,title,severity,status,source_type,source_id,assignee,assigned_team,evidence_basis,evidence_json,occurrence_count,first_detected_at,last_detected_at,resolution,resolution_evidence_json,created_at,updated_at,row_version) values('execution-upgrade-original','GENERAL','Original','P1','WAITING','TEST','original','owner','team','HUMAN_CONFIRMED','{}',3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'note','{}',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,7)");
         }
-        var flyway=org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").load();
+        var flyway=org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").target("91").load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);assertThat(flyway.migrate().migrationsExecuted).isZero();
         try(var c=java.sql.DriverManager.getConnection(url,user,"");var s=c.createStatement()) {
             try(var r=s.executeQuery("select status,assignee,row_version,resolution from agent_work_items where item_key='execution-upgrade-original'")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("WAITING");assertThat(r.getString(2)).isEqualTo("owner");assertThat(r.getLong(3)).isEqualTo(7);assertThat(r.getString(4)).isEqualTo("note");}
             try(var r=s.executeQuery("select count(*) from agent_execution_events")){r.next();assertThat(r.getLong(1)).isZero();}
         }
     }
+    ObjectNode report(long sequence,int total,int acknowledged,long attempts,String state) {
+        return json.createObjectNode().put("schemaVersion",1).put("producerId",producer).put("framework","eap-native").put("frameworkVersion","0.1.0")
+                .put("reportSequence",sequence).put("total",total).put("acknowledged",acknowledged).put("pending",total-acknowledged).put("attempts",attempts).put("state",state);
+    }
+    ExecutionDeliveryService.Receipt report(ObjectNode body) {
+        var request=request(owner);request.setRequestURI("/api/runtime-access/v1/execution-delivery");
+        return deliveryController.report(body,request).data();
+    }
+    @Test void deliveryReportIsVisibleBeforeAnyEventWithoutInventingSuccess() {
+        var receipt=report(report(1,2,0,0,"PENDING"));var page=delivery.page(agent,null,0,50);
+        assertThat(page.items()).hasSize(1);var row=page.items().getFirst();
+        assertThat(row.streamKey()).isEqualTo(receipt.streamKey());assertThat(row.pending()).isEqualTo(2);
+        assertThat(row.receivedEvents()).isZero();assertThat(row.state()).isEqualTo("PENDING");
+        assertThat(row.credentialState()).isEqualTo("AVAILABLE");assertThat(service.graph(row.streamKey()).complete()).isFalse();assertThat(count()).isZero();
+    }
+    @Test void receivedEventsAndUnconfirmedClientAcknowledgementsRemainSeparate() {
+        var receipt=ingest(event("RUN_STARTED",run,1),event("RUN_FINISHED",run,2));
+        report(report(1,2,0,3,"RETRY_EXHAUSTED"));var row=delivery.page(agent,receipt.streamKey(),0,50).items().getFirst();
+        assertThat(row.pending()).isEqualTo(2);assertThat(row.acknowledged()).isZero();assertThat(row.receivedEvents()).isEqualTo(2);
+        assertThat(service.graph(receipt.streamKey()).complete()).isTrue();
+        report(report(2,2,2,4,"ACKNOWLEDGED"));row=delivery.page(agent,null,0,50).items().getFirst();assertThat(row.pending()).isZero();assertThat(count()).isEqualTo(2);
+    }
+    @Test void deliveryLeaseExpiryUsesHibernateUtcWhileReportAgeUsesJdbcTime() {
+        var before=Instant.now();report(report(1,2,0,0,"PENDING"));
+        var row=delivery.page(agent,null,0,50).items().getFirst();
+        assertThat(row.reportedAt()).isAfterOrEqualTo(before.minusSeconds(1)).isBeforeOrEqualTo(Instant.now());
+        assertThat(row.stale()).isFalse();assertThat(row.credentialState()).isEqualTo("AVAILABLE");
+        var lease=leases.findByInstanceKey(owner.instanceKey).orElseThrow();
+        lease.automaticDelivery=true;lease.identityExpiresAt=Instant.now().plusSeconds(300);lease=leases.saveAndFlush(lease);
+        assertThat(delivery.page(agent,null,0,50).items().getFirst().credentialState()).isEqualTo("AVAILABLE");
+        lease.identityExpiresAt=Instant.now().minusSeconds(1);lease=leases.saveAndFlush(lease);
+        assertThat(delivery.page(agent,null,0,50).items().getFirst().credentialState()).isEqualTo("EXPIRED");
+        lease.automaticDelivery=false;lease.expiresAt=Instant.now().minusSeconds(1);leases.saveAndFlush(lease);
+        assertThat(delivery.page(agent,null,0,50).items().getFirst().credentialState()).isEqualTo("EXPIRED");
+    }
+    @Test void duplicateSnapshotDoesNotRefreshItsAgeAndOlderOrChangedReportsAreRejected() {
+        var body=report(2,2,0,2,"RETRY_EXHAUSTED");var receipt=report(body);
+        var old=Instant.now().minusSeconds(600);db.update("update execution_delivery_reports set received_at=? where stream_key=?",java.sql.Timestamp.from(old),receipt.streamKey());
+        assertThat(report(body).duplicate()).isTrue();assertThat(delivery.page(agent,null,0,50).items().getFirst().stale()).isTrue();
+        assertThatThrownBy(()->report(report(1,2,0,1,"PENDING"))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->report(report(2,2,0,2,"BLOCKED_AUTH"))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->report(report(3,1,0,2,"PENDING"))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->report(report(3,2,0,1,"PENDING"))).isInstanceOf(ConflictException.class);
+    }
+    @Test void acknowledgedCountsCannotExceedStoredEventsOrRegress() {
+        assertThatThrownBy(()->report(report(1,2,2,1,"ACKNOWLEDGED"))).isInstanceOf(BusinessException.class);
+        ingest(event("RUN_STARTED",run,1),event("RUN_FINISHED",run,2));report(report(1,2,2,1,"ACKNOWLEDGED"));
+        assertThatThrownBy(()->report(report(2,2,1,2,"PENDING"))).isInstanceOf(ConflictException.class);
+    }
+    @Test void malformedStatusAndPrivateFieldsNeverCreateSnapshots() {
+        var invalid=new ArrayList<ObjectNode>();
+        invalid.add(report(1,2,0,0,"ACKNOWLEDGED"));invalid.add(report(1,0,0,0,"PENDING"));invalid.add(report(0,2,0,0,"PENDING"));
+        invalid.add(report(1,4097,0,0,"PENDING"));invalid.add(report(1,2,0,-1,"PENDING"));
+        invalid.add(report(1,2,0,0,"PENDING").put("total",2.0));invalid.add(report(1,2,0,0,"PENDING").put("pending",true));
+        invalid.add(report(1,2,0,0,"PENDING").put("agentId",999));invalid.add(report(1,2,0,0,"PENDING").put("error","PRIVATE_MARKER"));
+        invalid.add(report(1,2,0,0,"PENDING").put("reportSequence",9007199254740992L));
+        for(var body:invalid)assertThatThrownBy(()->report(body)).isInstanceOf(BusinessException.class);
+        assertThat(delivery.page(agent,null,0,50).items()).isEmpty();assertThat(count()).isZero();
+    }
+    @Test void reportBindsFrameworkAndGenerationEvenBeforeEventsArrive() {
+        report(report(1,2,0,0,"PENDING"));
+        assertThatThrownBy(()->report(report(2,2,0,0,"PENDING").put("framework","other"))).isInstanceOf(ConflictException.class);
+        var bad=body(event("RUN_STARTED",run,1));bad.put("frameworkVersion","other");
+        assertThatThrownBy(()->controller.ingest(bad,request(owner))).isInstanceOf(ConflictException.class);
+        var lease=leases.findByInstanceKey(owner.instanceKey).orElseThrow();lease.generation=UUID.randomUUID().toString();leases.saveAndFlush(lease);
+        assertThatThrownBy(()->report(report(2,2,0,0,"PENDING"))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(()->ingest(event("RUN_STARTED",run,1))).isInstanceOf(ConflictException.class);
+        assertThat(delivery.page(agent,null,0,50).items().getFirst().credentialState()).isEqualTo("GENERATION_CHANGED");
+    }
+    @Test void eventBindingAlsoConstrainsLaterReportsAndOtherInstancesAreIsolated() {
+        var receipt=ingest(event("RUN_STARTED",run,1));
+        assertThatThrownBy(()->report(report(1,1,0,0,"PENDING").put("framework","other"))).isInstanceOf(ConflictException.class);
+        report(report(1,1,0,0,"PENDING"));var req=request(other);req.setRequestURI("/api/runtime-access/v1/execution-delivery");
+        var otherReceipt=deliveryController.report(report(1,1,0,0,"PENDING"),req).data();
+        assertThat(otherReceipt.streamKey()).isNotEqualTo(receipt.streamKey());
+        var page=delivery.page(agent,null,0,1);assertThat(page.hasMore()).isTrue();assertThat(delivery.page(agent,null,page.nextAfterId(),1).hasMore()).isFalse();
+        assertThat(delivery.page(agent,otherReceipt.streamKey(),0,50).items().getFirst().receivedEvents()).isZero();
+    }
+    @Test void staleStatusAccessIsRejectedUnderLockAndRevocationDoesNotEraseHistory() {
+        report(report(1,2,0,0,"PENDING"));var access=connections.authenticate(owner.instanceKey,token(owner));
+        var lease=leases.findByInstanceKey(owner.instanceKey).orElseThrow();lease.generation=null;lease.verifiedAt=null;leases.saveAndFlush(lease);
+        assertThatThrownBy(()->delivery.report(access,report(2,2,0,1,"BLOCKED_AUTH"))).isInstanceOf(com.eap.platform.config.UnauthorizedException.class);
+        var row=delivery.page(agent,null,0,50).items().getFirst();assertThat(row.reportSequence()).isEqualTo(1);assertThat(row.credentialState()).isEqualTo("REVOKED_OR_UNAVAILABLE");
+    }
+    @Test void concurrentStatusReplaysProduceOneSnapshot() throws Exception {
+        var payload=report(1,2,0,0,"PENDING");var start=new CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
+        try {
+            var a=pool.submit(()->{start.await();return report(payload);});var b=pool.submit(()->{start.await();return report(payload);});start.countDown();
+            var first=a.get(45,TimeUnit.SECONDS);var second=b.get(45,TimeUnit.SECONDS);
+            assertThat(first.duplicate()).isNotEqualTo(second.duplicate());assertThat(first.streamKey()).isEqualTo(second.streamKey());
+            assertThat(delivery.page(agent,null,0,50).items()).hasSize(1);
+        } finally {start.countDown();pool.shutdownNow();}
+    }
+    @Test void statusEndpointsKeepHumanReadAndRuntimeWriteBoundaries() throws Exception {
+        var path="/api/runtime-access/v1/execution-delivery";var read="/api/observability/agent-executions/deliveries";
+        mvc.perform(get(read)).andExpect(status().isUnauthorized());
+        for(String role:List.of("VIEWER","OPERATOR","GOVERNANCE_ADMIN","PLATFORM_ADMIN"))
+            mvc.perform(get(read).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_"+role)))).andExpect(status().isOk());
+        mvc.perform(get(read).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_OTHER")))).andExpect(status().isForbidden());
+        mvc.perform(post(read).contentType("application/json").content("{}").with(jwt().authorities(new SimpleGrantedAuthority("ROLE_PLATFORM_ADMIN")))).andExpect(status().isForbidden());
+        mvc.perform(post(path).contentType("application/json").content(report(1,2,0,0,"PENDING").toString())).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).header("X-EAP-Runtime-Key",owner.instanceKey).header("X-EAP-Runtime-Token",token(owner)).contentType("application/json").content(report(1,2,0,0,"PENDING").toString())).andExpect(status().isOk());
+        mvc.perform(post(path).header("X-EAP-Runtime-Key",owner.instanceKey).header("X-EAP-Runtime-Token",token(owner)).header("X-EAP-Agent-Id","999").contentType("application/json").content(report(2,2,0,0,"PENDING").toString())).andExpect(status().isBadRequest());
+    }
+    @Test void v92PreservesPriorExecutionEventsWithoutFabricatingReports() throws Exception {
+        String url=migrationJdbcUrl().replace("execution_upgrade","execution_delivery_upgrade"),user=url.startsWith("jdbc:h2:")?"sa":"root";
+        org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").target("91").load().migrate();
+        try(var c=java.sql.DriverManager.getConnection(url,user,"");var q=c.createStatement()) {
+            q.executeUpdate("insert into agent_execution_events(stream_key,event_id,producer_sequence,event_digest,slot_key,agent_id,runtime_instance_key,producer_id,event_kind,run_id,payload_json,received_at) values('old-stream','old-event',1,'old-digest','old-slot',1,'original-instance','original-producer','RUN_STARTED','old-run','{\"original\":true}',CURRENT_TIMESTAMP)");
+        }
+        var f=org.flywaydb.core.Flyway.configure().dataSource(url,user,"").locations("classpath:db/migration").load();assertThat(f.migrate().migrationsExecuted).isEqualTo(1);assertThat(f.migrate().migrationsExecuted).isZero();
+        try(var c=java.sql.DriverManager.getConnection(url,user,"");var q=c.createStatement()) {
+            try(var r=q.executeQuery("select payload_json,runtime_instance_key from agent_execution_events where event_id='old-event'")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("{\"original\":true}");assertThat(r.getString(2)).isEqualTo("original-instance");}
+            try(var r=q.executeQuery("select count(*) from execution_delivery_reports")){r.next();assertThat(r.getLong(1)).isZero();}
+        }
+    }
+
 }

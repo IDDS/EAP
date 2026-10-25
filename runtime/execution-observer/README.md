@@ -80,18 +80,36 @@ finally:
     recovery.close()
 ```
 
-`existing_only=True` 拒绝缺失或未初始化的文件，不创建新生产者；旧日志始终禁止新增执行事件。调用方必须确认原实例和身份代际仍然有效，不能换身份、换日志或重新执行任务来清除待发状态。永久错误的修复与再次调用需要调用方明确处理；没有后台常驻补发服务或集中队列 UI。SQLite 状态是最后持久化记录，应用异常退出后不会自动恢复投递。
+`existing_only=True` 拒绝缺失或未初始化的文件，不创建新生产者；旧日志始终禁止新增执行事件。调用方必须确认原实例和身份代际仍然有效，不能换身份、换日志或重新执行任务来清除待发状态。永久错误的修复与再次调用需要调用方明确处理；普通SDK不会自行启动常驻服务。新版固定框架模板可显式登记并封存新日志，由持久Runner按原UID/身份代际有界补发，见[后台补发契约](../../docs/EXECUTION_BACKGROUND_DELIVERY.md)。未登记的日志不会在重启后自动补发。控制台读取最近报告快照，不能据此推断实时队列。
+
+## 显式上报投递快照
+
+```python
+status = journal.deliver(transport, max_attempts=3, max_batches=1)
+report = journal.report_status(transport)  # 单次元数据 HTTP 请求，不补发事件或执行任务
+latest_report_result = journal.delivery_report_status()
+```
+
+`report_status()` 将当前计数与投递状态发送到固定的 `/api/runtime-access/v1/execution-delivery`；使用同一实例凭据、producer 与框架版本。报告序号在发送前提交到原 SQLite。每次显式调用使用更大序号，服务端拒绝迟到旧报告和计数回退；重复同序号同内容不会刷新报告时间。报告失败独立记录固定错误类别，不改变事件确认状态，不包含异常正文或凭据。`delivery_report_status()` 返回最近一次报告请求的结果，未调用时为 `NOT_REPORTED`。
+
+可以用 `existing_only=True` 打开原日志后显式报告，不能借此更换原身份。固定框架 Worker 在一次有界事件投递结束后报告一次；新版 Go Runner 可对原身份下已登记的日志执行有界后台补发，不自动续期或唤醒。报告请求失败时，控制台可能仍为空或保留旧快照。
+
+控制台分别展示客户端报告总数、已确认、待确认，以及服务端实际事件数。例如服务端已收到9条但回执丢失，客户端仍可报告9条待确认；不能把待确认数直接当作丢失数。报告格式、查询和过期含义见[集中投递状态](../../docs/EXECUTION_DELIVERY_STATUS.md)。
 
 ## 临时代码
 
 ```python
 with journal.agent("coder"):
     snapshot = journal.capture_code(Path(temporary_path).read_bytes(), language="PYTHON")
-    with journal.tool("generated-calculation", code=snapshot):
-        result = approved_executor(snapshot.data)
+    with journal.agent("temporary-executor"):
+        executable = journal.bind_code(snapshot)
+        with journal.tool("generated-calculation", code=executable):
+            result = approved_executor(executable.data)
 ```
 
 `CodeSnapshot` 持有不可变字节和摘要，日志与服务端只保存 SHA256、大小、语言和创建执行。必须把 `snapshot.data` 交给原有授权执行器，才能声称执行的是这个版本；SDK不证明调用方实际执行了哪些字节，也不授予执行权限。临时文件随后删除不影响已有元数据查询，代码正文没有被保管，不能靠摘要恢复代码或重放行为。
+
+`bind_code()` 在同一 Journal、同一 Trace 中把已捕获字节登记到当前消费者执行；跨日志、跨 Trace 和未登记快照被拒绝。它不添加跨流生成来源边，不通过相同摘要推断因果。详见[短生命周期执行追踪](../../docs/EPHEMERAL_EXECUTION_OBSERVABILITY.md)。
 
 同一执行内重复登记相同摘要会复用产物记录。代码变化产生新摘要；运行环境、依赖和闭包状态尚未纳入本阶段产物模型。Python 测试中的 `exec` 只执行固定公开算术夹具，不是产品执行入口。
 

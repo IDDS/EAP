@@ -5,6 +5,7 @@ import { usePermissions } from '@/stores/permissions'
 import { useExecutionQuery } from './useExecutionQuery'
 import { executionStreams } from './executionPresentation'
 import AgentExecutionGraph from './AgentExecutionGraph.vue'
+import ExecutionDeliveryPanel from './ExecutionDeliveryPanel.vue'
 
 const props = defineProps<{ initialAgentId?: number }>()
 const permissions = usePermissions()
@@ -54,6 +55,7 @@ function previous() {
       </form>
       <p class="scope-note">按接收顺序每页读取最多 100 条事件；下方列出当前页涉及的事件流，同一流可能出现在多页。不受模型统计时间窗口、端点或 Trace 筛选影响。</p>
       <el-alert v-if="validationError || error" :title="validationError || error" type="error" :closable="false" show-icon />
+      <ExecutionDeliveryPanel :filter="filter" @open-stream="selectedStream = $event" />
       <div class="stream-heading"><h4>事件流 <span v-if="data">{{ streams.length }}</span></h4><el-button :loading="loading" :disabled="!filter" @click="refresh">刷新事件页</el-button></div>
       <p v-if="loading" role="status">正在读取事件流…</p>
       <p v-else-if="!filter && !validationError" class="scope-note">筛选已改变，请查询执行。</p>

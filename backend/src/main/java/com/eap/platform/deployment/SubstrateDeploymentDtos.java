@@ -17,7 +17,7 @@ public final class SubstrateDeploymentDtos {
 
     /**
      * @param sourceType RUNNER (configuration-only agent on the platform runner image), IMAGE (existing image)
-     *                   or SOURCE (built in-cluster from a public Git repository)
+     *                   SOURCE (built in-cluster from a public Git repository), or TEMPLATE (fixed framework sample)
      * @param size       SMALL, MEDIUM or LARGE
      */
     public record DeployRequest(
@@ -102,8 +102,10 @@ public final class SubstrateDeploymentDtos {
     public record ChatResponse(String reply, Integer turns, String instanceKey) {
     }
 
+    public record FrameworkSampleCapability(String key, String label, String frameworkVersion, boolean available, String reason) {}
+
     public record CapabilityResponse(boolean enabled, boolean runnerAvailable, boolean gatewayConfigured,
                                      String atespace, String gatewayHost, List<String> sizes, boolean sourceBuildAvailable, boolean instanceIdentityAvailable,
-                                     boolean kagentRunnerAvailable) {
+                                     boolean kagentRunnerAvailable, List<FrameworkSampleCapability> frameworkSamples) {
     }
 }

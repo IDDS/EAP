@@ -151,3 +151,32 @@ test('Kagent tool selection is explicit and never leaks into native or image pub
   assert.equal(buildDeployPayload({ ...selected, sourceType: 'IMAGE' }, 'image').runnerToolMode, undefined)
   assert.match(validateDeployForm({ ...selected, runnerToolMode: 'MCP_ALL' }), /工具模式/)
 })
+
+
+test('fixed samples discard unrelated drafts and freeze deployment fields', () => {
+  const form = { ...defaultDeployForm(), sourceType: 'TEMPLATE', frameworkSample: 'LANGGRAPH_SUM_V1',
+    image: 'caller/image', command: '/bin/sh', systemPrompt: 'old prompt', model: 'old-model',
+    port: 3000, sandboxClass: 'MICROVM', env: [{ name: 'PATH', value: '/tmp' }], egressHosts: 'example.com' }
+  assert.equal(validateDeployForm(form), null)
+  const payload = JSON.parse(JSON.stringify(buildDeployPayload(form, 'original')))
+  assert.deepEqual(payload, { sourceType: 'TEMPLATE', runnerFramework: 'LANGGRAPH_SUM_V1',
+    sandboxClass: 'GVISOR', size: 'SMALL', env: {}, egressHosts: [], requestKey: 'original' })
+})
+
+test('changing sample identity changes the immutable submission payload', () => {
+  const form = { ...defaultDeployForm(), sourceType: 'TEMPLATE' }
+  const first = buildDeployPayload(form, 'original')
+  const second = buildDeployPayload({ ...form, frameworkSample: 'AUTOGEN_SUM_V1' }, 'original')
+  assert.notEqual(first.runnerFramework, second.runnerFramework)
+  assert.equal(second.runnerFramework, 'AUTOGEN_SUM_V1')
+  assert.equal(validateDeployForm({ ...form, frameworkSample: 'CREWAI' }).includes('样例'), true)
+  assert.equal(validateDeployForm({ ...form, sourceType: 'UNKNOWN' }).includes('部署方式'), true)
+})
+
+test('sample selection does not leak into native, image or source publication', () => {
+  const form = { ...defaultDeployForm(), frameworkSample: 'AUTOGEN_SUM_V1', systemPrompt: 'native' }
+  assert.equal(buildDeployPayload(form, 'native').runnerFramework, undefined)
+  assert.equal(buildDeployPayload({ ...form, sourceType: 'IMAGE', image: 'example/image' }, 'image').runnerFramework, undefined)
+  assert.equal(buildDeployPayload({ ...form, sourceType: 'SOURCE', gitUrl: 'https://example.com/code' }, 'source').runnerFramework, undefined)
+  assert.equal(deployStages('TEMPLATE', 'PER_INSTANCE_V1').length, deployStages('IMAGE', 'PER_INSTANCE_V1').length)
+})

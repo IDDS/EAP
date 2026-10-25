@@ -13,9 +13,18 @@ from pathlib import Path
 from typing import TypedDict
 
 from eap_execution import HttpTransport, Journal
+from eap_background import enroll, identity
+from resend import private_directory
 
 VERSIONS = {"langgraph": "1.2.17", "autogen-core": "0.7.5"}
-CODE = b"def calculate(numbers):\n    result = 0.0\n    for number in numbers:\n        result += number\n    return result\n"
+
+def generate_sum_code(count):
+    """Bounded source generation from validated shape, never from user-supplied code."""
+    if type(count) is not int or not 1 <= count <= 100:
+        raise ValueError("invalid code shape")
+    lines = ["def calculate(numbers):", "    result = 0.0"]
+    lines.extend("    result += numbers[" + str(index) + "]" for index in range(count))
+    return ("\n".join(lines) + "\n    return result\n").encode("ascii")
 
 
 class SumState(TypedDict):
@@ -39,12 +48,17 @@ def temporary_tool(journal, numbers):
     # Execute the exact captured bytes; the path is private, generated here and removed before export.
     with tempfile.TemporaryDirectory(prefix="eap-fixed-sum-") as directory:
         path = Path(directory)/"sum.py"
-        path.write_bytes(CODE)
+        path.write_bytes(generate_sum_code(len(validate_numbers(numbers))))
         snapshot = journal.capture_code(path.read_bytes(), language="PYTHON")
-        with journal.tool("calculate_sum", code=snapshot):
-            scope = {"__builtins__": {}}
-            exec(compile(snapshot.data, "<eap-fixed-sum>", "exec"), scope)
-            return scope["calculate"](numbers)
+        # The consumer outlives neither its logical context nor the temporary source file.
+        # Removing the file before execution also proves the digest refers to executed bytes.
+        path.unlink()
+        with journal.agent("ephemeral-executor"):
+            executable = journal.bind_code(snapshot)
+            with journal.tool("calculate_sum", code=executable):
+                scope = {"__builtins__": {}}
+                exec(compile(executable.data, "<eap-generated-sum>", "exec"), scope)
+                return scope["calculate"](numbers)
 
 
 async def langgraph_sum(journal, numbers):
@@ -91,16 +105,19 @@ async def autogen_sum(journal, numbers):
 
 
 async def execute(payload, transport_factory=HttpTransport):
-    required = {"framework", "numbers", "callId", "traceId", "runtimeKey", "credential", "gateway", "directory"}
+    required = {"framework", "numbers", "callId", "traceId", "runtimeKey", "credential", "gateway", "directory", "deliveryIdentity"}
     if set(payload) != required or payload["framework"] not in VERSIONS:
         raise ValueError("invalid framework request")
     framework = payload["framework"]
     validate_numbers(payload["numbers"])
     if str(uuid.UUID(payload["callId"])) != payload["callId"] or not re.fullmatch(r"[a-f0-9]{32}", payload["traceId"]):
         raise ValueError("invalid execution identity")
-    directory = Path(payload["directory"])
-    if not directory.is_dir() or directory.stat().st_mode & 0o077:
-        raise ValueError("private observation directory required")
+    binding = payload["deliveryIdentity"]
+    if binding is not None:
+        if not isinstance(binding, dict) or set(binding) != {"actorUid", "identityEpoch"}:
+            raise ValueError("invalid delivery identity")
+        identity(binding["actorUid"], binding["identityEpoch"])
+    directory = private_directory(payload["directory"])
     path = directory/(payload["callId"]+".sqlite")
     # Atomic reservation: no process may re-execute an uncertain prior invocation.
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600); os.close(fd)
@@ -115,12 +132,20 @@ async def execute(payload, transport_factory=HttpTransport):
             transport = transport_factory(payload["gateway"], lambda: payload["credential"], allow_http=True, timeout=5)
             delivery = journal.deliver(transport, max_attempts=3, max_batches=1)
             stream = delivery["streamKey"]
+            journal.report_status(transport)
         except Exception:
             pass  # Delivery failure never re-executes the framework or erases its successful result.
+        background = "NOT_ENROLLED"
+        if binding is not None:
+            try:
+                background = enroll(journal, binding["actorUid"], binding["identityEpoch"])["state"]
+            except Exception:
+                background = "UNAVAILABLE"  # Report enrollment failure separately from business success.
         return {"sum": result, "count": len(payload["numbers"]), "observation": {
             "framework": framework, "producerId": journal.producer_id, "streamKey": stream,
             "events": count, "pending": len(journal.pending()),
-            "deliveryState": delivery["state"], "deliveryAttempts": delivery["attempts"]}}
+            "deliveryState": delivery["state"], "deliveryAttempts": delivery["attempts"],
+            "backgroundDeliveryState": background}}
     finally:
         journal.close()
 
