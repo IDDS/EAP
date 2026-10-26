@@ -34,12 +34,24 @@ Go Runner 持久化意图并领取许可后启动固定 Python 入口。协调�
 
 每次框架进程上限 30 秒，输入和输出有界。日志须由实例独享；删除日志、快照回滚/克隆、多进程共享不在防重放保证范围内。上传状态与业务结果分别表达；认证生产者报告不等于独立效果证明。
 
+## 默认模板中的跨实例代码交接
+
+新版同一镜像的两个默认入口也包含固定代码交接流程，不再要求另建交接专用镜像。工作流执行上下文必须显式设置：
+
+```json
+{"eapHandoff":{"protocol":"EAP_CODE_HANDOFF_V1"}}
+```
+
+LangGraph 模板固定为来源角色，支持 `generate`、`offer`、`resend-source`；AutoGen Core 模板固定为接收角色，支持 `execute`、`confirm`、`resend-target`。节点输入、工具许可及确认顺序见[交接样例](../handoff-sample/README.md)。角色、执行文件和协议版本不能由任务覆盖。没有该标记时仍走原普通求和路径；错误或不支持的标记直接拒绝，不回退执行工具。新版入口要求完整的单个 JSON 对象，任务正文上限为60,000字节。
+
+这仍是公开固定三数求和程序的显式交接。未知执行不重跑，双方确认不授予执行权限；不会自动为任意框架消息建立因果关系。只有使用新镜像创建的部署具备此入口，更新默认镜像不会迁移已有实例。构建上下文需要加入 `handoff_worker.py`，并在 `observers/` 包含 `eap_links.py`；两种入口复用相同的身份、工具治理与执行日志规则。
+
 ## 构建与验证
 
 安装、测试和构建全部在远程执行。Go 原生与 Kagent 回归保护共享 Runner；`-tags framework` 专项验证桥接校验、许可、重复/未知任务和入口限制。Python 分别运行 SDK、真实适配器和 `test_worker.py`。构建后须在实际镜像内复跑 Python 套件并验证 Go 子进程桥接。
 
 Dockerfile 的 `PYTHON_BASE` 必须为经核验的 Python 3.10 linux/amd64 固定摘要。构建目录包含受测的两个 Go 二进制、`worker.py`、SDK/适配模块和匹配[依赖锁定表](../execution-observer/frameworks/requirements-lock.txt)的 `site` 目录。连接信息和 Secret 不进入镜像上下文。
 
-实测结果以[验证记录](../../docs/VALIDATION.md)和[框架支持表](../../docs/FRAMEWORK_SUPPORT.md)为准。默认模板的跨实例关联自动接入、AutoGen AgentChat/分布式运行时、LangGraph 异步中断恢复、任意业务工具及通用零代码创建仍需独立实现和验收。
+实测结果以[验证记录](../../docs/VALIDATION.md)和[框架支持表](../../docs/FRAMEWORK_SUPPORT.md)为准。跨实例关系、AutoGen AgentChat/分布式运行时、LangGraph 异步中断恢复、任意业务工具及通用零代码创建仍需独立实现和验收。
 
 发布证据见[验证范围](../../docs/VALIDATION.md)。镜像构建显式设置两个 Go 入口为 `0755`，避免复制产物丢失可执行权限。

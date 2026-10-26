@@ -16,6 +16,8 @@
 
 ## 接入 EAP
 
+新版[默认框架镜像](../framework-runner/README.md)已复用本样例的交接实现：通过 `TEMPLATE` 部署 `LANGGRAPH_SUM_V1` 与 `AUTOGEN_SUM_V1`，提交工作流时设置 `context.eapHandoff={"protocol":"EAP_CODE_HANDOFF_V1"}`。来源/接收角色由框架入口固定。以下独立 `handoff` 镜像入口继续兼容；它不需要这一默认模板选择标记。
+
 远程构建 `runtime/agent-runner`，使用 `handoff` build tag，并分别固定 `-X main.handoffRole=source`、`target`。镜像以经验证的固定框架镜像为基础，加入两个二进制、`handoff_worker.py`、`eap_execution.py`、`eap_links.py`。依赖、编译和测试都在远程执行。
 
 通过 EAP 创建两个 Agent，使用 `IMAGE` 部署同一摘要镜像，命令分别为 `/usr/local/bin/eap-handoff-source` 和 `/usr/local/bin/eap-handoff-target`，端口 80、就绪探针 `/readyz`。必须使用 EAP 自动配送的运行身份；凭证只由父进程通过 stdin 传给子进程。不给任务开放镜像、路径、命令、任意程序、模型或网络地址选择。
@@ -31,4 +33,4 @@
 - 业务完成但事件投递未确认时保留不确定状态，不重新运行。当前没有独立后台恢复这个样例的未完成阶段；需要按原执行记录调查。
 - 这是指定 LangGraph/AutoGen Core 版本的显式接入样例，不是所有框架、任意程序或 eBPF 的全自动语义追踪。
 
-远程样例已完成 EAP 创建、部署、调度与回收，四角色桌面/手机控制台可读取双方确认并双向跳转；实例休眠和凭证撤销后，历史证据仍可查询。测试覆盖和能力边界见[验证范围](../../docs/VALIDATION.md)。镜像需要在目标环境独立构建与准备，仓库不提供公开镜像下载服务。
+独立样例已完成EAP创建、部署、调度和显式收尾。四角色桌面/手机控制台可查看双方确认与跳转，历史证据在实例休眠和凭证撤销后仍可查询。测试范围见[验证记录](../../docs/VALIDATION.md)。

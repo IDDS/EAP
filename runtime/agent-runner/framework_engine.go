@@ -42,14 +42,37 @@ func frameworkTask(r *runner, w http.ResponseWriter, req *http.Request) {
 		Objective string                     `json:"objective"`
 		Context   map[string]json.RawMessage `json:"context"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, req.Body, 65536)).Decode(&task) != nil || task.TaskKey == "" || len(task.TaskKey) > 256 {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, req.Body, 60000))
+	if err != nil || json.Unmarshal(raw, &task) != nil || task.TaskKey == "" || len(task.TaskKey) > 256 {
 		http.Error(w, "invalid task", 400)
+		return
+	}
+	if marker, present := task.Context["eapHandoff"]; present {
+		var mode struct {
+			Protocol string `json:"protocol"`
+		}
+		if strictHandoffJSON(marker, &mode) != nil || mode.Protocol != "EAP_CODE_HANDOFF_V1" {
+			http.Error(w, "unsupported handoff protocol", 400)
+			return
+		}
+		role := ""
+		switch frameworkEngine {
+		case "langgraph":
+			role = "source"
+		case "autogen-core":
+			role = "target"
+		default:
+			http.Error(w, "unsupported handoff framework", 400)
+			return
+		}
+		req.Body = io.NopCloser(bytes.NewReader(raw))
+		handoffTaskForRole(r, w, req, role)
 		return
 	}
 	var input toolInput
 	decoder := json.NewDecoder(bytes.NewReader(task.Context["eapTool"]))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&input) != nil || input.Name != "calculate_sum" || input.Arguments == nil {
+	if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF || input.Name != "calculate_sum" || input.Arguments == nil {
 		http.Error(w, "this template only accepts the governed calculate_sum tool", 400)
 		return
 	}

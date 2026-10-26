@@ -17,7 +17,7 @@
     {
       "id": "kagent-adk",
       "status": "BOUNDED",
-      "scope": "文本轮次及 CALCULATE_SUM_V1；无多轮工具循环、MCP 执行、子智能体或持久审批恢复"
+      "scope": "文本轮次、CALCULATE_SUM_V1、实际 ADK 内部事件和独立中央投递快照；有界注册树子调用观测，无任意子 Agent 创建、多轮工具循环、MCP 执行或持久审批恢复"
     },
     {
       "id": "mcp-observation",
@@ -67,7 +67,7 @@
     {
       "id": "execution-links",
       "status": "BOUNDED",
-      "scope": "Optional explicit two-runtime DELEGATE/CODE_HANDOFF observation, immutable outbox and read-only console; separate fixed LangGraph/AutoGen IMAGE sample verified through EAP creation, scheduling, confirmation after child exit and reclaim; no execution grant or general source archive; default framework templates not automatically integrated"
+      "scope": "Explicit two-runtime DELEGATE/CODE_HANDOFF observation and immutable outbox; default LangGraph/AutoGen TEMPLATE runtimes support the fixed public-code handoff through EAP_CODE_HANDOFF_V1; independent IMAGE sample remains compatible; no automatic arbitrary-framework inference, execution grant or general source archive"
     }
   ]
 }

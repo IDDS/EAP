@@ -1,4 +1,4 @@
-//go:build handoff && !framework && !kagent
+//go:build (handoff || framework) && !kagent
 
 package main
 
@@ -15,17 +15,7 @@ import (
 	"time"
 )
 
-// Fixed by the sample image build. No task-provided executable, URL or code policy.
-var handoffRole = "source"
 var handoffProcess = runHandoffProcess
-
-func init() {
-	runnerFramework, runnerEngineVersion = "EAP_CODE_HANDOFF_SAMPLE", "1"
-	serveTask = handoffTask
-	generateModel = func(*runner, context.Context, []message, string, string) (string, error) {
-		return "", errors.New("model execution is unavailable in this sample")
-	}
-}
 
 type handoffTaskInput struct {
 	Protocol       string                     `json:"protocol"`
@@ -61,7 +51,8 @@ func strictHandoffJSON(raw []byte, out any) error {
 	return nil
 }
 
-func handoffTask(r *runner, w http.ResponseWriter, req *http.Request) {
+// role is selected by the built-in runtime entry, never by workflow input.
+func handoffTaskForRole(r *runner, w http.ResponseWriter, req *http.Request, role string) {
 	if req.Method != http.MethodPost || !r.authorized(req) {
 		http.Error(w, "unauthorized", 401)
 		return
@@ -73,7 +64,7 @@ func handoffTask(r *runner, w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "invalid sample task", 400)
 		return
 	}
-	allowed := handoffRole == "source" && (task.NodeKey == "generate" || task.NodeKey == "offer" || task.NodeKey == "resend-source") || handoffRole == "target" && (task.NodeKey == "execute" || task.NodeKey == "confirm" || task.NodeKey == "resend-target")
+	allowed := role == "source" && (task.NodeKey == "generate" || task.NodeKey == "offer" || task.NodeKey == "resend-source") || role == "target" && (task.NodeKey == "execute" || task.NodeKey == "confirm" || task.NodeKey == "resend-target")
 	if !allowed {
 		http.Error(w, "unsupported sample phase", 400)
 		return
@@ -124,7 +115,7 @@ func handoffTask(r *runner, w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	r.mu.Lock()
-	in := handoffWorkerInput{Role: handoffRole, Action: task.NodeKey, Session: strings.TrimPrefix(task.WorkflowRunKey, "wf-exec-"), TaskKey: task.TaskKey, TraceID: task.TraceID, RuntimeKey: r.runtimeKey, Credential: r.runtimeToken, ActorUID: r.credentialUID, IdentityEpoch: r.credentialEpoch, Gateway: r.gateway, Directory: filepath.Join(r.toolDir, "handoff-sample"), Previous: upstream}
+	in := handoffWorkerInput{Role: role, Action: task.NodeKey, Session: strings.TrimPrefix(task.WorkflowRunKey, "wf-exec-"), TaskKey: task.TaskKey, TraceID: task.TraceID, RuntimeKey: r.runtimeKey, Credential: r.runtimeToken, ActorUID: r.credentialUID, IdentityEpoch: r.credentialEpoch, Gateway: r.gateway, Directory: filepath.Join(r.toolDir, "handoff-sample"), Previous: upstream}
 	r.mu.Unlock()
 	if in.ActorUID == "" || in.IdentityEpoch == "" || r.identity == nil {
 		http.Error(w, "installed runtime identity required", 401)

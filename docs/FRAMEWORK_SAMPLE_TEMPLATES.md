@@ -44,6 +44,25 @@
 
 ## 支持范围
 
-样例仅接受受限求和输入，不接受任意源码、模型生成代码、外部业务 MCP 或自定义工具。当前源码按数字数量生成求和代码，再交给同进程临时子 Agent 执行；文件删除后保留事件摘要。新版成功任务产生 12 条事件，包括 4 次逻辑 Agent 执行、1 次工具调用和生成者/执行者的 2 条代码登记。已部署旧镜像仍产生 9 条事件；实际发布状态见[验证记录](VALIDATION.md)，实现边界见[短生命周期追踪](EPHEMERAL_EXECUTION_OBSERVABILITY.md)。
+样例仅接受受限求和输入，不接受任意源码、模型生成代码、外部业务 MCP 或自定义工具。当前模板按数字数量生成求和代码，再交给同进程临时子 Agent 执行；文件删除后保留事件摘要。新版成功任务产生 12 条事件，包括 4 次逻辑 Agent 执行、1 次工具调用和生成者/执行者的 2 条代码登记。2026-10-25 已发布上述版本，历史旧实例仍产生 9 条事件；实际发布状态见[验证记录](VALIDATION.md)，实现边界见[短生命周期追踪](EPHEMERAL_EXECUTION_OBSERVABILITY.md)。
 
-新版模板 Runner 增加[原身份绑定的有界后台补发](EXECUTION_BACKGROUND_DELIVERY.md)，普通 SDK 和旧日志不自动迁移。业务 Worker 在投递结束后报告一次[集中状态快照](EXECUTION_DELIVERY_STATUS.md)，后台可继续补原事件或报告。新工作流支持[停止后续调度](WORKFLOW_STOP.md)；即时中断、通用恢复、AutoGen AgentChat/分布式和 LangGraph 异步中断仍未开放。[可选交接样例](../runtime/handoff-sample/README.md)独立接入跨实例关联，默认模板不会自动集成。具体实测范围见[验证记录](VALIDATION.md)，整体支持矩阵见[框架支持](FRAMEWORK_SUPPORT.md)。
+新版模板 Runner 增加[原身份绑定的有界后台补发](EXECUTION_BACKGROUND_DELIVERY.md)，普通 SDK 和旧日志不自动迁移。业务 Worker 在投递结束后报告一次[集中状态快照](EXECUTION_DELIVERY_STATUS.md)，后台可继续补原事件或报告。任务取消/恢复、跨实例子 Agent、AutoGen AgentChat/分布式和 LangGraph 异步中断仍未开放。具体实测范围见[验证记录](VALIDATION.md)，整体支持矩阵见[框架支持](FRAMEWORK_SUPPORT.md)。
+
+
+## 显式跨实例交接
+
+包含交接入口的新版默认镜像可以直接通过上述两个 `TEMPLATE` 部署使用，无需提供自定义镜像或命令。LangGraph 为来源，AutoGen Core 为接收方；普通求和请求保持原协议。
+
+新建工作流依次使用 `generate → execute → offer → confirm`，并可增加 `resend-source → resend-target` 验证原关联补传。运行节点使用 `executionBackend: RUNTIME`；`execute.inputFrom` 为 `["generate"]`，其余确认/重发节点为 `["execute"]`。仅 `execute` 配置 `calculate_sum` 和 `[10,20,12]`；运行许可仍需预先配置实例工具策略与预算。
+
+提交执行时使用新的请求键，并在 `context` 中明确选择：
+
+```json
+{
+  "objective": "交接固定公开程序并核对执行关系",
+  "context": {"eapHandoff": {"protocol": "EAP_CODE_HANDOFF_V1"}},
+  "requestKey": "example-handoff-execution-v1"
+}
+```
+
+协议作用于这次工作流执行，各节点角色由模板固定。错误标记、额外协议字段和角色错配均拒绝。固定公开代码随工作流业务结果交接，按业务内容权限读取；观测接口只保存元数据。详细节点合同与限制见[样例说明](../runtime/handoff-sample/README.md)。既有实例不会因默认镜像更新自动取得新入口，具体部署与验证状态以[验证记录](VALIDATION.md)为准。
