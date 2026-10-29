@@ -1,27 +1,19 @@
 <template>
   <section class="page-grid agentops-workbench" :aria-busy="loading">
-    <header class="agentops-page-header">
-      <div>
-        <span class="interface-eyebrow">EAP · 工作入口</span>
-        <h2>运营工作台</h2>
-        <p>先查看待办，再跟进任务进展和业务结果。当前展示所选范围的事项，并非仅分配给你的事项。</p>
-      </div>
-      <div class="button-row">
-        <span class="context-summary">{{ context.scopeLabel }} · {{ context.windowLabel }}</span>
+    <ConsolePageHeader>
+      <template #actions><div class="button-row">
+        <span v-if="workbenchTab === 'queue' || workbenchTab === 'metrics'" class="context-summary">{{ context.scopeLabel }} · {{ context.windowLabel }}</span>
         <router-link to="/command-center" class="command-center-link">打开运行大屏 ↗</router-link>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新视图</el-button>
-      </div>
-    </header>
-    <p class="muted">信号同步：{{ dashboard.lastSignalSyncAt ? formatDate(dashboard.lastSignalSyncAt) : '尚未完成' }} · {{ ({ NO_DATA: '暂无同步记录', FRESH: '最近已同步', AGING: '待更新', STALE: '同步已过期' } as Record<string, string>)[dashboard.signalSyncFreshness] }}<span v-if="dashboard.demoDataIncluded"> · 含演示智能体</span></p>
+      </div></template>
+    </ConsolePageHeader>
+    <p v-if="workbenchTab === 'queue' || workbenchTab === 'metrics'" class="muted">信号同步：{{ dashboard.lastSignalSyncAt ? formatDate(dashboard.lastSignalSyncAt) : '尚未完成' }} · {{ ({ NO_DATA: '暂无同步记录', FRESH: '最近已同步', AGING: '待更新', STALE: '同步已过期' } as Record<string, string>)[dashboard.signalSyncFreshness] }}<span v-if="dashboard.demoDataIncluded"> · 含演示智能体</span></p>
 
 
 
     <el-alert v-if="dashboardError" type="error" :closable="false" show-icon :title="dashboardError" />
-    <nav class="workbench-start" aria-label="开始处理工作">
-      <button type="button" @click="openWorkQueue"><strong><el-icon aria-hidden="true"><List /></el-icon>处理待办</strong><span>查看异常、负责人和处理记录</span><small>{{ hasDashboard ? `${dashboard.workItems.totalOpen} 项待处理` : '查看待办列表' }} →</small></button>
-      <router-link to="/task-workspace"><strong><el-icon aria-hidden="true"><VideoPlay /></el-icon>跟进任务</strong><span>查看执行进展，核对任务结果</span><small>打开全部执行记录 →</small></router-link>
-      <router-link to="/management"><strong><el-icon aria-hidden="true"><Money /></el-icon>查看业务成果</strong><span>查看登记的收益和业务改善记录</span><small>打开业务价值 →</small></router-link>
-    </nav>
+    <WorkspaceStart v-if="workbenchTab === 'start'" :agent-count="hasDashboard ? dashboard.agentCount : undefined" :open-item-count="hasDashboard ? dashboard.workItems.totalOpen : undefined" @open-queue="workbenchTab = 'queue'" />
+    <AgentOpsFilters v-if="workbenchTab === 'queue' || workbenchTab === 'metrics'" description="用于待办事项和运行指标；展示所选组织的事项，并非仅分配给你的事项。" />
     <div v-show="workbenchTab === 'queue'" class="workbench-priority-strip">
       <button class="priority-cell priority-critical" type="button" :aria-pressed="severityFilter === 'P0'" :class="{ 'is-selected': severityFilter === 'P0' }" @click="applySeverity('P0')">
         <span>P0 · 立即响应</span><strong>{{ hasDashboard ? dashboard.workItems.p0 : '—' }}</strong><small>关键安全或治理阻断</small>
@@ -37,16 +29,6 @@
       </button>
     </div>
 
-    <nav class="workbench-tabs" aria-label="工作台视图">
-      <button v-for="tab in workbenchTabs" :key="tab.key" :aria-pressed="workbenchTab === tab.key" @click="workbenchTab = tab.key">{{ tab.label }}<span v-if="tab.key === 'queue' && hasDashboard">{{ dashboard.workItems.totalOpen }}</span></button>
-    </nav>
-    <section v-if="workbenchTab === 'catalog'" class="capability-directory" aria-label="平台能力导航">
-      <header><h2>按工作流程找到功能</h2><p>从智能体接入到业务价值，功能入口与左侧导航保持一致。</p></header>
-      <div v-for="(group, index) in navigationGroups" :key="group.id" class="capability-row">
-        <div class="capability-purpose"><span class="capability-order">{{ String(index + 1).padStart(2, '0') }}</span><div><h3><el-icon aria-hidden="true"><component :is="navigationIcons[group.icon]" /></el-icon>{{ group.label }}</h3><p>{{ group.description }}</p></div></div>
-        <div class="capability-links"><router-link v-for="item in group.items" :key="item.path" :to="item.path"><el-icon aria-hidden="true"><component :is="navigationIcons[item.icon]" /></el-icon><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><el-icon aria-hidden="true"><ArrowRight /></el-icon></router-link></div>
-      </div>
-    </section>
     <div v-show="workbenchTab === 'metrics'" class="evidence-metric-grid">
       <article v-for="metric in dashboard.metrics" :key="metric.key" class="evidence-metric-card">
         <div><span>{{ metric.label }}</span><EvidenceBadge :basis="metric.basis" :source="metric.source" :freshness="freshnessLabel(metric.freshness)" /></div>
@@ -142,14 +124,7 @@
         <el-empty v-if="!dashboard.attentionAgents.length" description="当前没有需要关注的 Agent" :image-size="64" />
       </el-card>
 
-      <el-card shadow="never" class="panel lifecycle-entry-panel">
-        <template #header><span>生命周期入口</span></template>
-        <button v-for="entry in lifecycleEntries" :key="entry.path" type="button" @click="router.push(entry.path)">
-          <span class="lifecycle-entry-index">{{ entry.index }}</span>
-          <div><strong>{{ entry.title }}</strong><small>{{ entry.description }}</small></div>
-          <el-icon><ArrowRight /></el-icon>
-        </button>
-      </el-card>
+
     </div>
   </section>
 
@@ -189,11 +164,13 @@
 </template>
 
 <script setup lang="ts">
-import { navigationGroups } from '@/navigation/catalog'
-import { navigationIcons } from '@/navigation/icons'
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import WorkspaceStart from '@/components/WorkspaceStart.vue'
+import { usePageSection } from '@/composables/usePageSection'
+import AgentOpsFilters from '@/components/AgentOpsFilters.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { List, VideoPlay, Money, ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { ArrowRight, Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import EvidenceBadge from '@/components/EvidenceBadge.vue'
 import StatusAxis from '@/components/StatusAxis.vue'
@@ -213,8 +190,7 @@ function openWorkQueue() {
   workbenchTab.value = 'queue'
   requestAnimationFrame(() => document.getElementById('work-queue-list')?.scrollIntoView({behavior:'smooth',block:'start'}))
 }
-const workbenchTab = ref('queue')
-const workbenchTabs = [{ key: 'queue', label: '待处理事项' }, { key: 'catalog', label: '平台能力导航' }, { key: 'network', label: '拓扑与控制' }, { key: 'metrics', label: '观测指标' }]
+const workbenchTab = usePageSection()
 const hasDashboard = ref(false)
 const dashboardError = ref('')
 const loading = ref(false)
@@ -247,13 +223,6 @@ const permissions = usePermissions()
 const selectedAgentId = computed(() => selectedNetworkNode.value?.nodeType === 'AGENT' ? Number(selectedNetworkNode.value.id.slice(6)) : undefined)
 const networkViewMode = ref<NetworkViewMode>('ALL')
 
-const lifecycleEntries = [
-  { index: '01', title: '资产与身份', description: '复核发现资产并纳入 Agent 目录', path: '/registry' },
-  { index: '02', title: '运行与观测', description: '检查心跳、模型、Trace 和工具信号', path: '/physical' },
-  { index: '03', title: '治理与安全', description: '处理审批、策略和高风险访问', path: '/governance' },
-  { index: '04', title: '成本与价值', description: '核对用量、成本和业务价值证据', path: '/management' },
-  { index: '05', title: '自动化', description: '编排团队与可控工作流', path: '/workflow-builder' },
-]
 
 const filteredWorkItems = computed(() => dashboard.value.priorityWorkItems.filter(item =>
   (!severityFilter.value || item.severity === severityFilter.value) && (!showOverdueOnly.value || item.overdue),
@@ -345,24 +314,21 @@ watch(() => [context.windowHours, context.organizationScope], load)
 watch(() => permissions.state.user, () => {
   networkRequestId++; commands.value = []; network.value = { nodes: [], edges: [], stats: { controlNodeCount: 0, agentNodeCount: 0, controlEdgeCount: 0, dataEdgeCount: 0 } }
   selectedNetworkNode.value = undefined
-  if (permissions.state.user) void loadNetwork()
+  if (permissions.state.user && workbenchTab.value === 'network') void loadNetwork()
 })
-onMounted(() => { void Promise.all([load(), loadNetwork()]) })
+watch(workbenchTab, value => { if (value === 'network' && permissions.state.user) void loadNetwork() }, { immediate: true })
+onMounted(() => { void load() })
 </script>
 
 <style scoped>
-.command-center-link{color:#176b9b;text-decoration:none;border:1px solid #b8cede;border-radius:5px;padding:9px 14px;font-size:14px}.command-center-link:hover{background:#eef5fa}.command-center-link:focus-visible{outline:2px solid #2683b8;outline-offset:3px}
-</style>
-
-<style scoped>
-.workbench-start{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.workbench-start>a,.workbench-start>button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:18px;border:1px solid var(--soc-line,#dce3eb);border-radius:8px;background:var(--soc-surface,#fff);text-align:left;color:var(--el-text-color-primary);text-decoration:none;font:inherit;cursor:pointer}.workbench-start strong{font-size:16px}.workbench-start span{font-size:13px;color:var(--el-text-color-secondary)}.workbench-start small{color:var(--el-color-primary);font-size:12px}.workbench-start>a:hover,.workbench-start>button:hover{border-color:var(--el-color-primary)}@media(max-width:700px){.workbench-start{grid-template-columns:1fr}}
-</style>
-
-<style scoped>
-@media(max-width:700px){
-  .topology-panel .panel-header{flex-direction:column;align-items:flex-start;gap:12px}
-  .topology-panel .panel-header>span:first-child{width:100%;flex:none}
-  .topology-panel .plane-legend{width:100%;flex-wrap:wrap;gap:8px}
-  .topology-panel .plane-legend>span{white-space:nowrap;flex-shrink:0}
+.agentops-workbench .workbench-lower-grid { grid-template-columns: minmax(0, 1fr); }
+.command-center-link { color: var(--el-color-primary-dark-2); text-decoration: none; border: 1px solid var(--console-line); border-radius: 4px; padding: 9px 14px; font-size: 13px; }
+.command-center-link:hover { background: var(--console-accent-soft); }
+.command-center-link:focus-visible { outline: 2px solid var(--console-accent); outline-offset: 3px; }
+@media (max-width: 700px) {
+  .topology-panel .panel-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .topology-panel .panel-header > span:first-child { width: 100%; flex: none; }
+  .topology-panel .plane-legend { width: 100%; flex-wrap: wrap; gap: 8px; }
+  .topology-panel .plane-legend > span { white-space: nowrap; flex-shrink: 0; }
 }
 </style>

@@ -1,32 +1,30 @@
 <template>
   <section class="page-grid orchestration-workspace">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <h2>团队与计划</h2>
-        <span>围绕一个目标安排成员，按步骤执行，逐项核对结果。</span>
-      </div>
-      <div class="plan-team-picker">
+    <ConsolePageHeader>
+      <template #actions><div class="plan-team-picker">
         <label for="plan-team">当前团队</label>
-        <el-select id="plan-team" v-model="selectedTeamId" class="agent-select" popper-class="plan-select-options" :loading="loading" placeholder="选择团队" @change="loadTeamDetail">
+        <el-select id="plan-team" v-model="selectedTeamId" class="agent-select" popper-class="plan-select-options" :loading="loading" :disabled="teamEditing || planEditing || submitting" placeholder="选择团队" @change="loadTeamDetail">
           <el-option v-for="team in teams" :key="team.id" :label="`${team.name} · ${team.code}`" :value="team.id" />
         </el-select>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
     <el-alert v-if="executionError" :title="executionError" type="error" :closable="false" />
     <el-button v-if="executionError && !teams.length && !loading" @click="load">重新加载团队</el-button>
+
+    <TeamManager :team="activeTeam" :members="members" :has-plans="!!plans.length || teamLoading || !!teamError" :disabled="loading || teamLoading || planEditing || !!teamError" @working="teamEditing = $event" @changed="refreshTeams" />
 
     <div class="plan-workspace-grid">
       <aside class="plan-library" aria-labelledby="plan-library-heading" :aria-busy="loading || teamLoading">
         <div class="plan-section-heading">
           <h3 id="plan-library-heading">任务计划 <span class="plan-count">{{ plans.length }}</span></h3>
-          <el-button text :icon="Plus" :disabled="!selectedTeamId || teamLoading || !permissions.can('runWorkflows')" @click="openPlanForm">新增计划</el-button>
+          <el-button text :icon="Plus" :disabled="!selectedTeamId || teamLoading || teamEditing || planEditing || !permissions.can('runWorkflows')" @click="openPlanForm">新增计划</el-button>
         </div>
         <p v-if="loading || teamLoading" class="plan-empty" role="status">正在加载计划…</p>
         <div v-else-if="teamError" class="plan-empty" role="alert"><p>{{ teamError }}</p><el-button @click="loadTeamDetail">重新加载计划</el-button></div>
         <ul v-else-if="plans.length" class="plan-library-list" aria-label="选择计划">
           <li v-for="plan in plans" :key="plan.id">
-            <button type="button" class="plan-choice" :aria-pressed="plan.id === selectedPlanId" @click="selectPlan(plan.id)">
+            <button type="button" class="plan-choice" :aria-pressed="plan.id === selectedPlanId" :disabled="planEditing || submitting" @click="selectPlan(plan.id)">
               <span class="plan-choice-meta"><span>计划 #{{ plan.id }}</span><el-tag :type="statusType(plan.status)" size="small">{{ statusLabel(plan.status) }}</el-tag></span>
               <strong>{{ plan.goal }}</strong>
               <span v-if="plan.id === selectedPlanId" class="plan-choice-current">当前计划</span>
@@ -44,13 +42,14 @@
           <div class="plan-summary-meta"><span>计划 #{{ activePlan.id }}</span><el-tag :type="statusType(activePlan.status)">{{ statusLabel(activePlan.status) }}</el-tag><span v-if="frozen">已提交，配置已锁定</span></div>
           <h3>{{ activePlan.goal }}</h3>
           <details v-if="activePlan.contextSummary" class="plan-context"><summary>上下文说明</summary><p>{{ activePlan.contextSummary }}</p></details>
+          <PlanActions :key="activePlan.id" :plan="activePlan" :disabled="planLoading || !!planError || planEditing || teamEditing || submitting" @working="planEditing = $event" @changed="refreshPlans" />
         </header>
 
         <el-alert v-if="planError" :title="planError" type="error" :closable="false" />
         <section class="plan-steps-section" aria-labelledby="plan-steps-heading">
           <div class="plan-section-heading">
             <div><h4 id="plan-steps-heading">计划步骤</h4><p class="muted">{{ planLoading ? '正在加载步骤…' : `${planSteps.length} 个步骤，${assignedStepCount} 个已分配成员` }}</p></div>
-            <el-button text :icon="Plus" :disabled="!selectedPlanId || planLoading || !!planError || frozen || !permissions.can('runWorkflows')" @click="openStepForm">新增步骤</el-button>
+            <el-button text :icon="Plus" :disabled="!selectedPlanId || planLoading || planEditing || teamEditing || submitting || !!planError || frozen || planSteps.length >= 62 || !permissions.can('runWorkflows')" @click="openStepForm">新增步骤</el-button>
           </div>
           <p v-if="planLoading" class="plan-empty" role="status">正在读取当前计划…</p>
           <ol v-else-if="planSteps.length" class="plan-step-list">
@@ -60,10 +59,11 @@
                 <div class="plan-step-title"><h5>{{ row.title }}</h5><el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag></div>
                 <dl class="plan-step-facts"><div><dt>执行方式</dt><dd>{{ row.executionBackend === 'AX' ? '隔离沙箱' : '常规执行' }}</dd></div><div><dt>所需能力</dt><dd>{{ row.requiredCapability }}</dd></div></dl>
                 <div class="plan-step-contract"><span>结果契约</span><strong>{{ planOutputLabel(row.outputContractJson) }}</strong><el-button link type="primary" @click="openContract(row)">{{ frozen || !permissions.can('runWorkflows') ? '查看契约' : '配置契约' }}</el-button></div>
+                <PlanStepActions :plan="activePlan" :step="row" :steps="planSteps" :disabled="planLoading || !!planError || planEditing || teamEditing || submitting" @working="planEditing = $event" @changed="selectPlan(selectedPlanId!)" />
               </div>
               <div class="plan-step-assignment">
                 <label :for="`plan-member-${row.id}`">执行成员</label>
-                <el-select :id="`plan-member-${row.id}`" :model-value="row.assignedAgentId" popper-class="plan-select-options" :disabled="frozen || !!planError || !permissions.can('runWorkflows')" placeholder="选择成员" @change="assignMember(row.id, $event)">
+                <el-select :id="`plan-member-${row.id}`" :model-value="row.assignedAgentId" clearable popper-class="plan-select-options" :disabled="frozen || planEditing || teamEditing || assigning || submitting || !!planError || !permissions.can('runWorkflows')" placeholder="选择成员" @change="assignMember(row.id, $event)">
                   <el-option v-for="member in members" :key="member.id" :label="`${member.role} · Agent ${member.agentId}`" :value="member.agentId" />
                 </el-select>
                 <span v-if="!row.assignedAgentId" class="muted">尚未分配</span>
@@ -78,7 +78,7 @@
           <div class="plan-section-heading"><h4 id="plan-execution-heading">执行与结果</h4><el-button :disabled="planLoading" @click="selectPlan(selectedPlanId!)">刷新进度</el-button></div>
           <div class="plan-execution-actions">
             <el-checkbox v-model="suspendAfterTask" :disabled="frozen || submitting || !permissions.can('runWorkflows')">步骤完成后休眠（专用实例）</el-checkbox>
-            <el-button type="primary" :loading="submitting" :disabled="frozen || planLoading || !!planError || !planSteps.length || reclaimBlocked || !permissions.can('runWorkflows')" @click="executePlan">{{ frozen ? '已提交执行' : '执行计划' }}</el-button>
+            <el-button type="primary" :loading="submitting" :disabled="frozen || planLoading || teamLoading || planEditing || teamEditing || assigning || !!planError || !planSteps.length || assignedStepCount !== planSteps.length || reclaimBlocked || !permissions.can('runWorkflows')" @click="executePlan">{{ frozen ? '已提交执行' : '执行计划' }}</el-button>
           </div>
           <p v-if="!permissions.can('runWorkflows')" class="plan-readonly-note">当前账号可查看计划，不能配置或执行。</p>
           <p class="plan-execution-guidance">按顺序执行，后一步接收前一步结果。提交后锁定成员分配与结果契约；结构不合格时停止后续交接。</p>
@@ -92,37 +92,6 @@
       </div>
       <div v-else class="plan-detail plan-empty plan-unselected"><h3>{{ teamLoading || loading ? '正在读取团队计划…' : '从一个明确目标开始协作' }}</h3><p>选择计划后，可在这里安排步骤、查看执行进度和结果。</p></div>
     </div>
-    <el-collapse class="team-reference"><el-collapse-item name="members" title="团队与成员资料">
-    <div class="registry-layout">
-      <el-card shadow="never" class="panel">
-        <template #header>团队</template>
-        <el-table :data="teams" v-loading="loading">
-          <el-table-column prop="name" label="团队" min-width="170">
-            <template #default="{ row }">
-              <strong>{{ row.name }}</strong>
-              <div class="muted">{{ row.code }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="coordinationMode" label="协作模式" width="150" />
-          <el-table-column prop="workspacePolicy" label="工作区策略" min-width="220" show-overflow-tooltip />
-          <el-table-column label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag type="success">{{ row.status }}</el-tag>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-
-      <el-card shadow="never" class="panel">
-        <template #header>成员角色</template>
-        <el-table :data="members">
-          <el-table-column prop="agentId" label="Agent ID" width="100" />
-          <el-table-column prop="role" label="角色" width="160" />
-          <el-table-column prop="responsibility" label="责任" min-width="260" />
-        </el-table>
-      </el-card>
-    </div>
-    </el-collapse-item></el-collapse>
     <el-dialog v-model="planFormOpen" title="新增计划" width="min(560px, 94vw)" :close-on-click-modal="!savingPlan" :show-close="!savingPlan">
       <el-form label-position="top" @submit.prevent="savePlan">
         <el-form-item label="计划目标" label-for="plan-goal" required><el-input id="plan-goal" v-model="planDraft.goal" maxlength="128" show-word-limit :disabled="savingPlan" /></el-form-item>
@@ -156,6 +125,11 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import TeamManager from '@/components/orchestration/TeamManager.vue'
+import PlanActions from '@/components/orchestration/PlanActions.vue'
+import PlanStepActions from '@/components/orchestration/PlanStepActions.vue'
+import { editablePlan } from '@/api/orchestrationEditing'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -171,11 +145,15 @@ import type { AgentPlan, AgentPlanStep, AgentTeam, AgentTeamMember, WorkflowExec
 
 const permissions = usePermissions()
 const submitting = ref(false)
+const planEditing = ref(false)
+const teamEditing = ref(false)
+const assigning = ref(false)
+const activeTeam = computed(() => teams.value.find(team => team.id === selectedTeamId.value))
 const suspendAfterTask = ref(false)
 const executionError = ref('')
 const selectedExecution = ref<WorkflowExecution>()
 const activePlan = computed(() => plans.value.find(p => p.id === selectedPlanId.value))
-const frozen = computed(() => !!plans.value.find(p => p.id === selectedPlanId.value)?.executionRunKey)
+const frozen = computed(() => activePlan.value ? !editablePlan(activePlan.value) : false)
 let disposed = false
 let polling = false
 let poll: ReturnType<typeof setInterval> | undefined
@@ -209,6 +187,36 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function refreshTeams(preferredId?: number) {
+  const current = selectedTeamId.value, previousPlan = selectedPlanId.value, principal = permissions.state.user
+  const ticket = ++teamRequestId
+  loading.value = true
+  try {
+    const next = await EapApi.listTeams()
+    if (disposed || principal !== permissions.state.user || ticket !== teamRequestId) return
+    teams.value = next
+    selectedTeamId.value = next.find(t => t.id === preferredId)?.id ?? next.find(t => t.id === current)?.id ?? next[0]?.id
+    await loadTeamDetail()
+    if (selectedTeamId.value === current && previousPlan && plans.value.some(p => p.id === previousPlan)) await selectPlan(previousPlan)
+  } catch { if (!disposed && principal === permissions.state.user) executionError.value = '团队更新后的状态读取失败，请刷新核对。' }
+  finally { loading.value = false }
+}
+
+async function refreshPlans(preferredId?: number) {
+  const teamId = selectedTeamId.value, principal = permissions.state.user, ticket = ++teamRequestId
+  if (!teamId) return
+  teamLoading.value = true
+  try {
+    const next = await EapApi.listTeamPlans(teamId)
+    if (disposed || ticket !== teamRequestId || principal !== permissions.state.user || selectedTeamId.value !== teamId) return
+    plans.value = next
+    const target = next.find(p => p.id === preferredId)?.id ?? next[0]?.id
+    if (target) await selectPlan(target)
+    else { ++planRequestId; selectedPlanId.value = undefined; planSteps.value = []; selectedExecution.value = undefined; planLoading.value = false }
+  } catch { if (!disposed && teamId === selectedTeamId.value) teamError.value = '计划更新后的状态读取失败，请刷新核对。' }
+  finally { if (!disposed && ticket === teamRequestId) teamLoading.value = false }
 }
 
 let teamRequestId = 0
@@ -383,11 +391,16 @@ watch([selectedTeamId, selectedPlanId, () => permissions.state.user], () => {
   contractConfig.value = '{}'
 }, { flush: 'sync' })
 
-async function assignMember(stepId: number, assignedAgentId: number) {
-  if (frozen.value || !permissions.can('runWorkflows')) return
-  const planId = selectedPlanId.value
-  await EapApi.assignPlanStep(stepId, { assignedAgentId, status: 'ASSIGNED' })
-  if (planId && selectedPlanId.value === planId) await selectPlan(planId)
+async function assignMember(stepId: number, assignedAgentId?: number | null) {
+  if (frozen.value || assigning.value || planEditing.value || submitting.value || !permissions.can('runWorkflows')) return
+  const planId = selectedPlanId.value, principal = permissions.state.user
+  assigning.value = true
+  try {
+    const agentId = typeof assignedAgentId === 'number' ? assignedAgentId : null
+    await EapApi.assignPlanStep(stepId, { assignedAgentId: agentId, status: agentId == null ? 'PENDING' : 'ASSIGNED' })
+    if (!disposed && principal === permissions.state.user && planId && selectedPlanId.value === planId) await selectPlan(planId)
+  } catch { if (!disposed && principal === permissions.state.user && selectedPlanId.value === planId) planError.value = '成员分配结果未确认，请刷新计划后核对。' }
+  finally { assigning.value = false }
 }
 
 async function executePlan() {

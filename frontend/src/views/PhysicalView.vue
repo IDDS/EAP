@@ -1,31 +1,25 @@
 <template>
   <section class="page-grid physical-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">物理 · 观测</span>
-        <h2>运行与观测</h2>
-        <span>统一查看端点、智能体、模型调用、Token 消耗、费用、延迟与运行状况</span>
-      </div>
-      <div v-if="activeSection !== 'executions'" class="button-row">
+    <ConsolePageHeader>
+      <template #actions><div v-if="activeSection !== 'executions'" class="button-row">
         <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
           <el-option label="最近 7 天" :value="168" />
           <el-option label="最近 30 天" :value="720" />
         </el-select>
-        <el-button :icon="Search" :loading="scanLoading" :disabled="!permissions.can('deployAgents')" @click="triggerDiscovery">自主发现</el-button>
+        <el-button v-if="activeSection === 'overview' || activeSection === 'assets'" :icon="Search" :loading="scanLoading" :disabled="!permissions.can('deployAgents')" @click="triggerDiscovery">自主发现</el-button>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
-    <SectionNavigation v-model="activeSection" label="物理界面分区" :items="sectionItems" />
 
 
     <AgentExecutionExplorer v-if="activeSection === 'executions'" :initial-agent-id="contextAgentId" />
     <el-alert v-if="loadError && activeSection !== 'executions'" :title="loadError" type="warning" show-icon :closable="false" />
     <el-empty v-if="!summaryLoaded && activeSection !== 'executions'" :description="loading ? '正在加载遥测' : '遥测数据暂不可用'" />
     <template v-if="summaryLoaded && activeSection !== 'executions'">
-    <div class="analysis-hero physical-hero">
+    <div v-if="activeSection === 'overview'" class="analysis-hero physical-hero">
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">最近 {{ windowHours }} 小时</span>
         <h2>运行全景</h2>
@@ -42,7 +36,7 @@
       </div>
     </div>
 
-    <div class="physical-ops-strip">
+    <div v-if="activeSection === 'overview'" class="physical-ops-strip">
       <div class="physical-ops-card">
         <div><span>端点覆盖率</span><strong>{{ endpointCoveragePercent }}%</strong></div>
         <el-progress :percentage="endpointCoveragePercent" :show-text="false" :stroke-width="6" color="#3167e8" />
@@ -61,7 +55,8 @@
       <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前列表已按上下文收敛</span>
-      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+      <router-link v-if="contextAgentId" :to="`/agents/${contextAgentId}`">返回智能体</router-link>
+      <el-button link type="primary" @click="clearDrilldown">查看全部记录</el-button>
     </div>
 
     <el-card v-if="contextTraceId" shadow="never" class="panel trace-inspector">
@@ -107,7 +102,7 @@
     </el-card>
 
     <el-alert
-      v-if="!summary.lastEventAt"
+      v-if="!summary.lastEventAt && (activeSection === 'overview' || activeSection === 'models')"
       type="warning"
       :closable="false"
       show-icon
@@ -368,7 +363,7 @@
       </el-card>
     </div>
 
-    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
+    <el-card v-show="activeSection === 'models'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>最近模型调用</span>
@@ -506,7 +501,7 @@
       <el-table-column label="诊断" width="90" fixed="right"><template #default="{ row }"><el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button></template></el-table-column>
       </HistoryTable>
     </el-card>
-    <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
+    <el-card v-show="activeSection === 'tools'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
           <span>工具调用明细</span>
@@ -540,14 +535,14 @@
         <el-table-column label="时间" width="175"><template #default="{ row }">{{ formatTime(row.observedAt) }}</template></el-table-column>
       <el-table-column label="诊断" width="90" fixed="right"><template #default="{ row }"><el-button link :disabled="!row.traceId" @click="openTrace(row)">Trace</el-button></template></el-table-column>
       </HistoryTable>
-      <el-empty v-if="visibleToolInvocations.length === 0" description="当前筛选条件下没有工具调用明细" />
     </el-card>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import SectionNavigation from '@/components/common/SectionNavigation.vue'
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
@@ -616,14 +611,7 @@ const emptyReconciliation: UsageReconciliationSummary = {
 }
 
 const windowHours = ref(24)
-const sectionItems = [
-  { value: 'overview', label: '运行总览' },
-  { value: 'ingest', label: '调用接入' },
-  { value: 'assets', label: '物理资产' },
-  { value: 'trace', label: '深度 Trace' },
-  { value: 'executions', label: '执行关系' },
-] as const
-const activeSection = ref<'overview' | 'ingest' | 'assets' | 'trace' | 'executions'>('overview')
+const activeSection = usePageSection()
 const loading = ref(false)
 const scanLoading = ref(false)
 const telemetrySaving = ref(false)
@@ -673,9 +661,6 @@ const drilldownLabel = computed(() => {
   return parts.join(' · ')
 })
 
-watch([contextTraceId, contextEventKey], ([traceId, eventKey]) => {
-  if (traceId || eventKey) activeSection.value = 'trace'
-}, { immediate: true })
 
 const successPercent = computed(() => Math.round(summary.value.successRate * 100))
 const endpointCoveragePercent = computed(() => summary.value.registeredEndpoints > 0
@@ -795,12 +780,6 @@ function representsModelEvent(span: TraceSpanObservation, event: ModelInvocation
   }
 }
 
-const visibleToolInvocations = computed(() => toolInvocations.value.filter(tool => {
-  if (contextAgentId.value && tool.agentId !== contextAgentId.value) return false
-  if (contextEndpointKey.value && tool.endpointKey !== contextEndpointKey.value) return false
-  if (contextTraceId.value && tool.traceId !== contextTraceId.value) return false
-  return true
-}))
 const traceStats = computed(() => {
   const spans = visibleTraceSpans.value
   return {
@@ -922,7 +901,7 @@ function openGovernanceFromTrace() {
 }
 
 function clearDrilldown() {
-  router.replace({ path: '/physical', query: {} })
+  router.replace({ path: '/physical', query: { section: activeSection.value } })
 }
 
 const modelHistory = ref<InstanceType<typeof HistoryTable>>()

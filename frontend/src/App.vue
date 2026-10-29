@@ -1,18 +1,18 @@
 <template>
   <router-view v-if="route.meta.standalone" />
-  <el-container v-else class="app-shell">
+  <div v-else class="app-shell console-template-layout">
     <a class="skip-content-link" href="#main-content">跳到主要内容</a>
     <el-aside v-show="!compactViewport" :width="sidebarCollapsed ? '72px' : '248px'" :class="['sidebar', { collapsed: sidebarCollapsed }]">
       <div class="brand">
         <img class="brand-logo" src="/eap-logo.svg" alt="EAP logo" />
         <div class="brand-copy">
-          <strong>企业智能体平台</strong>
-          <span>EAP · 智能体控制平面</span>
+          <strong>EAP</strong>
+          <span>企业智能体平台</span>
         </div>
         <el-button class="sidebar-toggle" :aria-label="sidebarCollapsed ? '展开导航' : '收起导航'" :aria-expanded="!sidebarCollapsed" text circle :icon="sidebarCollapsed ? Expand : Fold" @click="sidebarCollapsed = !sidebarCollapsed" />
       </div>
       <div class="sidebar-nav">
-        <PlatformNavigation :collapsed="sidebarCollapsed" />
+        <PlatformNavigation :collapsed="sidebarCollapsed" @expand="sidebarCollapsed = false" />
       </div>
       <div class="sidebar-status">
         <span class="status-dot" :class="{ 'status-unknown': !platformStatus || platformStatusLoading, 'status-development': platformStatus?.securityMode === 'DEVELOPMENT' }"></span>
@@ -23,45 +23,19 @@
       </div>
     </el-aside>
 
-    <el-container>
+    <div class="console-main-column">
       <el-header class="topbar">
         <el-button v-if="compactViewport" class="mobile-nav-trigger" :icon="Expand" aria-label="打开功能导航" :aria-expanded="mobileNavigationOpen" @click="mobileNavigationOpen = true" />
         <div class="topbar-title">
           <span v-if="permissionState.user?.project?.projectKey" class="topbar-kicker project-identity" :title="permissionState.user.project.projectKey">项目 · {{ permissionState.user.project.projectKey }}</span>
-          <div class="breadcrumb-line">
+          <nav class="breadcrumb-line" aria-label="当前位置">
             <router-link to="/" class="topbar-kicker">EAP 工作台</router-link>
-            <span class="breadcrumb-separator">/</span>
-            <span>{{ navigationLocation.group?.label || '平台总览' }}</span>
-          </div>
-          <h1><el-icon v-if="navigationLocation.item" aria-hidden="true"><component :is="navigationIcons[navigationLocation.item.icon]" /></el-icon>{{ routeTitle }}</h1>
+            <template v-if="navigationLocation.group"><span class="breadcrumb-separator" aria-hidden="true">/</span><span>{{ navigationLocation.group.label }}</span></template>
+            <template v-if="routeTitle !== '工作台'"><span class="breadcrumb-separator" aria-hidden="true">/</span><span class="breadcrumb-current" aria-current="page">{{ routeTitle }}</span></template>
+          </nav>
         </div>
         <div class="topbar-actions">
-          <el-select
-            :model-value="agentOpsContext.windowHours"
-            class="context-window-select"
-            aria-label="全局时间窗口"
-            @change="handleWindowChange"
-          >
-            <el-option label="最近 1 小时" :value="1" /><el-option label="最近 6 小时" :value="6" />
-            <el-option label="最近 24 小时" :value="24" /><el-option label="最近 3 天" :value="72" /><el-option label="最近 7 天" :value="168" />
-          </el-select>
-          <el-input
-            :model-value="agentOpsContext.organizationScope"
-            class="context-scope-input"
-            clearable
-            placeholder="企业全局"
-            aria-label="组织范围"
-            @change="handleScopeChange"
-          />
-          <el-input
-            v-model="globalSearchTerm"
-            class="global-search"
-            aria-label="打开全局搜索"
-            placeholder="搜索页面、智能体、策略"
-            :prefix-icon="Search"
-            readonly
-            @focus="openSearchDialog"
-          />
+          <el-button class="global-search-trigger" :icon="Search" aria-label="打开全局搜索" @click="openSearchDialog"><span>搜索功能与资源</span></el-button>
           <el-dropdown class="font-scale-menu" trigger="click" @command="handleFontScaleCommand">
             <el-button class="topbar-compact-control" text>
               字号 · {{ currentFontScaleLabel }}<el-icon><ArrowDown /></el-icon>
@@ -77,7 +51,6 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <div class="workspace-pill"><span class="workspace-dot"></span><span>矩维智能 · 主空间</span></div>
           <el-button class="session-button" :title="hasAccessToken ? '更新企业认证凭证' : '连接企业认证'" @click="openAuthDialog">
             <span :class="['session-indicator', { connected: hasAccessToken }]" />
             {{ hasAccessToken ? '企业认证' : platformStatus?.securityMode === 'DEVELOPMENT' ? '本地模式' : '登录' }}
@@ -85,7 +58,9 @@
           <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
         </div>
       </el-header>
-      <el-main id="main-content" class="main" tabindex="-1">
+      <main id="main-content" class="main" tabindex="-1">
+        <h1 class="console-page-title-sr">{{ routeTitle }}</h1>
+        <LteAppContent>
   <div v-if="!route.meta.standalone && platformStatus?.securityMode === 'DEVELOPMENT'" class="app-environment-banner" role="status">
     <span class="app-environment-dot"></span>
     <span><strong>开发演示环境</strong> · 当前接口未启用 JWT 认证，请勿接入生产数据</span>
@@ -100,9 +75,10 @@
             <div :key="route.path" class="route-page"><component :is="Component" /></div>
           </transition>
         </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
+        </LteAppContent>
+      </main>
+    </div>
+  </div>
 
 
   <el-drawer v-model="mobileNavigationOpen" title="功能导航" direction="ltr" size="min(300px, 90vw)" append-to-body :z-index="4000" class="mobile-navigation-drawer">
@@ -157,7 +133,7 @@
         <span class="global-search-result-copy"><strong>{{ result.title }}</strong><small>{{ result.subtitle }}</small></span>
         <el-icon><ArrowRight /></el-icon>
       </button>
-      <el-empty v-if="!globalSearchLoading && !globalSearchResults.length" :description="globalSearchTerm.trim() ? '没有匹配的资产或策略' : '输入关键词开始搜索'" />
+      <el-empty v-if="!globalSearchLoading && !globalSearchResults.length" :description="globalSearchTerm.trim() ? '没有匹配的功能或资源' : '输入关键词开始搜索'" />
     </div>
   </el-dialog>
 </template>
@@ -167,15 +143,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, ArrowRight, Expand, Fold, Search } from '@element-plus/icons-vue'
 import PlatformNavigation from '@/components/PlatformNavigation.vue'
-import { navigationForPath, searchNavigation } from '@/navigation/catalog'
-import { navigationIcons } from '@/navigation/icons'
+import { navigationForPath, pageHeadingForPath, searchNavigation, searchPageSections } from '@/navigation/catalog'
+import { LteAppContent } from '@adminlte/vue'
 import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
 import { startOidcSignIn } from '@/api/oidc'
 import { loadCurrentUser, usePermissions } from '@/stores/permissions'
 const { state: permissionState } = usePermissions()
-import { useAgentOpsContextStore } from '@/stores/agentOps'
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
 
 type GlobalSearchResult = {
@@ -195,9 +170,8 @@ const fontScaleOptions: Array<{ value: FontScale; label: string; menuLabel: stri
 ]
 
 const route = useRoute()
-const agentOpsContext = useAgentOpsContextStore()
 const navigationLocation = computed(() => navigationForPath(route.path))
-const routeTitle = computed(() => route.path.startsWith('/agents/') ? '智能体详情' : navigationLocation.value.item?.label || String(route.meta.title ?? '工作台'))
+const routeTitle = computed(() => pageHeadingForPath(route.path, route.query).title)
 const compactViewport = ref(false), mobileNavigationOpen = ref(false)
 const sidebarCollapsed = ref(false)
 let compactViewportQuery: MediaQueryList | undefined
@@ -238,14 +212,6 @@ function setFontScale(value: FontScale) {
 
 function handleFontScaleCommand(value: FontScale) {
   setFontScale(value)
-}
-
-function handleWindowChange(value: unknown) {
-  agentOpsContext.setWindowHours(Number(value))
-}
-
-function handleScopeChange(value: unknown) {
-  agentOpsContext.setOrganizationScope(String(value || ''))
 }
 
 function openAuthDialog() {
@@ -304,7 +270,7 @@ async function runGlobalSearch() {
     globalSearchResults.value = []
     return
   }
-  const pageResults: GlobalSearchResult[] = searchNavigation(term).map(item => ({type:'功能页面',title:item.label,subtitle:item.description,path:item.path,query:{}}))
+  const pageResults: GlobalSearchResult[] = [...searchNavigation(term), ...searchPageSections(term)].map(item => ({type:'功能页面',title:item.label,subtitle:item.description,path:item.path,query:item.query || {}}))
   globalSearchResults.value = pageResults
   globalSearchLoading.value = true
   try {
@@ -448,6 +414,35 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* AdminLTE sidebar / topbar / content regions with EAP auth and Element Plus controls. */
+.console-template-layout { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 100dvh; }
+.console-main-column { min-width: 0; }
+.console-page-title-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.app-shell .breadcrumb-current { color: var(--console-ink); font-weight: 600; }
+.app-shell .breadcrumb-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; line-height: 1.6; }
+.app-shell :deep(.app-content > .container-fluid) { min-width: 0; }
+
+.app-shell .sidebar { position: sticky; top: 0; height: 100dvh; flex-shrink: 0; }
+.app-shell .sidebar-nav { height: calc(100dvh - 174px); overflow-y: auto; padding: 14px 8px; }
+.app-shell .topbar { min-height: 76px; height: auto; padding: 12px 24px; gap: 20px; flex-wrap: wrap; backdrop-filter: none; }
+.app-shell .topbar-title { min-width: 0; flex: 1; }
+.app-shell .topbar-actions { gap: 8px; flex-wrap: wrap; }
+.app-shell .global-search-trigger { color: var(--console-muted); border-color: var(--console-line); background: var(--console-canvas); margin: 0; }
+.app-shell .topbar-actions .el-button { margin-left: 0; }
+.app-shell .main { min-width: 0; padding: 16px 24px 32px; }
+@media (max-width: 900px) {
+  .console-template-layout { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .topbar { padding: 12px 16px; gap: 12px; }
+  .app-shell .main { padding: 12px 14px 28px; }
+}
+@media (max-width: 600px) {
+  .app-shell .topbar-actions { flex-basis: 100%; justify-content: flex-end; }
+  .app-shell .global-search-trigger { margin-right: auto; min-height: 36px; }
+  .app-shell .topbar-actions .font-scale-menu, .app-shell .topbar-compact-control { display: inline-flex; }
+  .app-shell .topbar-actions .el-button { font-size: 12px; }
+  .app-shell .topbar-title { min-width: 160px; }
+}
+
 .project-identity {
   display: block;
   max-width: 180px;

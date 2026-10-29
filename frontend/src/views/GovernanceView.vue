@@ -1,12 +1,7 @@
 <template>
   <section class="page-grid governance-page">
-    <div class="toolbar governance-heading">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">治理 · 策略</span>
-        <strong>智能体治理</strong>
-        <span>查看风险事件、执行预检与管理策略；仅保留分类元数据，不保存敏感正文</span>
-      </div>
-      <div class="button-row">
+    <ConsolePageHeader>
+      <template #actions><div class="button-row">
         <el-select v-model="windowHours" aria-label="治理统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
@@ -14,15 +9,9 @@
           <el-option label="最近 30 天" :value="720" />
         </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
-    <div class="governance-sections" role="group" aria-label="治理界面分区">
-      <button type="button" :aria-pressed="activeSection === 'overview'" aria-label="治理总览" @click="activeSection = 'overview'"><strong>治理总览</strong><small>风险与执行状态</small></button>
-      <button type="button" :aria-pressed="activeSection === 'preflight'" aria-label="实时预检" @click="activeSection = 'preflight'"><strong>实时预检</strong><small>校验请求与审批</small></button>
-      <button type="button" :aria-pressed="activeSection === 'audit'" aria-label="事件审计" @click="activeSection = 'audit'"><strong>事件审计</strong><small>追踪分类与动作</small></button>
-      <button type="button" :aria-pressed="activeSection === 'policies'" aria-label="治理策略" @click="activeSection = 'policies'"><strong>治理策略</strong><small>管理规则与版本</small></button>
-    </div>
 
     <dl class="governance-status-bar" aria-label="当前治理状态">
       <div><dt>执行模式</dt><dd>{{ enforcement.enforcementEnabled ? '强制' : '观察' }}</dd></div>
@@ -35,7 +24,8 @@
       <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前治理事件和决策已按上下文收敛</span>
-      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+      <router-link v-if="contextAgentId" :to="`/agents/${contextAgentId}`">返回智能体</router-link>
+      <el-button link type="primary" @click="clearDrilldown">查看全部记录</el-button>
     </div>
 
     <el-alert
@@ -244,6 +234,30 @@
         </div>
       </template>
       <HistoryTable ref="decisionHistory" :labels="{PENDING: '待审批'}" :fetch-page="fetchDecisionHistory" :reset-key="route.fullPath" :statuses="['NOT_REQUIRED','PENDING','APPROVED','REJECTED']" placeholder="搜索决策标识、模型或分类器">
+        <template #mobile="{ items, loading, error }">
+          <ul v-if="items.length" class="governance-record-list" aria-label="预检决策记录">
+            <li v-for="row in items" :key="row.id">
+              <div class="governance-record-heading"><strong>{{ row.decisionKey }}</strong><el-tag :type="approvalType(row.approvalStatus)">{{ approvalStatusLabel(row.approvalStatus) }}</el-tag></div>
+              <time>{{ formatTime(row.decidedAt) }}</time>
+              <dl class="governance-record-facts">
+                <div><dt>关联事件</dt><dd>#{{ row.dataEventId }}</dd></div>
+                <div><dt>网关指令</dt><dd><el-tag :type="directiveType(row.gatewayDirective)">{{ gatewayDirectiveLabel(row.gatewayDirective) }}</el-tag></dd></div>
+                <div><dt>原请求</dt><dd><el-tag :type="row.requestAllowed ? 'success' : 'danger'">{{ row.requestAllowed ? '原允许' : '原停止' }}</el-tag></dd></div>
+                <div><dt>命中策略</dt><dd>{{ row.matchedPolicyCount }} 条 · {{ matchedPolicyNames(row.matchedPolicies) }}</dd></div>
+                <div><dt>决策依据</dt><dd>{{ row.reasonCodes.join('、') || '未记录' }}</dd></div>
+                <div><dt>模型</dt><dd>{{ row.modelName || '未记录' }} · {{ row.provider || '企业模型' }}</dd></div>
+                <div><dt>审批依据</dt><dd>{{ approvalContextLabel(row) }}</dd></div>
+              </dl>
+              <div v-if="row.approvalStatus === 'PENDING' && permissions.can('governance')" class="governance-record-actions">
+                <el-button type="success" :disabled="!canApprove(row)" :aria-label="`批准决策 ${row.decisionKey}`" @click="approveDecision(row)">批准</el-button>
+                <el-button type="danger" plain :disabled="saving" :aria-label="`拒绝决策 ${row.decisionKey}`" @click="rejectDecision(row)">拒绝</el-button>
+              </div>
+              <p v-else class="governance-record-note">{{ row.approvedBy ? `${row.approvedBy} · ${formatTime(row.approvedAt)}` : row.approvalStatus === 'PENDING' ? '需要治理权限' : '无需审批' }}</p>
+            </li>
+          </ul>
+          <p v-else-if="!loading && !error" class="governance-record-note" role="status">没有符合条件的预检记录，请调整筛选条件。</p>
+          <p v-else-if="loading" class="governance-record-note" role="status">正在查询预检记录…</p>
+        </template>
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.decidedAt) }}</template>
         </el-table-column>
@@ -299,6 +313,25 @@
         </div>
       </template>
       <HistoryTable ref="eventHistory" :fetch-page="fetchEventHistory" :reset-key="route.fullPath" :statuses="['ALLOW','WARN','REDACT','BLOCK','APPROVAL_REQUIRED']" placeholder="搜索事件标识、Trace、数据类别、端点">
+        <template #mobile="{ items, loading, error }">
+          <ul v-if="items.length" class="governance-record-list" aria-label="治理事件记录">
+            <li v-for="row in items" :key="row.id">
+              <div class="governance-record-heading"><strong>{{ row.agentId ? `智能体 ${row.agentId}` : row.endpointKey || '未关联主体' }}</strong><el-tag :type="actionType(row.action)">{{ governanceActionLabel(row.action) }}</el-tag></div>
+              <time>{{ formatTime(row.observedAt) }}</time>
+              <dl class="governance-record-facts">
+                <div><dt>事件标识</dt><dd>{{ row.eventKey }}</dd></div>
+                <div><dt>数据方向</dt><dd>{{ governanceDirectionLabel(row.direction) }}</dd></div>
+                <div><dt>数据类别</dt><dd>{{ row.dataCategory }}</dd></div>
+                <div><dt>敏感级别</dt><dd><el-tag :type="sensitivityType(row.sensitivity)">{{ sensitivityLabel(row.sensitivity) }}</el-tag></dd></div>
+                <div><dt>内部 / 保密</dt><dd>{{ row.internalData ? '是' : '否' }} / {{ row.companySecret ? '是' : '否' }}</dd></div>
+                <div><dt>Token</dt><dd>{{ formatNumber(row.tokenCount) }}</dd></div>
+              </dl>
+              <div class="governance-record-actions"><el-button type="primary" plain :aria-label="`查看事件 ${row.eventKey} 的物理观测`" @click="openPhysical(row)">物理观测</el-button></div>
+            </li>
+          </ul>
+          <p v-else-if="!loading && !error" class="governance-record-note" role="status">没有符合条件的治理事件，请调整筛选条件。</p>
+          <p v-else-if="loading" class="governance-record-note" role="status">正在查询治理事件…</p>
+        </template>
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -326,7 +359,6 @@
           <template #default="{ row }"><el-button link type="primary" @click="openPhysical(row)">物理观测</el-button></template>
         </el-table-column>
       </HistoryTable>
-      <el-empty v-if="visibleEvents.length === 0" description="尚未收到治理数据事件" />
     </el-card>
 
     <GovernancePolicies v-if="activeSection === 'policies'" :policy-id="contextPolicyId" @changed="load" />
@@ -335,6 +367,8 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import GovernancePolicies from '@/components/GovernancePolicies.vue'
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -406,7 +440,7 @@ const decisions = ref<GovernancePreflightDecision[]>([])
 const gateway = ref<ModelGatewayStatus>({ ...emptyGateway })
 const gatewayStatusLabel = computed(() => gateway.value.configured ? '就绪' : gateway.value.enabled ? '配置错误' : '关闭')
 const windowHours = ref(24)
-const activeSection = ref<'overview' | 'preflight' | 'audit' | 'policies'>('overview')
+const activeSection = usePageSection()
 const loading = ref(false)
 const saving = ref(false)
 const permissions = usePermissions()
@@ -448,10 +482,6 @@ const drilldownLabel = computed(() => {
   return parts.join(' · ')
 })
 
-watch([contextPolicyId, contextEventKey], ([policyId, eventKey]) => {
-  if (policyId) activeSection.value = 'policies'
-  else if (eventKey) activeSection.value = 'audit'
-}, { immediate: true })
 
 const internalPercent = computed(() => Math.round(summary.value.internalExposureRate * 100))
 const secretPercent = computed(() => Math.round(summary.value.secretExposureRate * 100))
@@ -513,7 +543,7 @@ function openPhysical(row: GovernanceDataEvent) {
 }
 
 function clearDrilldown() {
-  router.replace({ path: '/governance', query: {} })
+  router.replace({ path: '/governance', query: { section: activeSection.value } })
 }
 
 const decisionHistory = ref<InstanceType<typeof HistoryTable>>()

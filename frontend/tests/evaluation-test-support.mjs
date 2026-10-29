@@ -5,7 +5,7 @@ import * as Vue from 'vue'
 export const evaluationHelpers=['currentAccess','canWrite','cancelPolling']
 export function evaluationState(){
  const ref=value=>({value})
- return {accessEpoch:0,pollGeneration:0,pollingDisposed:false,permissions:{state:{user:{mode:'JWT'}},can:()=>true},
+ return {contextAgentId:ref(undefined),contextTraceId:ref(undefined),accessEpoch:0,pollGeneration:0,pollingDisposed:false,permissions:{state:{user:{mode:'JWT'}},can:()=>true},
   editorLocked:ref(false),writeBusy:ref(false),submittingJob:ref(false),creatingDataset:ref(false),annotating:ref(false),syncing:ref(false),pageError:ref('')}
 }
 
@@ -20,7 +20,7 @@ export async function mountEvaluation(t,{capabilities={},api={}}={}){
  for(const [name,fn] of Object.entries(EapApi))EapApi[name]=(...args)=>{requests.push({name,args});return fn(...args)}
  const source=readFileSync(new URL('../src/views/EvaluationView.vue',import.meta.url),'utf8').split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,'')
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText
- const values={ref:Vue.ref,reactive:Vue.reactive,computed:Vue.computed,watch:Vue.watch,onBeforeUnmount:fn=>{unmount=fn},useRouter:()=>({push:()=>{}}),usePermissions:()=>permission,EapApi,
+ const values={ref:Vue.ref,reactive:Vue.reactive,computed:Vue.computed,watch:Vue.watch,onBeforeUnmount:fn=>{unmount=fn},useRoute:()=>Vue.reactive({query:{}}),usePageSection:()=>Vue.ref('overview'),useRouter:()=>({push:()=>{}}),usePermissions:()=>permission,EapApi,
   ElMessage:Object.fromEntries(['success','error','warning','info'].map(kind=>[kind,message=>messages.push({kind,message})])),
   window:{setTimeout:fn=>{timers.set(++nextTimer,fn);return nextTimer},clearTimeout:id=>timers.delete(id)},
  }

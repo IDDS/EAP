@@ -1,6 +1,8 @@
 <template>
   <div class="coverage-page">
-    <header class="coverage-heading"><div><p class="eyebrow">运行与观测</p><h2>证据覆盖与定位</h2><p>按原操作核对执行结果、观测缺口与费用记录。</p></div><div class="coverage-actions"><el-select v-model="minutes" aria-label="观测窗口" @change="load"><el-option label="最近1小时" :value="60" /><el-option label="最近24小时" :value="1440" /><el-option label="最近7天" :value="10080" /></el-select><el-button :loading="loading" @click="load">刷新</el-button></div></header>
+    <ConsolePageHeader>
+      <template #actions><div class="coverage-actions"><el-select v-model="minutes" aria-label="观测窗口" @change="load"><el-option label="最近1小时" :value="60" /><el-option label="最近24小时" :value="1440" /><el-option label="最近7天" :value="10080" /></el-select><el-button :loading="loading" @click="load">刷新</el-button></div></template>
+    </ConsolePageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert title="观测齐全表示预期证据已收到；业务失败或结果未知仍保留原状态。未登记入口的分母未确认。" type="info" :closable="false" />
     <template v-if="data">
@@ -43,6 +45,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { getCoverage, getCoverageOperation, type CoverageReport, type CoverageDetail } from '@/api/observationCoverage'
 import { usePermissions } from '@/stores/permissions'

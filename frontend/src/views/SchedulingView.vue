@@ -1,6 +1,8 @@
 <template>
   <div class="scheduling-page">
-    <div class="page-header"><div><h2>调度与画像</h2><p class="muted">查看排队公平、等待时间和真实执行阶段。</p></div><el-button :loading="loading" @click="load">刷新</el-button></div>
+    <ConsolePageHeader>
+      <template #actions><el-button :loading="loading" @click="load">刷新</el-button></template>
+    </ConsolePageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <template v-if="data">
       <div class="schedule-hero"><div><span class="eyebrow">执行调度</span><h2>公平轮转 · 等待老化</h2><p>按申请人等权轮转，等待达到 {{ data.agingSeconds }} 秒的任务优先领取。</p></div><span class="policy-badge">单进程 · 非抢占</span></div>
@@ -31,6 +33,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { getScheduling, type SchedulingSummary } from '@/api/scheduling'
 const data = ref<SchedulingSummary | null>(null), loading = ref(false), error = ref('')

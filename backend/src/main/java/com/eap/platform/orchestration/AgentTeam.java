@@ -20,6 +20,10 @@ public class AgentTeam {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
 
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    long revision;
+
     @Column(nullable = false, unique = true, length = 64)
     String code;
 

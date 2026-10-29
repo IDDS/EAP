@@ -1,12 +1,8 @@
 <template>
   <section class="page-grid operations-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <h2>业务任务记录</h2>
-        <span>查看任务进展、阅读结果，并确认业务问题是否解决</span>
-      </div>
-      <el-button v-if="permissions.can('runWorkflows')" @click="showAdvanced = !showAdvanced" :aria-expanded="showAdvanced">{{ showAdvanced ? '收起管理操作' : '管理操作' }}</el-button>
-    </div>
+    <ConsolePageHeader>
+      <template #actions><el-button v-if="permissions.can('runWorkflows')" @click="showAdvanced = !showAdvanced" :aria-expanded="showAdvanced">{{ showAdvanced ? '收起管理操作' : '管理操作' }}</el-button></template>
+    </ConsolePageHeader>
 
     <el-alert v-if="!permissions.can('runWorkflows')" title="当前账号可查看任务与证据，没有修改任务或登记业务结果的权限。" type="info" :closable="false" show-icon />
     <el-alert v-if="actionError" :title="actionError" type="warning" :closable="false" show-icon />
@@ -63,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { executionLabel, outcomeLabel } from '@/utils/taskPresentation'
 import HistoryTable from '@/components/common/HistoryTable.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'

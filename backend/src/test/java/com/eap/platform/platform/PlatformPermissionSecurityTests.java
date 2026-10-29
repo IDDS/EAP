@@ -85,6 +85,22 @@ class PlatformPermissionSecurityTests {
                 .content("{\"requestKey\":\"stop-original\"}")).andExpect(status().isUnauthorized());
     }
 
+    @ParameterizedTest @CsvSource({"VIEWER,false", "OPERATOR,true", "GOVERNANCE_ADMIN,false", "PLATFORM_ADMIN,true"})
+    void orchestrationEditingUsesRunWorkflowsForEveryNewWrite(String role, boolean allowed) throws Exception {
+        var requests = List.of(
+                json(patch("/api/orchestration/teams/7"), "{\"expectedRevision\":0,\"name\":\"team\",\"coordinationMode\":\"SEQUENTIAL\",\"workspacePolicy\":\"context\"}"),
+                json(delete("/api/orchestration/teams/7"), "{\"expectedRevision\":0}"),
+                json(patch("/api/orchestration/teams/7/members/8"), "{\"expectedRevision\":0,\"role\":\"reviewer\",\"responsibility\":\"review\"}"),
+                json(delete("/api/orchestration/teams/7/members/8"), "{\"expectedRevision\":0}"),
+                json(patch("/api/orchestration/plans/7"), "{\"expectedRevision\":0,\"goal\":\"edited\"}"),
+                json(delete("/api/orchestration/plans/7"), "{\"expectedRevision\":0}"),
+                json(post("/api/orchestration/plans/7/copies"), "{\"expectedRevision\":0,\"goal\":\"copy\"}"),
+                json(patch("/api/orchestration/steps/8"), "{\"expectedRevision\":0,\"stepOrder\":1,\"title\":\"edited\",\"requiredCapability\":\"review\",\"executionBackend\":\"RUNTIME\"}"),
+                json(delete("/api/orchestration/steps/8"), "{\"expectedRevision\":0}"),
+                json(post("/api/orchestration/plans/7/steps/order"), "{\"expectedRevision\":0,\"stepIds\":[8,9]}"));
+        for (var request : requests) mockMvc.perform(request.with(identity(role))).andExpect(allowed ? status().isOk() : status().isForbidden());
+    }
+
     @ParameterizedTest @CsvSource({"VIEWER,false","OPERATOR,false","GOVERNANCE_ADMIN,true","PLATFORM_ADMIN,true"})
     void scopedAuthorizationUsesSameGovernanceCapability(String role,boolean allowed)throws Exception {
         var identity=identity(role);

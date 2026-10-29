@@ -1,10 +1,10 @@
 <template>
   <div class="history-table">
     <div class="history-filters">
-      <el-input v-model="keyword" :placeholder="placeholder" clearable aria-label="搜索历史记录" />
-      <el-select v-if="statuses.length" v-model="status" aria-label="状态筛选"><el-option label="全部状态" value="" /><el-option v-for="item in statuses" :key="item" :label="labels?.[item] || statusLabels[item] || item" :value="item" /></el-select>
-      <el-date-picker v-model="range" type="datetimerange" start-placeholder="开始时间" end-placeholder="结束时间" aria-label="时间范围" />
-      <el-select v-model="order" aria-label="时间排序"><el-option label="最新在前" value="desc"/><el-option label="最早在前" value="asc"/></el-select>
+      <el-input v-model="keyword" class="history-search" :placeholder="placeholder" clearable aria-label="搜索历史记录" />
+      <el-select v-if="statuses.length" v-model="status" class="history-status" aria-label="状态筛选"><el-option label="全部状态" value="" /><el-option v-for="item in statuses" :key="item" :label="labels?.[item] || statusLabels[item] || item" :value="item" /></el-select>
+      <el-date-picker v-model="range" class="history-range" type="datetimerange" start-placeholder="开始时间" end-placeholder="结束时间" aria-label="时间范围" />
+      <el-select v-model="order" class="history-order" aria-label="时间排序"><el-option label="最新在前" value="desc"/><el-option label="最早在前" value="asc"/></el-select>
       <el-button @click="reload">刷新</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" show-icon :closable="false" />
@@ -55,5 +55,15 @@ defineExpose({reload})
 </script>
 <style scoped>
 .history-mobile-records{display:none;min-width:0}@media(max-width:760px){.history-table>.history-desktop-table{display:none}.history-mobile-records{display:block;min-height:80px}}
-.history-table{min-width:0}.history-filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.history-filters>.el-input{width:260px}.history-filters>.el-select{width:140px}.history-filters :deep(.el-date-editor){max-width:100%;width:350px;flex-grow:0}.history-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px}.history-pagination>span{font-size:12px;color:var(--el-text-color-secondary)}.history-pagination :deep(.el-pagination){flex-wrap:wrap;row-gap:8px}@media(max-width:600px){.history-filters>.el-input{width:100%}.history-pagination :deep(.el-pagination){--el-pagination-button-width:26px}}
+.history-table{min-width:0}.history-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}.history-filters>.el-input{width:260px}.history-filters>.el-select{width:140px}.history-filters :deep(.el-date-editor){max-width:100%;width:350px;flex-grow:0;min-height:var(--console-control-height,38px)}.history-filters>.el-button{min-height:var(--console-control-height,38px);margin-left:0}.history-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px}.history-pagination>span{font-size:12px;color:var(--el-text-color-secondary)}.history-pagination :deep(.el-pagination){flex-wrap:wrap;row-gap:8px}
+@media(max-width:760px){
+  .history-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .history-filters>:is(.el-input,.el-select,.el-date-editor){width:100%;min-width:0}
+  .history-search{grid-column:1 / -1}
+  .history-filters > :deep(.el-date-editor){grid-column:1 / -1;width:100%;min-width:0}
+  .history-status{grid-row:2;grid-column:1}
+  .history-order{grid-row:2;grid-column:2}
+  .history-filters:not(:has(.history-status)) .history-order{grid-column:1 / -1}
+  .history-filters>.el-button{justify-self:start}
+}
 </style>

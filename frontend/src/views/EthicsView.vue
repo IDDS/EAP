@@ -1,6 +1,8 @@
 <template>
   <section class="page-grid ethics-page">
-    <div class="toolbar"><div class="toolbar-title"><h2>责任与伦理</h2><span>核对策略配置与已记录的风险事件，执行效果需要结合原始证据判断。</span></div><el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button></div>
+    <ConsolePageHeader>
+      <template #actions><el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button></template>
+    </ConsolePageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <p v-if="loading && !loaded" role="status" class="muted">正在读取策略与风险记录…</p>
     <template v-if="loaded">
@@ -72,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Lock, Refresh, ScaleToOriginal, Warning } from '@element-plus/icons-vue'
 import { EapApi } from '@/api/eap'

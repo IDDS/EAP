@@ -20,6 +20,10 @@ public class AgentPlan {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
 
+    @jakarta.persistence.Version
+    @Column(nullable = false)
+    long revision;
+
     @Column(name = "team_id", nullable = false)
     Long teamId;
 

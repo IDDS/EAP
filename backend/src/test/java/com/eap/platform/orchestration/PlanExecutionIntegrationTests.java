@@ -185,7 +185,7 @@ class PlanExecutionIntegrationTests {
         executions.processNext(); assertThat(received).hasSize(2);
     }
 
-    @Test void concurrentSubmissionsCreateOneWorkflowAndOneRun() throws Exception {
+    @RepeatedTest(3) void concurrentSubmissionsCreateOneWorkflowAndOneRun() throws Exception {
         long count = definitions.count();
         var gate = new CountDownLatch(1);
         List<Future<String>> results = new ArrayList<>();
@@ -351,6 +351,129 @@ class PlanExecutionIntegrationTests {
         long count=definitions.count();
         assertThatThrownBy(()->plans.submit(plan,request("corrupt-contract"),"operator")).isInstanceOf(BusinessException.class);
         assertThat(definitions.count()).isEqualTo(count);assertThat(repository.findById(plan).orElseThrow().executionRunKey).isNull();assertThat(received).isEmpty();
+    }
+
+    long revision() { return orchestration.getPlan(plan).plan().revision(); }
+    OrchestrationDtos.TeamResponse currentTeam() { return orchestration.listTeams().stream().filter(t -> t.id().equals(team)).findFirst().orElseThrow(); }
+
+    @Test void teamEditsRejectStaleVersionsAndDuplicateMembers() {
+        var before = currentTeam();
+        var changed = orchestration.updateTeam(team, new OrchestrationDtos.TeamUpdateRequest(before.revision(), "new name", "new purpose", "SEQUENTIAL", "context only"));
+        assertThat(changed.revision()).isGreaterThan(before.revision());
+        assertThat(changed.code()).isEqualTo(before.code());
+        assertThatThrownBy(() -> orchestration.updateTeam(team, new OrchestrationDtos.TeamUpdateRequest(before.revision(), "stale", "", "SEQUENTIAL", "x")))
+                .isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.addMember(team, new OrchestrationDtos.MemberRequest(producer, "duplicate", "x")))
+                .isInstanceOf(ConflictException.class);
+        assertThat(orchestration.listMembers(team)).hasSize(2);
+    }
+
+    @Test void memberRemovalRequiresUnassignedDraftsAndPreservesOtherTeam() {
+        var member = orchestration.listMembers(team).stream().filter(m -> m.agentId().equals(producer)).findFirst().orElseThrow();
+        long rev = currentTeam().revision();
+        assertThatThrownBy(() -> orchestration.removeMember(team, member.id(), new OrchestrationDtos.RevisionRequest(rev))).isInstanceOf(ConflictException.class);
+        orchestration.assignStep(first, new OrchestrationDtos.AssignRequest(null, StepStatus.PENDING));
+        var updated = orchestration.updateMember(team, member.id(), new OrchestrationDtos.MemberUpdateRequest(rev, "analyst", "check facts"));
+        assertThat(updated.role()).isEqualTo("analyst");
+        assertThatThrownBy(() -> orchestration.removeMember(team, member.id(), new OrchestrationDtos.RevisionRequest(rev))).isInstanceOf(ConflictException.class);
+        orchestration.removeMember(team, member.id(), new OrchestrationDtos.RevisionRequest(currentTeam().revision()));
+        assertThat(orchestration.listMembers(team)).hasSize(1);
+        assertThatThrownBy(() -> orchestration.assignStep(first, new OrchestrationDtos.AssignRequest(producer, StepStatus.ASSIGNED))).isInstanceOf(BusinessException.class);
+    }
+
+    @Test void onlyEmptyTeamsCanBeDeleted() {
+        assertThatThrownBy(() -> orchestration.deleteTeam(team, new OrchestrationDtos.RevisionRequest(currentTeam().revision()))).isInstanceOf(ConflictException.class);
+        var empty = orchestration.createTeam(new OrchestrationDtos.TeamRequest("EMPTY-"+UUID.randomUUID(), "empty", "", "SEQUENTIAL", "none"));
+        orchestration.deleteTeam(empty.id(), new OrchestrationDtos.RevisionRequest(empty.revision()));
+        assertThat(orchestration.listTeams()).noneMatch(t -> t.id().equals(empty.id()));
+    }
+
+    @Test void editsAndReordersAreVersionedAndRejectPartialOrForeignLists() {
+        long initial = revision();
+        var edited = orchestration.updatePlan(plan, new OrchestrationDtos.PlanUpdateRequest(initial, "changed goal", "new context"));
+        assertThat(edited.revision()).isGreaterThan(initial);
+        assertThatThrownBy(() -> orchestration.updatePlan(plan, new OrchestrationDtos.PlanUpdateRequest(initial, "stale", ""))).isInstanceOf(ConflictException.class);
+        long rev = revision();
+        assertThatThrownBy(() -> orchestration.reorderSteps(plan, new OrchestrationDtos.ReorderRequest(rev, List.of(first)))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.reorderSteps(plan, new OrchestrationDtos.ReorderRequest(rev, List.of(first, first)))).isInstanceOf(ConflictException.class);
+        var reordered = orchestration.reorderSteps(plan, new OrchestrationDtos.ReorderRequest(rev, List.of(second, first)));
+        assertThat(reordered.steps()).extracting(OrchestrationDtos.StepResponse::id).containsExactly(second, first);
+        assertThat(reordered.steps()).extracting(OrchestrationDtos.StepResponse::stepOrder).containsExactly(1, 2);
+        assertThatThrownBy(() -> orchestration.deleteStep(first, new OrchestrationDtos.RevisionRequest(rev))).isInstanceOf(ConflictException.class);
+    }
+
+    @Test void stepEditingPreservesAssignmentAndRejectsInvalidBackendContract() {
+        long rev = revision();
+        assertThatThrownBy(() -> orchestration.updateStep(first, new OrchestrationDtos.StepUpdateRequest(rev, 2, "changed", "review", "RUNTIME", null))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.updateStep(first, new OrchestrationDtos.StepUpdateRequest(rev, 1, "changed", "review", "AX", RESULT_DEFINITION))).isInstanceOf(BusinessException.class);
+        var changed = orchestration.updateStep(first, new OrchestrationDtos.StepUpdateRequest(rev, 1, "changed", "review", "RUNTIME", RESULT_DEFINITION));
+        assertThat(changed.title()).isEqualTo("changed");
+        assertThat(changed.assignedAgentId()).isEqualTo(producer);
+        assertThat(changed.outputContractJson()).isNotNull();
+        orchestration.deleteStep(second, new OrchestrationDtos.RevisionRequest(revision()));
+        assertThat(orchestration.getPlan(plan).steps()).hasSize(1);
+    }
+
+    @Test void deletingDraftRemovesStepsWithoutCreatingExecution() {
+        long count = executionRepository.count();
+        orchestration.deletePlan(plan, new OrchestrationDtos.RevisionRequest(revision()));
+        assertThat(repository.existsById(plan)).isFalse();
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).isEmpty();
+        assertThat(executionRepository.count()).isEqualTo(count);
+    }
+
+    @Test void copyOfSubmittedPlanHasFreshIdentityNoAssignmentsOrExecutionAndKeepsContract() {
+        orchestration.updateOutputContract(first, new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION));
+        var original = plans.submit(plan, request("copy-origin"), "operator");
+        stops.request(original.workflowId(), original.execution().runKey(), new WorkflowStopService.Request("copy-origin-stop"), "operator");
+        long before = executionRepository.count();
+        var copy = orchestration.copyPlan(plan, new OrchestrationDtos.PlanUpdateRequest(revision(), "next independent plan", "fresh context"));
+        assertThat(copy.id()).isNotEqualTo(plan);
+        assertThat(copy.executionRunKey()).isNull();
+        assertThat(copy.executionWorkflowId()).isNull();
+        assertThat(copy.status()).isEqualTo(PlanStatus.READY);
+        var detail = orchestration.getPlan(copy.id());
+        assertThat(detail.steps()).hasSize(2).allMatch(s -> s.assignedAgentId() == null && s.status() == StepStatus.PENDING);
+        assertThat(detail.steps()).extracting(OrchestrationDtos.StepResponse::id).doesNotContain(first, second);
+        assertThat(detail.steps().getFirst().outputContractJson()).isNotNull();
+        assertThat(executionRepository.count()).isEqualTo(before);
+        assertThat(plans.submit(plan, request("copy-origin"), "operator").execution().runKey()).isEqualTo(original.execution().runKey());
+        assertThatThrownBy(() -> plans.submit(copy.id(), request("copy-unassigned"), "operator")).isInstanceOf(BusinessException.class);
+        assertThat(received).isEmpty();
+    }
+
+    @Test void submittedPlanRejectsEveryDefinitionMutationAndMemberEditDoesNotRewriteSnapshot() throws Exception {
+        var submitted = plans.submit(plan, request("edit-frozen"), "operator");
+        var config = workflows.detail(submitted.workflowId());
+        long rev = revision();
+        assertThatThrownBy(() -> orchestration.updatePlan(plan, new OrchestrationDtos.PlanUpdateRequest(rev, "changed", ""))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.deletePlan(plan, new OrchestrationDtos.RevisionRequest(rev))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.updateStep(first, new OrchestrationDtos.StepUpdateRequest(rev, 1, "changed", "x", "RUNTIME", null))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.deleteStep(first, new OrchestrationDtos.RevisionRequest(rev))).isInstanceOf(ConflictException.class);
+        assertThatThrownBy(() -> orchestration.reorderSteps(plan, new OrchestrationDtos.ReorderRequest(rev, List.of(second, first)))).isInstanceOf(ConflictException.class);
+        var member = orchestration.listMembers(team).getFirst();
+        orchestration.removeMember(team, member.id(), new OrchestrationDtos.RevisionRequest(currentTeam().revision()));
+        assertThat(workflows.detail(submitted.workflowId()).nodes()).isEqualTo(config.nodes());
+        stops.request(submitted.workflowId(), submitted.execution().runKey(), new WorkflowStopService.Request("frozen-stop"), "operator");
+        assertThat(received).isEmpty();
+    }
+
+    @Test void concurrentDraftEditsAllowOnlyOneRevisionWinner() throws Exception {
+        long rev = revision();
+        var gate = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var tasks = java.util.stream.IntStream.range(0,2).mapToObj(i -> pool.submit(() -> {
+                gate.await();
+                try { orchestration.updatePlan(plan, new OrchestrationDtos.PlanUpdateRequest(rev, "goal-"+i, "")); return true; }
+                catch (ConflictException expected) { return false; }
+            })).toList();
+            gate.countDown();
+            int successes = 0;
+            for (var task : tasks) if (task.get(20, TimeUnit.SECONDS)) successes++;
+            assertThat(successes).isEqualTo(1);
+            assertThat(revision()).isEqualTo(rev+1);
+        } finally { pool.shutdownNow(); }
     }
 
     void allow(SafetyDecision decision) {

@@ -1,14 +1,13 @@
 <template>
   <section class="substrate-monitor">
-    <header class="monitor-heading">
-      <div><div class="eyebrow">运行与观测 / 基础设施</div><h2>资源与实例</h2><p>从资源容量到每一次唤醒，连接智能体与运行基础设施。</p></div>
-      <div class="monitor-controls">
+    <ConsolePageHeader>
+      <template #actions><div class="monitor-controls">
         <el-select v-model="backend" aria-label="资源池" @change="changeBackend"><el-option label="常规执行池" value="RUNTIME" /><el-option label="隔离任务池" value="AX" /></el-select>
         <el-select v-model="minutes" aria-label="监控时间范围" @change="refresh"><el-option v-for="item in windows" :key="item.value" :value="item.value" :label="item.label" /></el-select>
         <el-button :loading="loading" @click="refresh">刷新监控</el-button>
         <router-link to="/registry?section=environment">发现运行实例 →</router-link>
-      </div>
-    </header>
+      </div></template>
+    </ConsolePageHeader>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="snapshot && snapshot.status !== 'CONNECTED'" :title="statusNotice" :type="snapshot.status === 'PARTIAL' ? 'warning' : 'info'" :closable="false" />
     <div class="monitor-meta"><span><i :class="['source-dot', snapshot?.status === 'CONNECTED' ? 'connected' : '']" />{{ statusLabel }} <span v-if="snapshot">· {{ backend === 'AX' ? '隔离任务池' : '常规执行池' }}</span></span><span>查询时间 {{ snapshot ? new Date(snapshot.queriedAt).toLocaleTimeString('zh-CN') : '—' }} · 30 秒刷新</span></div>
@@ -71,6 +70,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import TrendChart from '@/components/TrendChart.vue'
 import { Coin, Cpu, Odometer } from '@element-plus/icons-vue'

@@ -1,9 +1,8 @@
 <template>
-  <section class="task-workspace" aria-label="任务工作台">
-    <header class="workspace-heading">
-      <div><p class="eyebrow">编排与执行</p><h2>任务工作台</h2><p>围绕一次执行，核对步骤、结果与原始证据。</p></div>
-      <div class="workspace-links"><router-link v-if="!showCatalog" to="/task-workspace">← 全部执行记录</router-link><router-link v-if="permissions.can('runWorkflows')" to="/workflow-builder">设计与发起工作流 →</router-link></div>
-    </header>
+  <section class="task-workspace" aria-label="执行记录">
+    <ConsolePageHeader>
+      <template #actions><div class="workspace-links"><router-link v-if="!showCatalog" to="/task-workspace">← 全部执行记录</router-link><router-link v-if="permissions.can('runWorkflows')" to="/workflow-builder">设计与发起工作流</router-link></div></template>
+    </ConsolePageHeader>
     <p v-if="!permissions.can('viewConsole')" role="status">请登录具有控制台查看能力的账号。</p>
     <template v-else>
       <ExecutionCatalog v-if="showCatalog" />
@@ -58,6 +57,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'

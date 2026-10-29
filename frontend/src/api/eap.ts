@@ -1,7 +1,7 @@
 import { sendControlCommand, retryControlCommand } from './control'
 import type { HistoryParams } from '@/components/common/HistoryTable.vue'
 import { submitWorkflowOnce } from './workflowSubmission'
-import { getData, patchData, postData, putData } from './http'
+import { deleteData, getData, patchData, postData, putData } from './http'
 import type { DatasetLookup } from '@/evaluation/datasetLookup'
 import type {
   Agent,
@@ -511,6 +511,13 @@ export const EapApi = {
   createTeam: (payload: { code: string; name: string; objective?: string; coordinationMode: string; workspacePolicy: string }) =>
     postData<AgentTeam, { code: string; name: string; objective?: string; coordinationMode: string; workspacePolicy: string }>('/orchestration/teams', payload),
   listTeamMembers: (teamId: number) => getData<AgentTeamMember[]>(`/orchestration/teams/${teamId}/members`),
+  updateTeam: (teamId: number, payload: { expectedRevision: number; name: string; objective?: string; coordinationMode: string; workspacePolicy: string }) =>
+    patchData<AgentTeam, typeof payload>(`/orchestration/teams/${teamId}`, payload),
+  deleteTeam: (teamId: number, expectedRevision: number) => deleteData<void, { expectedRevision: number }>(`/orchestration/teams/${teamId}`, { expectedRevision }),
+  updateTeamMember: (teamId: number, memberId: number, payload: { expectedRevision: number; role: string; responsibility: string }) =>
+    patchData<AgentTeamMember, typeof payload>(`/orchestration/teams/${teamId}/members/${memberId}`, payload),
+  removeTeamMember: (teamId: number, memberId: number, expectedRevision: number) =>
+    deleteData<void, { expectedRevision: number }>(`/orchestration/teams/${teamId}/members/${memberId}`, { expectedRevision }),
   addTeamMember: (teamId: number, payload: { agentId: number; role: string; responsibility: string }) =>
     postData<AgentTeamMember, { agentId: number; role: string; responsibility: string }>(`/orchestration/teams/${teamId}/members`, payload),
   listTeamPlans: (teamId: number) => getData<AgentPlan[]>(`/orchestration/teams/${teamId}/plans`),
@@ -522,12 +529,22 @@ export const EapApi = {
   getWorkflowOutputs: (workflowId: number, runKey: string) =>
     getData<Record<string, unknown>>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}/outputs`),
   getPlan: (planId: number) => getData<AgentPlanDetail>(`/orchestration/plans/${planId}`),
+  updatePlan: (planId: number, payload: { expectedRevision: number; goal: string; contextSummary?: string }) =>
+    patchData<AgentPlan, typeof payload>(`/orchestration/plans/${planId}`, payload),
+  copyPlan: (planId: number, payload: { expectedRevision: number; goal: string; contextSummary?: string }) =>
+    postData<AgentPlan, typeof payload>(`/orchestration/plans/${planId}/copies`, payload),
+  deletePlan: (planId: number, expectedRevision: number) => deleteData<void, { expectedRevision: number }>(`/orchestration/plans/${planId}`, { expectedRevision }),
+  updatePlanStep: (stepId: number, payload: { expectedRevision: number; stepOrder: number; title: string; requiredCapability: string; executionBackend: string; outputContractJson: string | null }) =>
+    patchData<AgentPlanStep, typeof payload>(`/orchestration/steps/${stepId}`, payload),
+  deletePlanStep: (stepId: number, expectedRevision: number) => deleteData<void, { expectedRevision: number }>(`/orchestration/steps/${stepId}`, { expectedRevision }),
+  reorderPlanSteps: (planId: number, expectedRevision: number, stepIds: number[]) =>
+    postData<AgentPlanDetail, { expectedRevision: number; stepIds: number[] }>(`/orchestration/plans/${planId}/steps/order`, { expectedRevision, stepIds }),
   addPlanStep: (planId: number, payload: { stepOrder: number; title: string; requiredCapability: string; executionBackend?: string; outputContractJson?: string | null }) =>
     postData<AgentPlanStep, { stepOrder: number; title: string; requiredCapability: string }>(`/orchestration/plans/${planId}/steps`, payload),
   updatePlanOutputContract: (stepId: number, outputContractJson: string | null) =>
     postData<AgentPlanStep, { outputContractJson: string | null }>(`/orchestration/steps/${stepId}/output-contract`, { outputContractJson }),
-  assignPlanStep: (stepId: number, payload: { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }) =>
-    postData<AgentPlanStep, { assignedAgentId?: number; status: 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'DONE' | 'BLOCKED' }>(`/orchestration/steps/${stepId}/assignment`, payload),
+  assignPlanStep: (stepId: number, payload: { assignedAgentId?: number | null; status: 'PENDING' | 'ASSIGNED' }) =>
+    postData<AgentPlanStep, typeof payload>(`/orchestration/steps/${stepId}/assignment`, payload),
   listWorkflows: () => getData<WorkflowDefinition[]>('/workflows'),
   createWorkflow: (payload: { code: string; name: string; description?: string }) =>
     postData<WorkflowDefinition, { code: string; name: string; description?: string }>('/workflows', payload),

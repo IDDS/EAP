@@ -1,6 +1,6 @@
 <template>
   <section class="page-grid safety-page">
-    <div class="toolbar"><div class="toolbar-title"><span class="interface-eyebrow">治理 · 安全响应</span><h2>安全响应</h2><span>查看安全决策，针对已登记会话评估操作风险</span></div></div>
+    <ConsolePageHeader />
     <el-alert v-if="pageError" :title="pageError" type="error" show-icon :closable="false" />
     <el-alert v-if="!canManage" title="当前账号可查看安全记录，没有执行安全评估的权限。" type="info" show-icon :closable="false" />
     <div class="metric-strip">
@@ -101,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Connection, Lock, Refresh, Warning } from '@element-plus/icons-vue'
