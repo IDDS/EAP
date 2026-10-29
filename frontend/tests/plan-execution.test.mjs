@@ -17,7 +17,8 @@ function state(api) {
   return { selectedPlanId: ref(7), submitting: ref(false), frozen: ref(false), suspendAfterTask: ref(true),
     planLoading: ref(false), planError: ref(''), planSteps: ref([{ id: 1 }]), reclaimBlocked: ref(false),
     planSubmissionError: () => '提交未确认',
-    executionError: ref(''), permissions: { can: () => true }, EapApi: api, ElMessage: { success() {} }, selectPlan: async () => {} }
+    disposed: false, assigning: ref(false), planEditing: ref(false),
+    executionError: ref(''), permissions: { can: () => true, state: { user: 'test-user' } }, EapApi: api, ElMessage: { success() {} }, selectPlan: async () => {} }
 }
 
 test('plan execution enforces current capability and prevents concurrent clicks', async () => {
@@ -64,6 +65,19 @@ test('member assignment cannot fake running and respects frozen/revoked permissi
   s.frozen.value = true; await assign(1, 10)
   s.frozen.value = false; s.permissions.can = () => false; await assign(1, 10)
   assert.equal(calls.length, 1)
+})
+
+test('clearing a member sends a pending unassigned step and uncertain writes do not retry', async () => {
+  const calls = []
+  const s = state({ assignPlanStep: async (...args) => { calls.push(args) } })
+  const assign = handler('assignMember', s)
+  await assign(1, undefined)
+  assert.equal(calls[0][1].assignedAgentId, null)
+  assert.equal(calls[0][1].status, 'PENDING')
+  s.EapApi.assignPlanStep = async () => { throw Error('response lost') }
+  await assign(1, 9)
+  assert.match(s.planError.value, /未确认/)
+  assert.equal(s.assigning.value, false)
 })
 
 

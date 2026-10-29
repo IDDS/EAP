@@ -1,8 +1,8 @@
 <template>
   <section class="page-grid feedback-page">
-    <div class="toolbar console-page-heading"><div class="toolbar-title"><h2>{{ location.experimentId?'对照实验记录':location.optimizationId?'优化任务记录':'反馈闭环' }}</h2><span>关联真实智能体、任务和执行证据，记录改进建议与评审结论</span></div>
-      <div v-if="!location.error&&!location.experimentId&&!location.optimizationId" class="feedback-actions"><el-button :loading="loading" :disabled="busy" @click="load">刷新记录</el-button><el-button v-if="permissions.can('manageFeedback')" type="primary" :icon="Plus" :disabled="busy||loading" @click="openForm">新增反馈</el-button></div>
-    </div>
+    <ConsolePageHeader :title="location.experimentId ? '对照实验记录' : location.optimizationId ? '优化任务记录' : '反馈与改进'">
+      <template #actions><div v-if="!location.error&&!location.experimentId&&!location.optimizationId" class="feedback-actions"><el-button :loading="loading" :disabled="busy" @click="load">刷新记录</el-button><el-button v-if="permissions.can('manageFeedback')" type="primary" :icon="Plus" :disabled="busy||loading" @click="openForm">新增反馈</el-button></div></template>
+    </ConsolePageHeader>
     <el-alert v-if="location.error" :title="location.error" type="error" :closable="false" />
     <p v-if="location.error || location.agentId || location.experimentId || location.optimizationId" class="feedback-note">链接用于定位记录，不表示候选已经采用。<router-link to="/learning">返回全部记录</router-link></p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -37,6 +37,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import {computed,onBeforeUnmount,ref,watch} from 'vue'
 import {useRoute,useRouter,onBeforeRouteUpdate,onBeforeRouteLeave} from 'vue-router'
 import {learningLocation} from '@/navigation/learningLinks'

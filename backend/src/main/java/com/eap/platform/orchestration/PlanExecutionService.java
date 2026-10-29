@@ -5,6 +5,7 @@ import com.eap.platform.common.ConflictException;
 import com.eap.platform.workflow.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.validation.constraints.*;
 import java.nio.charset.StandardCharsets;
@@ -41,8 +42,13 @@ public class PlanExecutionService {
         return new ReclaimReadiness(planId, !checks.isEmpty() && checks.stream().allMatch(ReclaimStep::allowed), checks);
     }
 
-    @Transactional
+    // The team lookup precedes our row locks. A MySQL repeatable-read snapshot
+    // taken there would hide the winning submitter's execution after lock wait.
+    // Row locks still serialize team/plan mutations and the writes commit together.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Response submit(Long planId, Request request, String requester) {
+        Long teamId = plans.findTeamIdById(planId).orElseThrow(() -> new BusinessException("任务计划不存在"));
+        var team = teams.findForUpdate(teamId).orElseThrow(() -> new BusinessException("团队不存在"));
         var plan = locked(planId);
         if (request.requestKey() == null || !request.requestKey().matches("[A-Za-z0-9_-]{1,64}"))
             throw new BusinessException("requestKey 必须是 1–64 位字母、数字、下划线或短横线");
@@ -55,11 +61,10 @@ public class PlanExecutionService {
             return project(plan);
         }
         if (plan.status != PlanStatus.READY) throw new BusinessException("只有 READY 计划可以提交真实执行");
-        var team = teams.findById(plan.teamId).orElseThrow(() -> new BusinessException("团队不存在"));
         if (team.status != TeamStatus.ACTIVE) throw new BusinessException("团队未启用");
-        var ordered = steps.findByPlanIdOrderByStepOrder(planId);
+        var ordered = steps.findCurrentByPlanId(planId);
         if (ordered.isEmpty() || ordered.size() > 62) throw new BusinessException("计划要求 1–62 个步骤");
-        var membership = members.findByTeamId(plan.teamId);
+        var membership = members.findCurrentByTeamId(plan.teamId);
         Set<Integer> orders = new HashSet<>();
         Map<Long, com.fasterxml.jackson.databind.JsonNode> outputContracts = new HashMap<>();
         for (var step : ordered) {

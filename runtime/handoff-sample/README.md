@@ -16,6 +16,8 @@
 
 ## 接入 EAP
 
+新版[默认框架镜像](../framework-runner/README.md)已复用本样例的交接实现：通过 `TEMPLATE` 部署 `LANGGRAPH_SUM_V1` 与 `AUTOGEN_SUM_V1`，提交工作流时设置 `context.eapHandoff={"protocol":"EAP_CODE_HANDOFF_V1"}`。来源/接收角色由框架入口固定。以下独立 `handoff` 镜像入口继续兼容；它不需要这一默认模板选择标记。
+
 远程构建 `runtime/agent-runner`，使用 `handoff` build tag，并分别固定 `-X main.handoffRole=source`、`target`。镜像以经验证的固定框架镜像为基础，加入两个二进制、`handoff_worker.py`、`eap_execution.py`、`eap_links.py`。依赖、编译和测试都在远程执行。
 
 通过 EAP 创建两个 Agent，使用 `IMAGE` 部署同一摘要镜像，命令分别为 `/usr/local/bin/eap-handoff-source` 和 `/usr/local/bin/eap-handoff-target`，端口 80、就绪探针 `/readyz`。必须使用 EAP 自动配送的运行身份；凭证只由父进程通过 stdin 传给子进程。不给任务开放镜像、路径、命令、任意程序、模型或网络地址选择。

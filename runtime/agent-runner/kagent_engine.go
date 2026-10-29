@@ -34,6 +34,9 @@ func init() {
 	runnerFramework = "KAGENT_ADK"
 	runnerEngineVersion = kagentVersion
 	generateModel = generateKagent
+	runEngine = runKagentDelivery
+	engineState = kagentDeliveryState
+	configureEngine = func(r *runner) { r.observationWake = make(chan struct{}, 1) }
 }
 
 // This is an EAP-owned execution adapter, not a Kagent controller or Session
@@ -50,7 +53,7 @@ func generateKagent(r *runner, ctx context.Context, messages []message, traceID,
 	return generateKagentOnce(r, ctx, messages, traceID, taskKey, false)
 }
 
-func generateKagentOnce(r *runner, ctx context.Context, messages []message, traceID, taskKey string, toolsEnabled bool) (string, error) {
+func generateKagentOnce(r *runner, ctx context.Context, messages []message, traceID, taskKey string, toolsEnabled bool) (result string, resultErr error) {
 	if len(messages) < 2 || messages[0].Role != "system" {
 		return "", &modelOutputError{code: "MODEL_NOT_DISPATCHED"}
 	}
@@ -99,8 +102,17 @@ func generateKagentOnce(r *runner, ctx context.Context, messages []message, trac
 	if err != nil {
 		return "", &modelOutputError{code: "MODEL_NOT_DISPATCHED"}
 	}
+	observation := r.newKagentObservation(agent, traceID)
+	defer func() {
+		if failure := recover(); failure != nil {
+			observation.finish(errModelOutcomeUnknown)
+			panic(failure)
+		}
+		observation.finish(resultErr)
+	}()
 	sessions := session.InMemoryService()
-	executor, err := adkrunner.New(adkrunner.Config{AppName: "eap", Agent: agent, SessionService: sessions})
+	executor, err := adkrunner.New(adkrunner.Config{AppName: "eap", Agent: agent, SessionService: sessions,
+		PluginConfig: adkrunner.PluginConfig{Plugins: observation.plugins()}})
 	if err != nil {
 		return "", &modelOutputError{code: "MODEL_NOT_DISPATCHED"}
 	}

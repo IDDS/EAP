@@ -1,13 +1,6 @@
 <template>
   <section class="page-grid audit-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">治理 · 留痕</span>
-        <h2>审计日志</h2>
-        <span>追踪控制命令、治理动作、安全决策和资源变更</span>
-      </div>
-
-    </div>
+    <ConsolePageHeader />
 
     <el-card shadow="never" class="panel">
       <template #header><div class="panel-header"><span>事件记录</span><span class="muted">按条件查询，打开详情查看变更前后记录</span></div></template>
@@ -68,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import HistoryTable from '@/components/common/HistoryTable.vue'
 import { ref } from 'vue'
 import { EapApi } from '@/api/eap'

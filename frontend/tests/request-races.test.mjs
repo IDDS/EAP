@@ -15,10 +15,10 @@ function functionsFrom(file, names, state) {
     Object.assign(state, { loadError: ref(''), savedNodeConfigs: ref({}), nodeConfigError: ref(''), hasUnsavedConfig: ref(false), nodeHasTool: ref(false), permissions: { can: () => true }, workflowTab: ref('design'), selectedExecutionKey: ref(''), disposed: false, previewRequestId: 0, running: ref(false), creatingEdge: ref(false), creatingNode: ref(false), ...state })
   }
   if (file === 'views/AgentDetailView.vue' && names.includes('load')) {
-    names = [...new Set([...names, 'resetHistory', 'fetchHistory', 'loadHistory', 'clearContentHistory'])]
+    names = [...new Set([...names, 'resetHistory', 'fetchHistory', 'loadHistory'])]
     state.permissions ??= { state: { user: {} }, can: () => true }
     state.historyPageSize = 50
-    state.historyKinds = ['models', 'spans', 'tools', 'content', 'knowledge', 'governance']
+    state.historyKinds = ['models', 'spans', 'tools']
     state.historyRows = Object.fromEntries(state.historyKinds.map(kind => [kind, state[kind === 'models' ? 'modelEvents' : kind]]))
     state.history = Object.fromEntries(state.historyKinds.map(kind => [kind, { page: 0, requestedPage: 0, loading: false, hasNext: false, error: '', requestId: 0 }]))
   }
@@ -70,7 +70,7 @@ test('opening a result without trace invalidates a pending trace response', asyn
 test('clearing global search resets loading while an old request is pending', async () => {
   const pending = deferred()
   const state = functionsFrom('App.vue', ['runGlobalSearch'], {
-    searchNavigation: () => [], searchRequestId: 0, globalSearchTerm: ref('agent'), globalSearchLoading: ref(false), globalSearchResults: ref([]),
+    searchNavigation: () => [], searchPageSections: () => [], searchRequestId: 0, globalSearchTerm: ref('agent'), globalSearchLoading: ref(false), globalSearchResults: ref([]),
     EapApi: { listAgents: () => pending.promise, listDiscoveredAgentAssets: async () => [], listPolicies: async () => [] },
   })
   const first = state.runGlobalSearch()
@@ -147,28 +147,16 @@ test('dataset calibration cannot be replaced by the previous selection', async (
   assert.equal(state.calibration.value.datasetKey, 'B')
 })
 
-for (const status of [403, 500]) {
-  test(`content observation HTTP ${status} is represented explicitly`, async () => {
-    const state = {
-      contentAccessDenied: ref(false), loadError: ref(''), loadRequestId: 0, agentId: ref(1), context: { windowHours: 24 }, loading: ref(false), agent: ref(),
-      EapApi: new Proxy({}, { get: (_, name) => name === 'listContentObservations' ? async () => { throw { response: { status } } } : name === 'listAgents' ? async () => [{ id: 1 }] : async () => [] }),
-    }
-    for (const key of ['capabilities','runtimes','modelEvents','spans','tools','content','knowledge','governance','tasks','discoveryAssets','agentOpsState','workItems','evaluationResults']) state[key] = ref([])
-    const scope = functionsFrom('views/AgentDetailView.vue', ['load'], state)
-    await scope.load()
-    assert.equal(scope.loading.value, false)
-    if (status === 403) {
-      assert.equal(scope.agent.value.id, 1)
-      assert.equal(scope.contentAccessDenied.value, true)
-      assert.equal(scope.loadError.value, '')
-    } else {
-      assert.equal(scope.agent.value.id, 1)
-      assert.notEqual(scope.history.content.error, '')
-      assert.equal(scope.loadError.value, '')
-      assert.equal(scope.contentAccessDenied.value, false)
-    }
-  })
-}
+test('agent overview does not request relocated content, knowledge, governance or evaluation APIs', async () => {
+  const calls = []
+  const scope = agentHistoryScope(new Proxy({}, { get: (_, name) => async () => {
+    calls.push(name)
+    return name === 'listAgents' ? [{ id: 7 }] : []
+  } }))
+  await scope.load()
+  assert.equal(scope.agent.value.id, 7)
+  for (const name of ['listContentObservations','listKnowledgeInteractions','listGovernanceDataEvents','listEvaluationResults']) assert.ok(!calls.includes(name))
+})
 
 test('team switch clears actionable steps and invalidates pending plan detail', async () => {
   const pendingPlan = deferred(), pendingTeam = deferred()
@@ -211,16 +199,16 @@ test('agent history requests apply the agent filter at the API boundary', async 
   const state = {
     contentAccessDenied: ref(false), loadError: ref(''), loadRequestId: 0, agentId: ref(7), context: { windowHours: 24 }, loading: ref(false), agent: ref(),
     EapApi: new Proxy({}, { get: (_, name) => async (...args) => {
-      if (name === 'listKnowledgeInteractions' || name === 'listGovernanceDataEvents') calls.push({ name, args })
+      if (['listModelInvocationEvents','listTraceSpanObservations','listToolInvocationEvents'].includes(name)) calls.push({ name, args })
       return name === 'listAgents' ? [{ id: 7 }] : []
     } }),
   }
   for (const key of ['capabilities','runtimes','modelEvents','spans','tools','content','knowledge','governance','tasks','discoveryAssets','agentOpsState','workItems','evaluationResults']) state[key] = ref([])
   await functionsFrom('views/AgentDetailView.vue', ['load'], state).load()
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 3)
   for (const call of calls) {
-    assert.equal(call.args[0], 50)
-    assert.equal(call.args[1].agentId, 7)
+    assert.equal(call.args[0].limit, 50)
+    assert.equal(call.args[0].agentId, 7)
   }
 })
 
@@ -274,7 +262,7 @@ test('history paging loads only its own API and keeps the other sections unchang
     calls.push({ name, args })
     if (name === 'listAgents') return [{ id: 7 }]
     if (name === 'listModelInvocationEvents') return [{ id: args[0].page + 1 }]
-    if (name === 'listKnowledgeInteractions') return [{ id: 99 }]
+    if (name === 'listToolInvocationEvents') return [{ id: 99 }]
     return []
   } }))
   await scope.load()
@@ -286,8 +274,8 @@ test('history paging loads only its own API and keeps the other sections unchang
   assert.equal(calls[0].args[0].page, 1)
   assert.equal(scope.modelEvents.value[0].id, 2)
   assert.equal(scope.history.models.page, 1)
-  assert.equal(scope.knowledge.value[0].id, 99)
-  assert.equal(scope.history.knowledge.page, 0)
+  assert.equal(scope.tools.value[0].id, 99)
+  assert.equal(scope.history.tools.page, 0)
   assert.equal(scope.loading.value, false)
 })
 
@@ -318,15 +306,15 @@ test('failed history page preserves the visible rows and can retry the same targ
 test('an empty next history page marks the end without replacing the last visible page', async () => {
   const scope = agentHistoryScope(new Proxy({}, { get: (_, name) => async (...args) => {
     if (name === 'listAgents') return [{ id: 7 }]
-    if (name === 'listContentObservations') return args[0].page === 0 ? [{ id: 1 }] : []
+    if (name === 'listModelInvocationEvents') return args[0].page === 0 ? [{ id: 1 }] : []
     return []
   } }))
   await scope.load()
-  assert.equal(scope.history.content.hasNext, true)
-  await scope.loadHistory('content', 1)
-  assert.equal(scope.content.value[0].id, 1)
-  assert.equal(scope.history.content.page, 0)
-  assert.equal(scope.history.content.hasNext, false)
+  assert.equal(scope.history.models.hasNext, true)
+  await scope.loadHistory('models', 1)
+  assert.equal(scope.modelEvents.value[0].id, 1)
+  assert.equal(scope.history.models.page, 0)
+  assert.equal(scope.history.models.hasNext, false)
 })
 
 test('agent switch resets all history pages and ignores late history responses', async () => {
@@ -601,37 +589,36 @@ test('command center suppresses background polling and distinguishes absent metr
 })
 
 
-test('agent details skip forbidden content and discard a response after access is revoked', async () => {
+test('agent details skip forbidden metadata and discard a response after access is revoked', async () => {
   let requests = 0
   const pending = deferred()
-  const scope = agentHistoryScope({ listContentObservations: () => { requests++; return pending.promise } })
+  const scope = agentHistoryScope({ listModelInvocationEvents: () => { requests++; return pending.promise } })
   let allowed = false
   scope.permissions = { state: { user: {} }, can: () => allowed }
-  scope.content.value = [{ content: 'previous user' }]
-  await scope.loadHistory('content')
+  scope.modelEvents.value = [{ content: 'previous user' }]
+  await scope.loadHistory('models')
   assert.equal(requests, 0)
-  assert.equal(scope.content.value.length, 0)
-  assert.equal(scope.contentAccessDenied.value, true)
+  assert.equal(scope.modelEvents.value.length, 0)
   allowed = true
-  const request = scope.loadHistory('content')
+  const request = scope.loadHistory('models')
   assert.equal(requests, 1)
   allowed = false
-  scope.clearContentHistory()
+  scope.resetHistory()
   pending.resolve([{ content: 'late response' }])
   await request
-  assert.equal(scope.content.value.length, 0)
-  assert.equal(scope.history.content.loading, false)
+  assert.equal(scope.modelEvents.value.length, 0)
+  assert.equal(scope.history.models.loading, false)
 })
 
-test('agent details discard content from a previous identity even when both can view it', async () => {
+test('agent details discard metadata from a previous identity even when both can view it', async () => {
   const pending = deferred()
-  const scope = agentHistoryScope({ listContentObservations: () => pending.promise })
-  const request = scope.loadHistory('content')
+  const scope = agentHistoryScope({ listModelInvocationEvents: () => pending.promise })
+  const request = scope.loadHistory('models')
   scope.permissions.state.user = { subject: 'next-user' }
   pending.resolve([{ content: 'old identity' }])
   await request
-  assert.equal(scope.content.value.length, 0)
-  assert.equal(scope.history.content.hasNext, false)
+  assert.equal(scope.modelEvents.value.length, 0)
+  assert.equal(scope.history.models.hasNext, false)
 })
 
 for (const status of [401, 503]) {

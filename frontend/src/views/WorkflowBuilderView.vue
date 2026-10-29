@@ -1,11 +1,7 @@
 <template>
   <section class="page-grid workflow-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <h2>智能体工作流</h2>
-        <span>从左侧拖拽 Agent 到画布，点击两个节点创建执行连线</span>
-      </div>
-      <div class="button-row">
+    <ConsolePageHeader>
+      <template #actions><div class="button-row">
         <el-select v-model="selectedWorkflowId" aria-label="选择工作流" class="agent-select" popper-class="workflow-select-options" @change="loadWorkflow">
           <el-option v-for="workflow in workflows" :key="workflow.id" :label="`${workflow.name} · ${workflow.code}`" :value="workflow.id" />
         </el-select>
@@ -13,8 +9,8 @@
         <el-button :disabled="!selectedWorkflowId" @click="loadWorkflow">重新加载流程</el-button>
         <el-button type="success" :disabled="!permissions.can('runWorkflows') || !executionAvailability.enabled || !selectedWorkflowId || hasUnsavedConfig || !!nodeConfigError" :loading="submittingExecution" @click="executeWorkflow">真实执行</el-button>
         <el-button type="primary" :icon="Plus" :disabled="!permissions.can('runWorkflows')" @click="createWorkflow">新建工作流</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
     <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon>
       <el-button @click="load">重新读取工作流</el-button>
@@ -192,6 +188,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check, Plus, VideoPlay } from '@element-plus/icons-vue'

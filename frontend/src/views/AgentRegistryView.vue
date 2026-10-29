@@ -1,15 +1,9 @@
 <template>
   <section class="page-grid registry-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">发现 · 身份 · 运行时</span>
-        <h2>注册与自主发现</h2>
-        <span>发现企业智能体、技能、插件和运行实例，统一复核身份与风险</span>
-      </div>
-      <el-button type="primary" :icon="Refresh" :loading="autonomousLoading" @click="loadAutonomousDiscovery">刷新发现数据</el-button>
-    </div>
+    <ConsolePageHeader v-if="activeSection !== 'environment'">
+      <template #actions><el-button v-if="activeSection !== 'environment'" :icon="Refresh" :loading="autonomousLoading" @click="loadAutonomousDiscovery">刷新发现数据</el-button></template>
+    </ConsolePageHeader>
 
-    <SectionNavigation v-model="activeSection" label="注册发现分区" :items="sectionItems" />
 
 
     <RuntimeInventoryPanel v-if="activeSection === 'environment'" />
@@ -497,8 +491,9 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import PageControls from '@/components/common/PageControls.vue'
-import SectionNavigation from '@/components/common/SectionNavigation.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Plus, Refresh, Search } from '@element-plus/icons-vue'
@@ -548,15 +543,7 @@ const identityPage = ref(1)
 const identityPageSize = ref(20)
 const assetPage = ref(1)
 const assetPageSize = ref(20)
-const sectionItems = [
-  { value: 'discovery', label: '发现总览' },
-  { value: 'probes', label: '发现探针' },
-  { value: 'identity', label: '身份关联' },
-  { value: 'assets', label: '资产清单' },
-  { value: 'runtime', label: '运行时注册' },
-  { value: 'environment', label: '运行环境发现' },
-] as const
-const activeSection = ref<'discovery' | 'probes' | 'identity' | 'assets' | 'runtime' | 'environment'>('discovery')
+const activeSection = usePageSection()
 const onlineProbeCount = computed(() => probeAgents.value.filter(item => item.status === 'ONLINE').length)
 const contentEnabledProbeCount = computed(() => probeAgents.value.filter(item => item.contentCaptureEnabled).length)
 const fingerprintReviewCount = computed(() => probeAgents.value.filter(item => item.fingerprintReviewRequired).length)
@@ -587,9 +574,6 @@ const protocolForm = reactive({
 })
 const route = useRoute()
 const router = useRouter()
-watch(() => route.query.section, section => {
-  if (section === 'environment') activeSection.value='environment'
-}, { immediate:true })
 const contextEndpointKey = computed(() => String(route.query.endpointKey || '').trim())
 const drilldownLabel = computed(() => contextEndpointKey.value ? `端点 ${contextEndpointKey.value}` : '')
 const visibleDiscoveryEndpoints = computed(() => contextEndpointKey.value

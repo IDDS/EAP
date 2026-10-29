@@ -1,4 +1,4 @@
-//go:build handoff && !framework && !kagent
+//go:build (handoff || framework) && !kagent
 
 package main
 
@@ -31,19 +31,18 @@ func handoffFixture(t *testing.T) (*runner, map[string]any) {
 		"eapPreviousResults": map[string]any{"generate": map[string]any{"taskKey": run + ":1", "agentId": 1, "output": map[string]any{"session": "fixture"}}},
 		"eapTool":            map[string]any{"name": "calculate_sum", "arguments": map[string]any{"numbers": []float64{10, 20, 12}}}}}
 }
-func handoffRequest(r *runner, task map[string]any, token string) *httptest.ResponseRecorder {
+func handoffRequest(r *runner, task map[string]any, token string, role string) *httptest.ResponseRecorder {
 	raw, _ := json.Marshal(task)
 	req := httptest.NewRequest("POST", "/eap/task", strings.NewReader(string(raw)))
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
-	handoffTask(r, w, req)
+	handoffTaskForRole(r, w, req, role)
 	return w
 }
 
 func TestHandoffGovernedExecutionReplayAndChangedInput(t *testing.T) {
-	oldRole, oldProcess := handoffRole, handoffProcess
-	t.Cleanup(func() { handoffRole, handoffProcess = oldRole, oldProcess })
-	handoffRole = "target"
+	oldProcess := handoffProcess
+	t.Cleanup(func() { handoffProcess = oldProcess })
 	for _, uncertain := range []bool{false, true} {
 		t.Run(map[bool]string{true: "unknown", false: "success"}[uncertain], func(t *testing.T) {
 			r, task := handoffFixture(t)
@@ -95,7 +94,7 @@ func TestHandoffGovernedExecutionReplayAndChangedInput(t *testing.T) {
 				return []byte(`{"sum":42,"count":3,"handoff":{"original":true}}`), nil
 			}
 			for i := 0; i < 2; i++ {
-				w := handoffRequest(r, task, r.runtimeToken)
+				w := handoffRequest(r, task, r.runtimeToken, "target")
 				want := "SUCCEEDED"
 				if uncertain {
 					want = "EXECUTION_UNKNOWN"
@@ -111,7 +110,7 @@ func TestHandoffGovernedExecutionReplayAndChangedInput(t *testing.T) {
 				t.Fatal("incorrect finalization")
 			}
 			task["objective"] = "changed"
-			if handoffRequest(r, task, r.runtimeToken).Code != 409 {
+			if handoffRequest(r, task, r.runtimeToken, "target").Code != 409 {
 				t.Fatal("changed input not rejected")
 			}
 		})
@@ -119,23 +118,20 @@ func TestHandoffGovernedExecutionReplayAndChangedInput(t *testing.T) {
 }
 
 func TestHandoffRejectsUnauthenticatedWrongRoleAndMetadataTool(t *testing.T) {
-	old := handoffRole
-	t.Cleanup(func() { handoffRole = old })
-	handoffRole = "source"
 	r, task := handoffFixture(t)
-	if handoffRequest(r, task, "").Code != 401 {
+	if handoffRequest(r, task, "", "source").Code != 401 {
 		t.Fatal("anonymous accepted")
 	}
-	if handoffRequest(r, task, r.runtimeToken).Code != 400 {
+	if handoffRequest(r, task, r.runtimeToken, "source").Code != 400 {
 		t.Fatal("source executed target")
 	}
 	task["nodeKey"] = "offer"
 	task["context"].(map[string]any)["eapPreviousResults"] = map[string]any{"execute": map[string]any{"taskKey": task["taskKey"], "agentId": 2, "output": map[string]any{"sum": 42}}}
-	if handoffRequest(r, task, r.runtimeToken).Code != 400 {
+	if handoffRequest(r, task, r.runtimeToken, "source").Code != 400 {
 		t.Fatal("metadata accepted tool")
 	}
 	r.credentialExpiry = time.Now().Add(-time.Second)
-	if handoffRequest(r, task, r.runtimeToken).Code != 401 {
+	if handoffRequest(r, task, r.runtimeToken, "source").Code != 401 {
 		t.Fatal("expired identity accepted")
 	}
 }

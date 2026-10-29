@@ -1,19 +1,12 @@
 <template>
   <section class="page-grid evaluation-workspace">
-    <div class="toolbar console-page-heading">
-      <div class="toolbar-title">
-        <h2>质量评估</h2>
-        <span>跟踪运行质量，管理回归样本与评估规则</span>
-      </div>
-      <div class="toolbar-actions">
+    <ConsolePageHeader>
+      <template #actions><div class="toolbar-actions">
         <el-button v-if="permissions.can('manageEvaluations')" type="primary" :loading="syncing" :disabled="writeBusy" @click="synchronize">处理下一批观测</el-button>
         <el-button :loading="loading" :disabled="!permissions.can('viewConsole') || writeBusy" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
-    <nav class="evaluation-tabs" aria-label="评估工作区">
-      <button v-for="tab in workspaceTabs" :key="tab.key" :class="{ active: activeTab === tab.key }" :aria-current="activeTab === tab.key ? 'page' : undefined" :aria-label="tab.label" @click="activeTab = tab.key"><span>{{ tab.label }}</span><small aria-hidden="true">{{ tab.description }}</small></button>
-    </nav>
     <el-alert v-if="pageError" :title="pageError" type="warning" :closable="false" show-icon />
     <el-alert v-if="!permissions.can('viewConsole')" title="当前账号暂无评估工作区访问权限，请确认登录状态。" type="info" :closable="false" />
     <div v-show="activeTab === 'overview'" class="evaluation-overview">
@@ -42,7 +35,13 @@
       <div class="evaluation-overview-note"><span>{{ syncing ? '正在跟踪任务进度' : '每批按已保存进度继续处理' }}</span><el-button v-if="!syncing && activeJob && ['QUEUED', 'RUNNING'].includes(activeJob.status)" link type="primary" @click="resumeJob(activeJob.id)">继续跟踪</el-button><el-button link type="primary" @click="activeTab = 'results'">查看评估结果 →</el-button></div>
     </div>
     <template v-if="activeTab === 'results'">
-    <el-card shadow="never" class="panel">
+    <div v-if="scopedResults" class="drilldown-context">
+      <strong>{{ contextAgentId ? `智能体 #${contextAgentId}` : '指定 Trace' }} 的评估结果</strong>
+      <span>显示最近最多 100 条匹配记录；项目总览、规则和数据集不受此筛选影响。</span>
+      <router-link v-if="contextAgentId" :to="`/agents/${contextAgentId}`">返回智能体</router-link>
+      <el-button link type="primary" @click="router.push({ path: '/evaluation', query: { section: 'results' } })">查看全部结果</el-button>
+    </div>
+    <el-card v-if="!scopedResults" shadow="never" class="panel">
       <template #header><div class="panel-heading"><strong>评估窗口摘要</strong><span>按最近 {{ summary.windowHours }} 小时的完整结果统计，不受结果表展示条数限制</span></div></template>
       <div class="evaluation-summary-grid">
         <div><span>评估总数</span><strong>{{ summary.total }}</strong></div>
@@ -289,10 +288,12 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DataAnalysis, CircleCheck, Warning, Collection } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { EapApi } from '@/api/eap'
 import { usePermissions } from '@/stores/permissions'
 import EvaluationRunProgress from '@/components/evaluation/EvaluationRunProgress.vue'
@@ -300,10 +301,9 @@ import EvaluationDatasetEditor from '@/components/evaluation/EvaluationDatasetEd
 import TraceEvidenceBars from '@/components/evaluation/TraceEvidenceBars.vue'
 import type { EvaluationDataset, EvaluationDatasetCalibration, EvaluationCalibrationRunSummary, EvaluationCalibrationRunDetail, EvaluationDatasetItem, EvaluationGroundTruthLabel, EvaluationJob, EvaluationJobStatus, EvaluationResult, EvaluationSummary, EvaluatorDefinition, TraceSpanKind, TraceSpanObservation } from '@/types/domain'
 
-const workspaceTabs = [{ key: 'overview', label: '运行概览', description: '处理进度与质量概况' }, { key: 'results', label: '评估结果', description: '分数、结论与执行证据' }, { key: 'datasets', label: '数据集与校准', description: '回归样本与人工标注' }, { key: 'rules', label: '评估规则', description: '评估器与适用范围' }]
 const permissions = usePermissions()
 let accessEpoch = 0
-const activeTab = ref('overview')
+const activeTab = usePageSection()
 const activeJob = ref<EvaluationJob>()
 const pageError = ref('')
 let loadRequestId = 0
@@ -332,6 +332,13 @@ const detailVisible = ref(false)
 const traceSpans = ref<TraceSpanObservation[]>([])
 const traceLoading = ref(false)
 const router = useRouter()
+const route = useRoute()
+const contextAgentId = computed(() => {
+  const id = Number(route.query.agentId)
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+})
+const contextTraceId = computed(() => typeof route.query.traceId === 'string' ? route.query.traceId : undefined)
+const scopedResults = computed(() => Boolean(contextAgentId.value || contextTraceId.value))
 const loading = ref(false)
 const running = ref(false)
 const syncing = ref(false)
@@ -375,7 +382,7 @@ async function load() {
   pageError.value = ''
   try {
     const [evaluatorItems, datasetItems, resultItems, jobItems, summaryItem, analysisStatus] = await Promise.all([
-      EapApi.listEvaluators(), EapApi.listEvaluationDatasets(), EapApi.listEvaluationResults({ limit: 100 }), EapApi.listEvaluationJobs(), EapApi.getEvaluationSummary(24),
+      EapApi.listEvaluators(), EapApi.listEvaluationDatasets(), EapApi.listEvaluationResults({ limit: 100, agentId: contextAgentId.value, traceId: contextTraceId.value }), EapApi.listEvaluationJobs(), EapApi.getEvaluationSummary(24),
       EapApi.getContentAnalysisStatus().catch(() => null),
     ])
     if (!currentAccess(epoch) || requestId !== loadRequestId || editorLocked.value) return
@@ -753,6 +760,11 @@ async function resumeCurrentJob(epoch: number) {
   if (currentAccess(epoch) && job && ['QUEUED', 'RUNNING'].includes(job.status)) await resumeJob(job.id)
 }
 
+watch([contextAgentId, contextTraceId], () => {
+  loadRequestId++; traceRequestId++
+  results.value = []; selectedResult.value = undefined; traceSpans.value = []; detailVisible.value = false
+  void load()
+})
 onBeforeUnmount(stopPolling)
 watch([() => permissions.state.user, () => permissions.can('viewConsole'), () => permissions.can('manageEvaluations'), () => permissions.can('annotateEvaluations')], async () => {
   const epoch = ++accessEpoch

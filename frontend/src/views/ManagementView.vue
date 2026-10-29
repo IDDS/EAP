@@ -1,12 +1,7 @@
 <template>
   <section class="page-grid management-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">管理 · 价值</span>
-        <h2>成本与价值</h2>
-        <span>查看投入产出比、任务成效、知识采用与复用，并登记业务方确认的价值事件</span>
-      </div>
-      <div class="button-row">
+    <ConsolePageHeader v-if="activeSection !== 'budget'">
+      <template #actions><div v-if="activeSection !== 'budget'" class="button-row">
         <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
@@ -18,10 +13,9 @@
           <el-option v-for="currency in currencyOptions" :key="currency" :label="currency" :value="currency" />
         </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
-    <SectionNavigation v-model="activeSection" label="管理界面分区" :items="sectionItems" />
 
     <BudgetPanel v-if="activeSection === 'budget'" />
 
@@ -136,11 +130,11 @@
     </div>
 
     <el-alert
-      v-if="!summary.hasValidatedValue"
+      v-if="!summary.hasValidatedValue && (activeSection === 'overview' || activeSection === 'attribution' || activeSection === 'value')"
       type="warning"
       :closable="false"
       show-icon
-      title="尚未录入业务方确认价值，投入产出比暂不计算。请在下方登记与智能体或发现端点关联的价值事件。"
+      title="尚未录入业务方确认价值，投入产出比暂不计算。可在“价值事件”中登记与智能体或发现端点关联的记录。"
     />
 
     <div v-show="activeSection === 'overview'" class="metric-strip">
@@ -589,7 +583,8 @@
 </template>
 
 <script setup lang="ts">
-import SectionNavigation from '@/components/common/SectionNavigation.vue'
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -644,14 +639,7 @@ const selectedCurrency = ref('')
 const currencyOptions = computed(() => [...new Set([...summary.value.availableCurrencies, ...(selectedCurrency.value ? [selectedCurrency.value] : [])])].sort())
 const route = useRoute()
 let loadRequestId = 0
-const sectionItems = [
-  { value: 'overview', label: '价值总览' },
-  { value: 'attribution', label: '投入产出' },
-  { value: 'connectors', label: '业务连接器' },
-  { value: 'value', label: '价值事件' },
-  { value: 'budget', label: '预算与准入' },
-] as const
-const activeSection = ref<'overview' | 'attribution' | 'connectors' | 'value' | 'budget'>(route.query.section==='budget'?'budget':'overview')
+const activeSection = usePageSection()
 const loading = ref(false)
 const saving = ref(false)
 const connectorSaving = ref(false)

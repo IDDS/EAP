@@ -17,7 +17,7 @@
           <p class="muted">原编号已保留。可查询受理结果；重新提交须填写原配置，不会生成新编号。</p>
         </template>
       </div>
-      <el-form :disabled="!actions.deploy || submitting" label-width="120px" class="deploy-form" @submit.prevent>
+      <el-form :disabled="!actions.deploy || submitting" label-width="var(--deploy-label-width)" class="deploy-form" @submit.prevent>
         <el-form-item label="部署方式">
           <el-radio-group v-model="form.sourceType">
             <el-radio-button value="RUNNER" :disabled="capabilities ? !capabilities.runnerAvailable && !capabilities.kagentRunnerAvailable : false">零代码配置</el-radio-button>
@@ -609,7 +609,7 @@ onBeforeUnmount(() => { deploymentGeneration++; resetChat(); if (timer) clearInt
 .deployment-recovery :deep(.el-button) { justify-self: start; }
 .identity-hint { margin-bottom: 18px; }
 .substrate-deploy { display: grid; gap: 16px; }
-.deploy-form { max-width: 860px; }
+.deploy-form { --deploy-label-width: 120px; max-width: 860px; }
 .field-hint { margin-left: 12px; color: var(--el-text-color-secondary); font-size: 12px; }
 .inline-input { width: 240px; margin-left: 12px; }
 .env-rows { display: grid; gap: 8px; width: 100%; }
@@ -633,6 +633,15 @@ onBeforeUnmount(() => { deploymentGeneration++; resetChat(); if (timer) clearInt
 .chat-message.error { align-self: center; color: var(--el-color-danger); font-size: 12px; }
 .chat-input { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 @media (max-width: 640px) {
+  .deploy-form { --deploy-label-width: 100%; --console-form-label-height: 0px; --console-form-label-padding: 0px; }
+  .deploy-form :deep(.el-form-item) { flex-direction: column; align-items: stretch; }
+  .deploy-form :deep(.el-form-item__label) { justify-content: flex-start; margin-bottom: 6px; }
+  /* Element Plus indents unlabelled action rows with an inline margin. */
+  .deploy-form :deep(.el-form-item__content) { min-width: 0; margin-left: 0 !important; row-gap: 8px; }
+  .deploy-form :deep(.el-select), .deploy-form :deep(.el-input-number) { width: 100% !important; }
+  .deploy-form .field-hint { margin-left: 0; line-height: 1.6; }
+  .deploy-form :deep(.el-radio-group) { display: flex; flex-wrap: wrap; gap: 8px; }
+  .deploy-form :deep(.el-radio-button__inner) { border: 1px solid var(--el-border-color); border-radius: var(--el-border-radius-base); box-shadow: none; }
   .deployment-item :deep(.el-steps--simple) { display: grid; grid-template-columns: 1fr; gap: 10px; }
   .deployment-item :deep(.el-step.is-simple) { max-width: none !important; width: 100%; }
   .deployment-item :deep(.el-step__arrow) { display: none; }

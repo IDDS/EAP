@@ -1,12 +1,7 @@
 <template>
   <section class="page-grid knowledge-page">
-    <div class="toolbar">
-      <div class="toolbar-title">
-        <span class="interface-eyebrow">知识 · 追踪</span>
-        <h2>知识调用链路</h2>
-        <span>分析输入知识、检索与处理过程、输出知识，以及知识采用和复用情况</span>
-      </div>
-      <div class="button-row">
+    <ConsolePageHeader>
+      <template #actions><div class="button-row">
         <el-select v-model="windowHours" aria-label="统计时间范围" style="width: 150px" @change="load">
           <el-option label="最近 1 小时" :value="1" />
           <el-option label="最近 24 小时" :value="24" />
@@ -14,10 +9,9 @@
           <el-option label="最近 30 天" :value="720" />
         </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
-      </div>
-    </div>
+      </div></template>
+    </ConsolePageHeader>
 
-    <SectionNavigation v-model="activeSection" label="知识界面分区" :items="sectionItems" />
 
 
     <div v-show="activeSection === 'overview'" class="analysis-hero knowledge-hero">
@@ -59,7 +53,8 @@
       <span class="drilldown-context-kicker">筛选条件</span>
       <strong>{{ drilldownLabel }}</strong>
       <span>当前知识交互已按上下文收敛</span>
-      <el-button link type="primary" @click="clearDrilldown">清除筛选</el-button>
+      <router-link v-if="contextAgentId" :to="`/agents/${contextAgentId}`">返回智能体</router-link>
+      <el-button link type="primary" @click="clearDrilldown">查看全部记录</el-button>
     </div>
 
     <el-alert
@@ -278,7 +273,8 @@
 </template>
 
 <script setup lang="ts">
-import SectionNavigation from '@/components/common/SectionNavigation.vue'
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import { usePageSection } from '@/composables/usePageSection'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Collection, DataAnalysis, Refresh, Select } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -314,12 +310,7 @@ const emptySummary: KnowledgeSummary = {
 }
 
 const windowHours = ref(24)
-const sectionItems = [
-  { value: 'overview', label: '知识总览' },
-  { value: 'ingest', label: '交互接入' },
-  { value: 'trace', label: '过程追踪' },
-] as const
-const activeSection = ref<'overview' | 'ingest' | 'trace'>('overview')
+const activeSection = usePageSection()
 const loading = ref(false)
 const saving = ref(false)
 const summary = ref<KnowledgeSummary>({ ...emptySummary })
@@ -416,7 +407,7 @@ function openPhysical(row: KnowledgeInteraction) {
 }
 
 function clearDrilldown() {
-  router.replace({ path: '/knowledge', query: {} })
+  router.replace({ path: '/knowledge', query: { section: activeSection.value } })
 }
 
 async function load() {

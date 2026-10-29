@@ -1,6 +1,7 @@
 <template>
   <section class="runtime-inventory">
-    <header><div><h2>运行环境发现</h2><p>查看允许接入的运行空间，将已有实例关联到智能体身份。</p></div><el-button :icon="Refresh" :loading="loading" @click="load">刷新实例</el-button></header>
+    <ConsolePageHeader v-if="!agentId"><template #actions><el-button :icon="Refresh" :loading="loading" @click="load">刷新实例</el-button></template></ConsolePageHeader>
+    <header v-else class="inventory-inline-heading"><h3>托管运行实例</h3><el-button :icon="Refresh" :loading="loading" @click="load">刷新实例</el-button></header>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="snapshot && !snapshot.enabled" title="运行环境尚未启用，请联系管理员配置。" type="info" :closable="false" />
     <p class="inventory-note">纳管后可查看状态并控制休眠、恢复。模型、内容治理与任务执行需要另行接入验证；绑定不会修改原实例配置或网络策略。</p>
@@ -34,6 +35,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -85,5 +87,5 @@ onMounted(load)
 onBeforeUnmount(()=>{alive=false;++generation})
 </script>
 <style scoped>
-.runtime-inventory{display:grid;gap:16px;min-width:0}.runtime-inventory header,.inventory-scope{display:flex;justify-content:space-between;align-items:center;gap:16px}.runtime-inventory h2{font-size:20px;margin:0 0 8px}.runtime-inventory header p,.inventory-note{color:#62748b;font-size:13px;line-height:1.7;margin:0}.inventory-template{display:block;color:#7d8b9d;font-size:12px;overflow-wrap:anywhere;margin-top:6px}.inventory-scope{margin-top:10px;padding-top:14px;border-top:1px solid #dce4ed}.runtime-inventory .el-select{width:100%}@media(max-width:600px){.runtime-inventory header{align-items:flex-start;flex-direction:column}}
+.runtime-inventory{display:grid;gap:16px;min-width:0}.inventory-inline-heading,.inventory-scope{display:flex;justify-content:space-between;align-items:center;gap:16px}.inventory-inline-heading h3{font-size:16px;margin:0}.inventory-inline-heading p,.inventory-note{color:#62748b;font-size:13px;line-height:1.7;margin:0}.inventory-template{display:block;color:#7d8b9d;font-size:12px;overflow-wrap:anywhere;margin-top:6px}.inventory-scope{margin-top:10px;padding-top:14px;border-top:1px solid #dce4ed}.runtime-inventory .el-select{width:100%}@media(max-width:600px){.inventory-inline-heading{align-items:flex-start;flex-direction:column}}
 </style>

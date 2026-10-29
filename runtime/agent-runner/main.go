@@ -43,39 +43,42 @@ type message struct {
 }
 
 type runner struct {
-	mcpMu            sync.Mutex
-	mcpSessions      map[*observedMCP]struct{}
-	mcpRegistry      *mcpRegistry
-	identity         *runtimeIdentity
-	credentialExpiry time.Time
-	credentialUID    string
-	credentialSerial int64
-	credentialEpoch  string
-	experimentMu     sync.Mutex
-	experimentDir    string
-	mu               sync.Mutex
-	engineHealth     map[string]any
-	taskMu           cancellableMutex
-	conversationMu   cancellableMutex
-	taskReceipts     map[string]modelTaskReceipt
-	toolMu           sync.Mutex
-	toolDir          string
-	toolsEnabled     bool
-	sumExecutor      func([]float64, *toolJournal) (float64, error)
-	kagentToolMode   string
-	handled          map[string]string // taskKey -> answer, for idempotent task delivery
-	gateway          string
-	gwToken          string
-	taskToken        string
-	runtimeKey       string
-	runtimeToken     string
-	pairingToken     string
-	agentID          string
-	model            string
-	system           string
-	maxTokens        int
-	thinkingMode     string
-	client           *http.Client
+	observationMu         sync.Mutex
+	observationDeliveryMu sync.Mutex
+	observationWake       chan struct{}
+	mcpMu                 sync.Mutex
+	mcpSessions           map[*observedMCP]struct{}
+	mcpRegistry           *mcpRegistry
+	identity              *runtimeIdentity
+	credentialExpiry      time.Time
+	credentialUID         string
+	credentialSerial      int64
+	credentialEpoch       string
+	experimentMu          sync.Mutex
+	experimentDir         string
+	mu                    sync.Mutex
+	engineHealth          map[string]any
+	taskMu                cancellableMutex
+	conversationMu        cancellableMutex
+	taskReceipts          map[string]modelTaskReceipt
+	toolMu                sync.Mutex
+	toolDir               string
+	toolsEnabled          bool
+	sumExecutor           func([]float64, *toolJournal) (float64, error)
+	kagentToolMode        string
+	handled               map[string]string // taskKey -> answer, for idempotent task delivery
+	gateway               string
+	gwToken               string
+	taskToken             string
+	runtimeKey            string
+	runtimeToken          string
+	pairingToken          string
+	agentID               string
+	model                 string
+	system                string
+	maxTokens             int
+	thinkingMode          string
+	client                *http.Client
 }
 
 const maxHistory = 40

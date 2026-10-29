@@ -80,3 +80,8 @@ export async function patchData<T, P>(url: string, payload: P): Promise<T> {
   const response = await http.patch<ApiResponse<T>>(url, payload)
   return response.data.data
 }
+
+export async function deleteData<T, P>(url: string, payload: P): Promise<T> {
+  const response = await http.delete<ApiResponse<T>>(url, { data: payload })
+  return response.data.data
+}

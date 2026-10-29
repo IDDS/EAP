@@ -1,15 +1,13 @@
 <template>
   <section class="page-grid agentops-catalog-page">
-    <header class="toolbar agent-directory-heading">
-      <div class="toolbar-title">
-        <h2>智能体目录</h2>
-        <span>查找智能体，查看责任归属、运行状态与观测证据。</span>
-      </div>
-      <div class="button-row">
+    <ConsolePageHeader>
+      <template #actions><div class="button-row">
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
         <el-button type="primary" :icon="Plus" :disabled="!permissions.can('deployAgents')" @click="dialogVisible = true">创建智能体</el-button>
-      </div>
-    </header>
+      </div></template>
+    </ConsolePageHeader>
+
+    <AgentOpsFilters description="用于本页目录与状态统计；不会限制账号的访问权限。" />
 
     <el-alert v-if="dashboard.demoDataIncluded" type="warning" :closable="false" show-icon title="开发演示记录已用“演示”证据标记；生产 JWT 模式不会把它们混入正式 Agent 目录。" />
 
@@ -112,6 +110,8 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
+import AgentOpsFilters from '@/components/AgentOpsFilters.vue'
 import PageControls from '@/components/common/PageControls.vue'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'

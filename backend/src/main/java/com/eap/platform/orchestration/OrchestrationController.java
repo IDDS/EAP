@@ -3,6 +3,8 @@ package com.eap.platform.orchestration;
 import com.eap.platform.common.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -87,6 +89,60 @@ public class OrchestrationController {
     @PostMapping("/steps/{stepId}/assignment")
     public ApiResponse<OrchestrationDtos.StepResponse> assignStep(@PathVariable Long stepId, @Valid @RequestBody OrchestrationDtos.AssignRequest request) {
         return ApiResponse.ok(orchestrationService.assignStep(stepId, request));
+    }
+
+    @PatchMapping("/teams/{teamId}")
+    public ApiResponse<OrchestrationDtos.TeamResponse> updateTeam(@PathVariable Long teamId, @Valid @RequestBody OrchestrationDtos.TeamUpdateRequest request) {
+        return ApiResponse.ok(orchestrationService.updateTeam(teamId, request));
+    }
+
+    @DeleteMapping("/teams/{teamId}")
+    public ApiResponse<Void> deleteTeam(@PathVariable Long teamId, @Valid @RequestBody OrchestrationDtos.RevisionRequest request) {
+        orchestrationService.deleteTeam(teamId, request);
+        return ApiResponse.ok(null);
+    }
+
+    @PatchMapping("/teams/{teamId}/members/{memberId}")
+    public ApiResponse<OrchestrationDtos.MemberResponse> updateMember(@PathVariable Long teamId, @PathVariable Long memberId, @Valid @RequestBody OrchestrationDtos.MemberUpdateRequest request) {
+        return ApiResponse.ok(orchestrationService.updateMember(teamId, memberId, request));
+    }
+
+    @DeleteMapping("/teams/{teamId}/members/{memberId}")
+    public ApiResponse<Void> removeMember(@PathVariable Long teamId, @PathVariable Long memberId, @Valid @RequestBody OrchestrationDtos.RevisionRequest request) {
+        orchestrationService.removeMember(teamId, memberId, request);
+        return ApiResponse.ok(null);
+    }
+
+    @PatchMapping("/plans/{planId}")
+    public ApiResponse<OrchestrationDtos.PlanResponse> updatePlan(@PathVariable Long planId, @Valid @RequestBody OrchestrationDtos.PlanUpdateRequest request) {
+        return ApiResponse.ok(orchestrationService.updatePlan(planId, request));
+    }
+
+    @DeleteMapping("/plans/{planId}")
+    public ApiResponse<Void> deletePlan(@PathVariable Long planId, @Valid @RequestBody OrchestrationDtos.RevisionRequest request) {
+        orchestrationService.deletePlan(planId, request);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/plans/{planId}/copies")
+    public ApiResponse<OrchestrationDtos.PlanResponse> copyPlan(@PathVariable Long planId, @Valid @RequestBody OrchestrationDtos.PlanUpdateRequest request) {
+        return ApiResponse.ok(orchestrationService.copyPlan(planId, request));
+    }
+
+    @PatchMapping("/steps/{stepId}")
+    public ApiResponse<OrchestrationDtos.StepResponse> updateStep(@PathVariable Long stepId, @Valid @RequestBody OrchestrationDtos.StepUpdateRequest request) {
+        return ApiResponse.ok(orchestrationService.updateStep(stepId, request));
+    }
+
+    @DeleteMapping("/steps/{stepId}")
+    public ApiResponse<Void> deleteStep(@PathVariable Long stepId, @Valid @RequestBody OrchestrationDtos.RevisionRequest request) {
+        orchestrationService.deleteStep(stepId, request);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/plans/{planId}/steps/order")
+    public ApiResponse<OrchestrationDtos.PlanDetail> reorderSteps(@PathVariable Long planId, @Valid @RequestBody OrchestrationDtos.ReorderRequest request) {
+        return ApiResponse.ok(orchestrationService.reorderSteps(planId, request));
     }
 }
 

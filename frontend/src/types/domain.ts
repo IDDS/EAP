@@ -1142,6 +1142,7 @@ export interface AgentDiscoverySummary {
 }
 
 export interface AgentTeam {
+  revision: number
   id: number
   code: string
   name: string
@@ -1164,6 +1165,7 @@ export interface AgentTeamMember {
 }
 
 export interface AgentPlan {
+  revision: number
   id: number
   teamId: number
   goal: string

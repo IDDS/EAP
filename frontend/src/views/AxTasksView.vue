@@ -1,6 +1,8 @@
 <template>
   <div class="ax-page">
-    <header class="ax-heading"><div><p class="eyebrow">编排与执行 / 异步任务</p><h2>任务与沙箱</h2><p>提交任务，追踪隔离沙箱与真实执行回执。</p></div><div class="button-row"><el-button v-if="permissions.can('runWorkflows')" :icon="Plus" type="primary" @click="createOpen = !createOpen" :aria-expanded="createOpen">{{ createOpen ? '收起新建任务' : '新建任务' }}</el-button><el-button :icon="Refresh" :loading="loading" @click="load">刷新状态</el-button></div></header>
+    <ConsolePageHeader>
+      <template #actions><div class="button-row"><el-button v-if="permissions.can('runWorkflows')" :icon="Plus" type="primary" @click="createOpen = !createOpen" :aria-expanded="createOpen">{{ createOpen ? '收起新建任务' : '新建任务' }}</el-button><el-button :icon="Refresh" :loading="loading" @click="load">刷新状态</el-button></div></template>
+    </ConsolePageHeader>
     <div class="ax-flow"><span>提交与检查</span><b>→</b><span>隔离执行</span><b>→</b><span>结果回执</span><b>→</b><span>沙箱休眠</span></div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
     <el-alert v-if="cap && !cap.enabled" title="异步任务执行尚未启用；部署配置完成后可以提交任务。" type="info" :closable="false" />
@@ -44,6 +46,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'

@@ -1,0 +1,33 @@
+[Unit]
+Description=EAP PoC Linux eBPF connect observer
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/sys/kernel/btf/vmlinux
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/lib/eap-discovery-agent/launch.py
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=12s
+KillMode=control-group
+RuntimeDirectory=eap-ebpf-observer
+RuntimeDirectoryMode=0700
+LimitCORE=0
+LimitMEMLOCK=infinity
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_RESOURCE CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=multi-user.target

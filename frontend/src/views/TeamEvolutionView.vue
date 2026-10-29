@@ -1,6 +1,8 @@
 <template>
   <div class="team-evolution-page">
-    <header class="team-heading"><div><p class="eyebrow">评估与优化</p><h2>团队优化结果</h2><p>查看两个角色的提示词候选、原始执行状态与独立留出结论。</p></div><el-button :loading="loading" @click="load()">刷新列表</el-button></header>
+    <ConsolePageHeader>
+      <template #actions><el-button :loading="loading" @click="load()">刷新列表</el-button></template>
+    </ConsolePageHeader>
     <el-alert title="结果保留原执行与费用事实。具备实验操作能力的原创建账号可逐步推进任务；模型草稿须单独批准并主动生成，审核后另行登记；自动采用尚未开放。" type="info" :closable="false" />
     <TeamEvolutionOperations v-if="permissions.can('runAgentExperiments')" :detail="detail" :loading="detailLoading || loading" @read-root="select" />
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -55,6 +57,7 @@
 </template>
 
 <script setup lang="ts">
+import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { TeamEvolutionApi, type TeamPage, type TeamDetail, type TeamContent, type TeamScore } from '@/api/teamEvolutions'
 import { usePermissions } from '@/stores/permissions'

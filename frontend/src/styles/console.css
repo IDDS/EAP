@@ -11,6 +11,7 @@
   --console-canvas: #f4f6f8;
   --console-radius: 6px;
   --console-space: 8px;
+  --console-control-height: 38px;
   --console-surface: #fff;
   --el-color-primary: #087f9a;
   --el-color-primary-light-3: #52a5b8;
@@ -93,30 +94,14 @@ body { font-family: var(--el-font-family); }
 /* Legacy eyebrow rules use !important; keep the font override narrowly scoped. */
 .app-shell .interface-eyebrow { font-size: 12px !important; letter-spacing: .06em; color: var(--console-accent); }
 .app-shell :is(.priority-cell strong,.evidence-metric-card>strong,.agentops-catalog-summary strong,.metric-card>strong,.capacity-value,.small-box h3,.info-box-number) { font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
-/* The workbench has a single visual anchor, followed by actions and a queue. */
-.app-shell .agentops-page-header {
+/* The workbench has a single visual anchor{
   --eap-blue: #85d8e5;
   align-items: center; gap: 24px; padding: 28px 30px;
   border: 1px solid #244356; border-radius: 8px;
   background: var(--console-navy); color: #f1f8fc;
 }
-.app-shell .agentops-page-header h2 { color: #f1f8fc; font-size: 28px; margin: 8px 0 12px; letter-spacing: .01em; }
-.app-shell .agentops-page-header .interface-eyebrow { color: #85d8e5; font-size: 12px; letter-spacing: .1em; }
-.app-shell .agentops-page-header p { color: #c0d1dd; font-size: 14px; max-width: 650px; }
-.app-shell .agentops-page-header .button-row { flex-shrink: 0; justify-content: flex-end; flex-wrap: wrap; max-width: 290px; gap: 12px; }
-.app-shell .agentops-page-header .context-summary { flex-basis: 100%; text-align: right; color: #c0d1dd; font-size: 13px; }
-.app-shell .agentops-page-header .command-center-link { color: #8fe4ed; font-size: 14px; }
-.app-shell .agentops-page-header .el-button { color: #ecfaff; border-color: #54788b; background: #1c3d50; }
-.app-shell .agentops-page-header .el-button:hover { background: #2a5063; border-color: #89d0df; }
+
 .app-shell .agentops-workbench > .muted { margin: -8px 0 0; font-size: 12px; color: var(--console-muted); }
-.app-shell .agentops-workbench .workbench-start { gap: 0; border: 1px solid var(--console-line); border-radius: 6px; background: #fff; overflow: hidden; }
-.app-shell .agentops-workbench .workbench-start > :is(a,button) { border: 0; border-radius: 0; padding: 18px 22px; background: transparent; gap: 7px; }
-.app-shell .agentops-workbench .workbench-start > :is(a,button) + :is(a,button) { border-left: 1px solid var(--console-line); }
-.app-shell .agentops-workbench .workbench-start > :is(a,button):hover { background: #f0f8fa; }
-.app-shell .agentops-workbench .workbench-start strong { color: var(--console-ink); font-size: 16px; }
-.app-shell .agentops-workbench .workbench-start strong .el-icon { color: var(--console-accent); }
-.app-shell .agentops-workbench .workbench-start span { color: var(--console-muted); font-size: 14px; }
-.app-shell .agentops-workbench .workbench-start small { color: #066d83; font-size: 13px; }
 .app-shell .agentops-workbench .priority-cell { min-height: 116px; padding: 18px 20px; }
 .app-shell .priority-cell::before { display: none; }
 .app-shell .priority-cell span { color: var(--console-muted); font-size: 13px; }
@@ -127,9 +112,7 @@ body { font-family: var(--el-font-family); }
 .app-shell .priority-medium strong { color: #86631b; }
 .app-shell .priority-overdue strong { color: #9e293b; }
 .app-shell .priority-cell.is-selected { background: #e7f4f7 !important; box-shadow: inset 0 -3px var(--console-accent) !important; }
-.app-shell .workbench-tabs button { min-height: 44px; color: var(--console-muted); }
-.app-shell .workbench-tabs button[aria-pressed='true'] { color: #066d83; background: var(--console-accent-soft); }
-.app-shell .workbench-tabs button span { background: #d3eaf0; color: #155b6d; }
+
 .app-shell .work-item-title strong { font-size: 14px; }
 .app-shell .work-item-title span,
 .app-shell .work-item-owner span { font-size: 12px; color: var(--console-muted); }
@@ -149,26 +132,19 @@ body { font-family: var(--el-font-family); }
 .app-shell .substrate-monitor :is(.panel-footnote,.metric-card p,.data-note,.monitor-meta) { color: var(--console-muted); }
 .app-shell :is(a,button,[role='button'],[tabindex='0']):focus-visible { outline: 2px solid var(--console-accent); outline-offset: 3px; }
 .app-shell .platform-navigation :is(.el-menu-item,.el-sub-menu__title):focus-visible { outline-color: #8de1ee; outline-offset: -3px; }
-@media (max-width: 1200px) {
-  .app-shell .agentops-page-header { align-items: flex-start; flex-direction: column; padding: 24px; gap: 18px; }
-  .app-shell .agentops-page-header .button-row { max-width: none; justify-content: flex-start; }
-  .app-shell .agentops-page-header .context-summary { flex-basis: auto; text-align: left; }
-}
+
 @media (max-width: 900px) {
   .app-shell .topbar h1 { font-size: 18px; }
   .app-shell .main { padding: 18px 14px 32px; }
-  .app-shell .agentops-page-header { padding: 22px 20px; }
-  .app-shell .agentops-page-header h2 { font-size: 25px; }
+
 }
 @media (max-width: 700px) {
-  .app-shell .agentops-workbench .workbench-start > :is(a,button) { padding: 15px 18px; }
-  .app-shell .agentops-workbench .workbench-start > :is(a,button) + :is(a,button) { border-left: 0; border-top: 1px solid var(--console-line); }
   .app-shell .agentops-workbench .priority-cell { padding: 16px 14px; }
-  .app-shell .agentops-page-header .context-summary { flex-basis: 100%; }
+
 }
 /* Match primary colors across pages without overriding the navy workbench header. */
-.app-shell .main .el-button--primary:where(:not(.is-plain,.is-text,.is-link,.is-disabled)):not(:where(.agentops-page-header *)) { background: var(--console-accent); border-color: var(--console-accent); }
-.app-shell .main .el-button--primary:where(:not(.is-plain,.is-text,.is-link,.is-disabled)):not(:where(.agentops-page-header *)):hover { background: var(--el-color-primary-dark-2); border-color: var(--el-color-primary-dark-2); }
+.app-shell .main .el-button--primary:where(:not(.is-plain,.is-text,.is-link,.is-disabled)) { background: var(--console-accent); border-color: var(--console-accent); }
+.app-shell .main .el-button--primary:where(:not(.is-plain,.is-text,.is-link,.is-disabled)):hover { background: var(--el-color-primary-dark-2); border-color: var(--el-color-primary-dark-2); }
 
 /* Resource workspaces: consistent headers, quiet surfaces and explicit actions.
    Keep density/font preferences and semantic disabled/loading colors intact. */
@@ -179,7 +155,9 @@ body { font-family: var(--el-font-family); }
 .app-shell .main .el-button { box-shadow: none; transition: background-color .15s ease, border-color .15s ease; }
 .app-shell .main .el-button:hover { box-shadow: none; transform: none; }
 .app-shell .main .el-button:not(.is-text):not(.is-link) { background-image: none; }
-.app-shell .panel :is(.panel-heading,.panel-header) { gap: 12px; }
+.app-shell .panel :is(.panel-heading,.panel-header) { flex-wrap: wrap; gap: 8px 12px; }
+.app-shell .panel :is(.panel-heading,.panel-header) > :first-child { flex-shrink: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.app-shell .panel .panel-header > .muted { min-width: 0; max-width: 100%; overflow: visible; white-space: normal; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.6; }
 .app-shell .panel .el-card__header { padding: 18px 20px; }
 .app-shell .panel .el-card__body { padding: 20px; }
 .app-shell .panel :is(.panel-heading,.panel-header) > strong { color: var(--console-ink); font-size: 15px; }
@@ -316,12 +294,13 @@ body { font-family: var(--el-font-family); }
 .app-shell .agent-profile-facts { margin-top: 0; border-radius: var(--console-radius); background: var(--console-canvas); }
 .app-shell .agent-profile-facts :is(span,small), .app-shell .agent-profile-footer > small, .app-shell .agent-profile-badges > span { color: var(--console-muted); font-size: 12px; }
 .app-shell .agent-profile-facts strong { white-space: normal; overflow-wrap: anywhere; }
+.app-shell :is(.agent-profile-facts,.attribute-grid,.agent-identity-grid) > div { align-content: start; }
 .app-shell .agent-profile-footer { gap: 12px; margin-top: 8px; }
 .app-shell .agent-profile-health { padding: 20px; background: #f0f7f9; }
 .app-shell .agent-profile-health > strong { margin-top: 14px; font-size: 24px; }
 .app-shell .agent-profile-health > p { color: var(--console-muted); font-size: 13px; }
 .app-shell .agent-detail-page .agentops-detail-axis-grid { gap: 0; grid-template-columns: repeat(6,minmax(0,1fr)); background: var(--console-surface); }
-.app-shell .agent-detail-page .agentops-detail-axis-grid > div { border: 0; border-left: 1px solid var(--console-line); border-radius: 0; background: transparent; }
+.app-shell .agent-detail-page .agentops-detail-axis-grid > div { align-content: start; grid-auto-rows: max-content; border: 0; border-left: 1px solid var(--console-line); border-radius: 0; background: transparent; }
 .app-shell .agent-detail-page .agentops-detail-axis-grid > div:first-child { border-left: 0; }
 .app-shell .agent-detail-page .agentops-detail-axis-grid > div > span:first-child, .app-shell .agent-detail-page .agentops-detail-axis-grid small { font-size: 12px; color: var(--console-muted); }
 .app-shell .agent-setup-guide { display: block; padding: 0 16px; border-color: var(--console-line); border-radius: var(--console-radius); }
@@ -405,17 +384,26 @@ body { font-family: var(--el-font-family); }
 .audit-drawer .audit-change pre { max-height: 360px; margin: 0; background: var(--console-canvas); color: var(--console-ink); border-color: var(--console-line); border-radius: var(--console-radius); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .audit-drawer .audit-missing { margin: 0; color: var(--console-muted); font-size: 13px; }
 @media (max-width: 760px) {
-  .app-shell .audit-history .history-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
-  .app-shell .audit-history .history-filters > :is(.el-input,.el-select) { width: 100%; min-width: 0; }
-  .app-shell .audit-history .history-filters > .el-input, .app-shell .audit-history .history-filters > .el-date-editor { grid-column: 1 / -1; width: 100%; min-width: 0; }
-  .app-shell .audit-history .history-filters > .el-select:nth-child(2) { grid-row: 2; }
-  .app-shell .audit-history .history-filters > .el-select:nth-child(4) { grid-row: 2; }
-  .app-shell .audit-history .history-filters > .el-button { justify-self: start; margin: 0; }
   .audit-drawer .el-drawer__header, .audit-drawer .el-drawer__body { padding: 16px; }
   .audit-drawer .audit-detail-facts { grid-template-columns: minmax(0,1fr); gap: 16px; }
 }
 
 /* Governance: keep current controls visible and move setup details behind disclosure. */
+.app-shell .governance-record-list { list-style: none; margin: 0; padding: 0; }
+.app-shell .governance-record-list > li { min-width: 0; padding: 20px 0; border-bottom: 1px solid var(--console-line); }
+.app-shell .governance-record-list > li:first-child { padding-top: 0; }
+.app-shell .governance-record-list > li:last-child { padding-bottom: 0; border-bottom: 0; }
+.app-shell .governance-record-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.app-shell .governance-record-heading > strong { min-width: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.app-shell .governance-record-heading > .el-tag { flex-shrink: 0; }
+.app-shell .governance-record-list time { display: block; margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--console-muted); }
+.app-shell .governance-record-facts { display: grid; gap: 12px; margin: 16px 0; }
+.app-shell .governance-record-facts > div { display: grid; grid-template-columns: 76px minmax(0,1fr); align-items: start; gap: 12px; }
+.app-shell .governance-record-facts dt { color: var(--console-muted); font-size: 12px; line-height: 1.6; }
+.app-shell .governance-record-facts dd { min-width: 0; margin: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.app-shell .governance-record-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.app-shell .governance-record-actions .el-button { min-height: 44px; margin: 0; }
+.app-shell .governance-record-note { margin: 12px 0; color: var(--console-muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .app-shell .governance-sections { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 0; overflow: hidden; border: 1px solid var(--console-line); border-radius: var(--console-radius); background: var(--console-surface); }
 .app-shell .governance-sections button { display: grid; gap: 4px; min-width: 0; padding: 14px 16px; border: 0; border-right: 1px solid var(--console-line); background: transparent; color: var(--console-ink); text-align: left; cursor: pointer; }
 .app-shell .governance-sections button:last-child { border-right: 0; }
@@ -624,3 +612,34 @@ body { font-family: var(--el-font-family); }
 .app-shell .main :is(.registry-page,.physical-page,.knowledge-page,.management-page) { grid-template-columns:minmax(0,1fr); min-width:0; }
 .app-shell .main :is(.registry-page,.physical-page,.knowledge-page,.management-page)>* { min-width:0; max-width:100%; }
 .app-shell .main .toolbar .button-row { flex-wrap:wrap; }
+
+/* Labels share the first control's centre; helper text never stretches the label. */
+:is(.app-shell,.el-dialog,.el-drawer) :is(.el-input__wrapper,.el-select__wrapper) {
+  min-height: var(--console-control-height);
+}
+:is(.app-shell,.el-dialog,.el-drawer) .el-form-item__content {
+  min-height: var(--console-control-height);
+  align-content: flex-start;
+}
+:is(.app-shell,.el-dialog,.el-drawer) .el-form:not(.el-form--label-top) .el-form-item:not(.el-form-item--label-top) > .el-form-item__label {
+  align-self: flex-start;
+  align-items: center;
+  height: auto;
+  min-height: var(--console-form-label-height, var(--console-control-height));
+  padding-block: var(--console-form-label-padding, 8px);
+  line-height: 1.5;
+}
+.app-shell :is(.table-tag-row,.source-tags,.management-attribution-tags) {
+  align-items: center;
+  gap: 6px;
+}
+.app-shell :is(.el-tag,.evidence-badge,.status-axis,.severity-badge,.work-item-status,.agent-state-pill,.agent-risk-pill) {
+  vertical-align: middle;
+}
+.app-shell :is(.evidence-badge,.severity-badge,.work-item-status) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.5;
+}
+.app-shell :is(.status-axis > i,.runtime-status-dot) { flex-shrink: 0; }

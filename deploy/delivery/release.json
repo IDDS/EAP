@@ -1,73 +1,78 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261025-execution-links-r1",
+  "releaseId": "private-pilot-20261028-admin-layout-r4",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
-  "schema": 95,
+  "schema": 96,
   "applications": {
-    "backend": "10.186.133.66:5001/eap-backend@sha256:f93d311d41828341a70a919812f983f675aada0e5e3cf4a028c1d2d12642b88c",
-    "frontend": "10.186.133.66:5001/eap-frontend@sha256:6b096481c862f9af3770492be7a011ab856762ba2d95344504d142144aeac33f"
+    "backend": "10.186.133.66:5001/eap-backend@sha256:b53bd139f666a3ea3ca97e5a81802553ff7abeb9ffc7478cbb34bb66e2064d5f",
+    "frontend": "10.186.133.66:5001/eap-frontend@sha256:927bc8a18351674d9062ee5ce5314db47d6e366f546451904f8a4c50c5b8a34c"
   },
   "capabilities": [
     {
       "id": "native-runner",
       "status": "BOUNDED",
-      "scope": "EAP 管理的任务执行、身份、模型准入、预算和观测；旧实例不会自动采用新镜像"
+      "scope": "EAP \u7ba1\u7406\u7684\u4efb\u52a1\u6267\u884c\u3001\u8eab\u4efd\u3001\u6a21\u578b\u51c6\u5165\u3001\u9884\u7b97\u548c\u89c2\u6d4b\uff1b\u65e7\u5b9e\u4f8b\u4e0d\u4f1a\u81ea\u52a8\u91c7\u7528\u65b0\u955c\u50cf"
     },
     {
       "id": "kagent-adk",
       "status": "BOUNDED",
-      "scope": "文本轮次及 CALCULATE_SUM_V1；无多轮工具循环、MCP 执行、子智能体或持久审批恢复"
+      "scope": "\u6587\u672c\u8f6e\u6b21\u3001CALCULATE_SUM_V1\u3001\u5b9e\u9645 ADK \u5185\u90e8\u4e8b\u4ef6\u548c\u72ec\u7acb\u4e2d\u592e\u6295\u9012\u5feb\u7167\uff1b\u6709\u754c\u6ce8\u518c\u6811\u5b50\u8c03\u7528\u89c2\u6d4b\uff0c\u65e0\u4efb\u610f\u5b50 Agent \u521b\u5efa\u3001\u591a\u8f6e\u5de5\u5177\u5faa\u73af\u3001MCP \u6267\u884c\u6216\u6301\u4e45\u5ba1\u6279\u6062\u590d"
     },
     {
       "id": "mcp-observation",
       "status": "BOUNDED",
-      "scope": "受信任宿主的 stdio/HTTP 观测；需要接入配置，不是任意程序零配置追踪"
+      "scope": "\u53d7\u4fe1\u4efb\u5bbf\u4e3b\u7684 stdio/HTTP \u89c2\u6d4b\uff1b\u9700\u8981\u63a5\u5165\u914d\u7f6e\uff0c\u4e0d\u662f\u4efb\u610f\u7a0b\u5e8f\u96f6\u914d\u7f6e\u8ffd\u8e2a"
     },
     {
       "id": "structured-results",
       "status": "BOUNDED",
-      "scope": "工作流 RUNTIME AGENT/ARTIFACT 与团队计划步骤的有界 JSON 结构契约；提交后冻结，拒绝时停止交接；不证明业务正确性"
+      "scope": "\u5de5\u4f5c\u6d41 RUNTIME AGENT/ARTIFACT \u4e0e\u56e2\u961f\u8ba1\u5212\u6b65\u9aa4\u7684\u6709\u754c JSON \u7ed3\u6784\u5951\u7ea6\uff1b\u63d0\u4ea4\u540e\u51bb\u7ed3\uff0c\u62d2\u7edd\u65f6\u505c\u6b62\u4ea4\u63a5\uff1b\u4e0d\u8bc1\u660e\u4e1a\u52a1\u6b63\u786e\u6027"
     },
     {
       "id": "tool-recovery",
       "status": "BOUNDED",
-      "scope": "受控计数原效果查询；不自动继续工作流、补偿或重派普通业务工具"
+      "scope": "\u53d7\u63a7\u8ba1\u6570\u539f\u6548\u679c\u67e5\u8be2\uff1b\u4e0d\u81ea\u52a8\u7ee7\u7eed\u5de5\u4f5c\u6d41\u3001\u8865\u507f\u6216\u91cd\u6d3e\u666e\u901a\u4e1a\u52a1\u5de5\u5177"
     },
     {
       "id": "project-isolation",
       "status": "BOUNDED",
-      "scope": "每项目独立部署/数据库绑定、精确JWT项目声明、原生/AX/构建范围拒绝与专属镜像仓库；同库行级多租户未实现，现有PoC保持共享范围，项目原生RBAC/网络/业务及生产验收仍需独立完成"
+      "scope": "\u6bcf\u9879\u76ee\u72ec\u7acb\u90e8\u7f72/\u6570\u636e\u5e93\u7ed1\u5b9a\u3001\u7cbe\u786eJWT\u9879\u76ee\u58f0\u660e\u3001\u539f\u751f/AX/\u6784\u5efa\u8303\u56f4\u62d2\u7edd\u4e0e\u4e13\u5c5e\u955c\u50cf\u4ed3\u5e93\uff1b\u540c\u5e93\u884c\u7ea7\u591a\u79df\u6237\u672a\u5b9e\u73b0\uff0c\u73b0\u6709PoC\u4fdd\u6301\u5171\u4eab\u8303\u56f4\uff0c\u9879\u76ee\u539f\u751fRBAC/\u7f51\u7edc/\u4e1a\u52a1\u53ca\u751f\u4ea7\u9a8c\u6536\u4ecd\u9700\u72ec\u7acb\u5b8c\u6210"
     },
     {
       "id": "production-operations",
       "status": "NOT_VERIFIED",
-      "scope": "跨集群灾备、生产认证 HA/TLS、容量及长稳验收尚未完成"
+      "scope": "\u8de8\u96c6\u7fa4\u707e\u5907\u3001\u751f\u4ea7\u8ba4\u8bc1 HA/TLS\u3001\u5bb9\u91cf\u53ca\u957f\u7a33\u9a8c\u6536\u5c1a\u672a\u5b8c\u6210"
     },
     {
       "id": "ephemeral-execution-observation",
       "status": "BOUNDED",
-      "scope": "两个固定框架模板中的同进程逻辑子Agent、临时工具、生成代码字节摘要和同流消费者绑定；不保存源码正文，不含跨实例委派或任意模型代码执行"
+      "scope": "\u4e24\u4e2a\u56fa\u5b9a\u6846\u67b6\u6a21\u677f\u4e2d\u7684\u540c\u8fdb\u7a0b\u903b\u8f91\u5b50Agent\u3001\u4e34\u65f6\u5de5\u5177\u3001\u751f\u6210\u4ee3\u7801\u5b57\u8282\u6458\u8981\u548c\u540c\u6d41\u6d88\u8d39\u8005\u7ed1\u5b9a\uff1b\u4e0d\u4fdd\u5b58\u6e90\u7801\u6b63\u6587\uff0c\u4e0d\u542b\u8de8\u5b9e\u4f8b\u59d4\u6d3e\u6216\u4efb\u610f\u6a21\u578b\u4ee3\u7801\u6267\u884c"
     },
     {
       "id": "deployment-content-permission",
       "status": "BOUNDED",
-      "scope": "部署通用响应只含白名单元数据；systemPrompt按Agent和版本经VIEW_CONTENT专用接口读取；历史配置存储不变，不代表项目隔离"
+      "scope": "\u90e8\u7f72\u901a\u7528\u54cd\u5e94\u53ea\u542b\u767d\u540d\u5355\u5143\u6570\u636e\uff1bsystemPrompt\u6309Agent\u548c\u7248\u672c\u7ecfVIEW_CONTENT\u4e13\u7528\u63a5\u53e3\u8bfb\u53d6\uff1b\u5386\u53f2\u914d\u7f6e\u5b58\u50a8\u4e0d\u53d8\uff0c\u4e0d\u4ee3\u8868\u9879\u76ee\u9694\u79bb"
     },
     {
       "id": "identity-sleep-restoration",
       "status": "BOUNDED",
-      "scope": "身份配送后仅对明确ABORTED占用拒绝最多4次原实例休眠；复核UID/模板和实际终态；创建重放不把RUNNING报告为SUSPENDED，不重发身份或业务"
+      "scope": "\u8eab\u4efd\u914d\u9001\u540e\u4ec5\u5bf9\u660e\u786eABORTED\u5360\u7528\u62d2\u7edd\u6700\u591a4\u6b21\u539f\u5b9e\u4f8b\u4f11\u7720\uff1b\u590d\u6838UID/\u6a21\u677f\u548c\u5b9e\u9645\u7ec8\u6001\uff1b\u521b\u5efa\u91cd\u653e\u4e0d\u628aRUNNING\u62a5\u544a\u4e3aSUSPENDED\uff0c\u4e0d\u91cd\u53d1\u8eab\u4efd\u6216\u4e1a\u52a1"
     },
     {
       "id": "workflow-stop",
       "status": "BOUNDED",
-      "scope": "新工作流及团队计划的持久停止请求；排队即停、运行中在当前步骤结束后停止后续调度；保留回执/效果/预算和UNKNOWN；不提供强制中断、自动恢复或通用业务补偿"
+      "scope": "\u65b0\u5de5\u4f5c\u6d41\u53ca\u56e2\u961f\u8ba1\u5212\u7684\u6301\u4e45\u505c\u6b62\u8bf7\u6c42\uff1b\u6392\u961f\u5373\u505c\u3001\u8fd0\u884c\u4e2d\u5728\u5f53\u524d\u6b65\u9aa4\u7ed3\u675f\u540e\u505c\u6b62\u540e\u7eed\u8c03\u5ea6\uff1b\u4fdd\u7559\u56de\u6267/\u6548\u679c/\u9884\u7b97\u548cUNKNOWN\uff1b\u4e0d\u63d0\u4f9b\u5f3a\u5236\u4e2d\u65ad\u3001\u81ea\u52a8\u6062\u590d\u6216\u901a\u7528\u4e1a\u52a1\u8865\u507f"
     },
     {
       "id": "execution-links",
       "status": "BOUNDED",
-      "scope": "Optional explicit two-runtime DELEGATE/CODE_HANDOFF observation, immutable outbox and read-only console; separate fixed LangGraph/AutoGen IMAGE sample verified through EAP creation, scheduling, confirmation after child exit and reclaim; no execution grant or general source archive; default framework templates not automatically integrated"
+      "scope": "Explicit two-runtime DELEGATE/CODE_HANDOFF observation and immutable outbox; default LangGraph/AutoGen TEMPLATE runtimes support the fixed public-code handoff through EAP_CODE_HANDOFF_V1; independent IMAGE sample remains compatible; no automatic arbitrary-framework inference, execution grant or general source archive"
+    },
+    {
+      "id": "orchestration-editing",
+      "status": "BOUNDED",
+      "scope": "\u56e2\u961f\u548c\u6210\u5458\u7ef4\u62a4\u3001\u672a\u6267\u884c\u8ba1\u5212\u53ca\u6b65\u9aa4\u7f16\u8f91/\u6392\u5e8f/\u5220\u9664\u3001\u590d\u5236\u4e0e\u7248\u672c\u51b2\u7a81\u68c0\u67e5\uff1b\u5df2\u63d0\u4ea4\u8ba1\u5212\u51bb\u7ed3\uff0c\u526f\u672c\u6e05\u7a7a\u5206\u914d\u548c\u6267\u884c\u5386\u53f2\uff1b\u4e0d\u5305\u542b\u5e76\u884c\u8ba1\u5212\u6216\u901a\u7528\u6062\u590d\u8865\u507f"
     }
   ]
 }
