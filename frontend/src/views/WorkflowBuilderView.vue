@@ -123,6 +123,13 @@
               <el-select :model-value="nodeBackend" @change="setNodeBackend"><el-option label="常规执行" value="RUNTIME" /><el-option label="隔离沙箱" value="AX" :disabled="nodeHasTool" /></el-select>
               <small v-if="nodeBackend === 'AX'">隔离沙箱默认执行模型任务，完成后自动休眠；可通过 inputFrom 接收上游结果。</small>
             </el-form-item>
+            <el-form-item v-if="['AGENT','ARTIFACT'].includes(selectedNode.nodeType)" label="接收上游结果">
+              <el-select :model-value="inputSources" multiple clearable filterable aria-label="接收上游结果" :disabled="!canEditInputSources" placeholder="选择要接收的上游节点" @change="setInputSources">
+                <el-option v-for="source in upstreamOptions" :key="source.nodeKey" :label="`${source.label} · ${source.nodeKey}`" :value="source.nodeKey" />
+              </el-select>
+              <small>连线只决定顺序；选择后才会传递结果。所选节点须位于实际执行路径并返回非空结果；保存节点后生效。</small>
+              <small v-if="invalidInputSources">现有 inputFrom 配置无效或引用未连接的节点，请在高级配置中修正。</small>
+            </el-form-item>
             <WorkflowTaskConfig v-if="['AGENT','ARTIFACT'].includes(selectedNode.nodeType)" :key="`${selectedWorkflowId}:${selectedNode.nodeKey}`"
               :model-value="selectedNode.configJson" :node-type="selectedNode.nodeType" :agent-id="selectedNode.agentId"
               :disabled="!permissions.can('runWorkflows')" @update:model-value="setNodeConfig" />
@@ -221,6 +228,39 @@ const savedNodeConfigs = ref<Record<string, string | undefined>>({})
 const hasUnsavedConfig = computed(() => nodes.value.some(node => node.configJson !== savedNodeConfigs.value[node.nodeKey]))
 const nodeConfigError = computed(() => nodes.value.map(node => toolConfigError(node.configJson, node.nodeType, node.agentId) || outputContractError(node.configJson, node.nodeType, node.agentId) || observationContractError(node.configJson, node.nodeType, node.agentId)).find(Boolean) || '')
 const nodeHasTool = computed(() => { try { return Object.hasOwn(JSON.parse(selectedNode.value?.configJson || '{}'), 'eapTool') } catch { return false } })
+const inputSourceConfig = computed(() => {
+  try {
+    const config = JSON.parse(selectedNode.value?.configJson || '{}')
+    if (!config || Array.isArray(config) || typeof config !== 'object') return null
+    return config
+  } catch { return null }
+})
+const upstreamOptions = computed(() => {
+  const target = selectedNode.value?.nodeKey
+  if (!target) return []
+  const seen = new Set([target]), queue = [target]
+  while (queue.length) {
+    const current = queue.shift()
+    for (const edge of edges.value) if (edge.targetNodeKey === current && !seen.has(edge.sourceNodeKey)) {
+      seen.add(edge.sourceNodeKey); queue.push(edge.sourceNodeKey)
+    }
+  }
+  return nodes.value.filter(node => node.nodeKey !== target && seen.has(node.nodeKey) && ['AGENT', 'ARTIFACT'].includes(node.nodeType))
+})
+const inputSources = computed<string[]>(() => Array.isArray(inputSourceConfig.value?.inputFrom) ? inputSourceConfig.value.inputFrom.filter((v: unknown): v is string => typeof v === 'string') : [])
+const invalidInputSources = computed(() => {
+  const value = inputSourceConfig.value?.inputFrom
+  if (value === undefined) return false
+  return !Array.isArray(value) || value.some(v => typeof v !== 'string' || !upstreamOptions.value.some(node => node.nodeKey === v)) || new Set(value).size !== value.length
+})
+const canEditInputSources = computed(() => permissions.can('runWorkflows') && !!inputSourceConfig.value && !invalidInputSources.value)
+function setInputSources(value: string[]) {
+  if (!canEditInputSources.value || !selectedNode.value || !Array.isArray(value) || value.some(v => !upstreamOptions.value.some(node => node.nodeKey === v))) return
+  const config = { ...inputSourceConfig.value }
+  if (value.length) config.inputFrom = value
+  else delete config.inputFrom
+  setNodeConfig(JSON.stringify(config, null, 2))
+}
 function nodeToolLabel(node: WorkflowNode) {
   try { return JSON.parse(node.configJson || '{}').eapTool?.name === 'calculate_sum' ? '工具 · 求和计算' : '' } catch { return '' }
 }
