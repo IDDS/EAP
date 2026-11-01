@@ -21,6 +21,11 @@
 
     <el-alert v-if="activeSection!=='budget'&&summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
     <p v-if="activeSection!=='budget'" class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
+    <el-alert v-if="activeSection === 'overview' || activeSection === 'attribution'" type="info" :closable="false" show-icon title="投入仅包含已采集的模型费用，可能包含估算或缺失；人工、基础设施等成本未计入。净收益和投入产出比仅反映这一口径，需结合完整成本核实。" />
+    <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">
+      费用来源（当前时间窗口、全部币种）：<template v-if="summary.costCoverage">调用方提供 {{ summary.costCoverage.reported }} 次；网关估算 {{ summary.costCoverage.estimated }} 次；未提供 {{ summary.costCoverage.missing }} 次；来源未知 {{ summary.costCoverage.unknown }} 次。来源标记不代表账单已核对。</template><template v-else>当前服务尚未提供来源统计。</template>
+    </p>
+    <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">当前时间窗口内任一币种的模型费用为网关估算、未提供或来源未知时，汇总净收益和投入产出比不计算；单个智能体按其全部币种的记录分别判断。</p>
 
     <div v-show="activeSection === 'overview'" class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
@@ -32,14 +37,14 @@
         <span class="analysis-eyebrow">价值信号</span>
         <strong>{{ roiLabel }}</strong>
         <span>投入产出比 · {{ summary.hasValidatedValue ? '业务方已确认' : '等待业务方确认' }}</span>
-        <div class="management-value-meta"><span>净收益 <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>确认价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
+        <div class="management-value-meta"><span>净收益（模型口径） <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>确认价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
       </div>
     </div>
 
     <div v-show="activeSection === 'overview'" class="management-flow-strip">
       <div class="management-flow-step">
         <span class="management-flow-index">01</span>
-        <div><span>投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
+        <div><span>模型投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
       </div>
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
@@ -160,7 +165,7 @@
       <div><span>任务数</span><strong>{{ formatNumber(summary.totalTasks) }}</strong></div>
       <div><span>模型调用</span><strong>{{ formatNumber(summary.totalModelCalls) }}</strong></div>
       <div><span>总 Token</span><strong>{{ formatNumber(summary.totalTokens) }}</strong></div>
-      <div><span>净收益</span><strong>{{ formatMoney(summary.netBenefit) }}</strong></div>
+      <div><span>净收益（模型口径）</span><strong>{{ formatMoney(summary.netBenefit) }}</strong></div>
       <div><span>知识采用率</span><strong>{{ adoptionPercent }}%</strong></div>
       <div><span>知识复用率</span><strong>{{ reusePercent }}%</strong></div>
       <div><span>已测量改进</span><strong>{{ formatNumber(summary.measuredImpactEvents) }}</strong></div>
@@ -220,7 +225,7 @@
         <div v-for="(row, index) in topAgentUsage" :key="row.subjectKey" class="management-leader-row">
           <span class="management-rank">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="management-leader-name"><strong>{{ row.subjectName }}</strong><span>{{ row.subjectKey }}</span></div>
-          <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue != null && row.validatedValue > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</strong></div>
+          <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue != null && row.validatedValue > 0 && row.totalCost != null && row.totalCost > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</strong></div>
           <div class="management-leader-metric"><span>确认价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
           <div class="management-leader-bars">
             <div><span>采用 {{ Math.round(row.knowledgeAdoptionRate * 100) }}%</span><i><b :style="{ width: `${Math.round(row.knowledgeAdoptionRate * 100)}%` }"></b></i></div>
@@ -252,7 +257,7 @@
           <el-table-column label="调用 / Token" width="128">
             <template #default="{ row }">{{ row.modelCalls }} / {{ formatNumber(row.totalTokens) }}</template>
           </el-table-column>
-          <el-table-column label="投入" width="92">
+          <el-table-column label="模型投入" width="92">
             <template #default="{ row }">{{ formatMoney(row.totalCost) }}</template>
           </el-table-column>
           <el-table-column label="确认价值" width="105">
@@ -265,7 +270,7 @@
             </template>
           </el-table-column>
           <el-table-column label="投入产出比" width="85">
-            <template #default="{ row }">{{ row.validatedValue != null && row.validatedValue > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</template>
+            <template #default="{ row }">{{ row.validatedValue != null && row.validatedValue > 0 && row.totalCost != null && row.totalCost > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</template>
           </el-table-column>
           <el-table-column label="采用 / 复用" width="112">
             <template #default="{ row }">{{ Math.round(row.knowledgeAdoptionRate * 100) }}% / {{ Math.round(row.knowledgeReuseRate * 100) }}%</template>
@@ -801,7 +806,7 @@ const reusePercent = computed(() => Math.round(summary.value.knowledgeReuseRate 
 function improvementPercent(value: number) {
   return `${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`
 }
-const roiLabel = computed(() => summary.value.hasValidatedValue && summary.value.roi != null ? summary.value.roi.toFixed(4) : '—')
+const roiLabel = computed(() => summary.value.hasValidatedValue && summary.value.totalCost != null && summary.value.totalCost > 0 && summary.value.roi != null ? summary.value.roi.toFixed(4) : '—')
 const visibleAgentUsage = computed(() => summary.value.agentUsage.filter(subject => {
   if (contextAgentId.value && subject.agentId !== contextAgentId.value) return false
   if (contextEndpointKey.value && subject.endpointKey !== contextEndpointKey.value) return false
@@ -853,14 +858,17 @@ type DecisionSignal = { key: DecisionKey, label: string, reason: string, descrip
 
 function decisionFor(row: ManagementSummary['agentUsage'][number]): { key: DecisionKey, label: string, reason: string } {
   const successRate = row.tasks > 0 ? row.succeededTasks / row.tasks : undefined
-  if (row.validatedValue == null || row.totalCost == null || row.roi == null) {
+  if (row.validatedValue == null || row.totalCost == null) {
     return { key: 'OBSERVE', label: '选择币种', reason: '多币种金额不可直接比较' }
   }
+  if (row.totalCost === 0 || row.roi == null) {
+    return { key: 'OBSERVE', label: '待核实', reason: row.totalCost === 0 ? '模型费用为零或缺失' : '投入产出不可计算' }
+  }
   if (row.validatedValue > 0 && row.totalCost > 0 && row.roi > 0 && (successRate === undefined || successRate >= 0.8)) {
-    return { key: 'SCALE', label: '扩大投入', reason: '价值为正' }
+    return { key: 'SCALE', label: '关注潜力', reason: '登记价值高于模型费用' }
   }
   if ((successRate !== undefined && successRate < 0.8) || (row.validatedValue > 0 && row.roi <= 0)) {
-    return { key: 'OPTIMIZE', label: '优先优化', reason: successRate !== undefined && successRate < 0.8 ? '成功率偏低' : '投入未覆盖价值' }
+    return { key: 'OPTIMIZE', label: '优先优化', reason: successRate !== undefined && successRate < 0.8 ? '成功率偏低' : '登记价值未覆盖模型费用' }
   }
   if (row.modelCalls > 0 || row.tasks > 0 || row.knowledgeInteractions > 0) {
     return { key: 'VALIDATE', label: '补充确认', reason: '尚无确认价值' }
@@ -870,7 +878,7 @@ function decisionFor(row: ManagementSummary['agentUsage'][number]): { key: Decis
 
 const decisionSummary = computed<DecisionSignal[]>(() => {
   const definitions: Array<[DecisionKey, string, string]> = [
-    ['SCALE', '扩大投入', '已确认价值覆盖投入且运行稳定'],
+    ['SCALE', '关注潜力', '登记价值高于模型费用，仍需核实完整成本'],
     ['OPTIMIZE', '优先优化', '成功率或投入产出仍需改善'],
     ['VALIDATE', '补充确认', '已有运行数据，但尚无业务价值确认'],
     ['OBSERVE', '持续观察', '当前窗口运行证据不足'],

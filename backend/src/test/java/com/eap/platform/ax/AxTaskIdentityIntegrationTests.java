@@ -53,7 +53,7 @@ class AxTaskIdentityIntegrationTests {
   props.setEnabled(true);props.setInventoryAtespaces("eap-ax");props.setGatewayUrl("http://127.0.0.1");props.setGatewayHost("127.0.0.1");
   ax.setInstanceIdentityEnabled(true);ax.setEnabled(true);ax.setRunnerImage("localhost:5001/task@sha256:"+"a".repeat(64));ax.setLegacyRunnerImage("localhost:5001/task@sha256:"+"b".repeat(64));
   var a=new Agent();a.setCode("TASK-IDENTITY-"+UUID.randomUUID());a.setName("Task identity test");a.setOwnerDepartment("test");a.setOwnerUser("test");a.setCategory("test");a.setLifecycleStatus(AgentLifecycleStatus.ACTIVE);a.setRiskLevel(RiskLevel.LOW);agent=agents.save(a).getId();
-  when(safety.evaluate(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,new SafetyDtos.DecisionResponse(1L,1L,"test",SafetyDecision.ALLOW,null,null,"test",null,null,null)));
+  when(safety.evaluateTaskMetadata(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,new SafetyDtos.DecisionResponse(1L,1L,"test",SafetyDecision.ALLOW,null,null,"test",null,null,null)));
   when(client.ensure(anyString(),anyString(),anyMap())).thenAnswer(i->{var t=task(i.getArgument(0));return state(t,true);});
   when(client.get(anyString())).thenAnswer(i->state(task(i.getArgument(0)),false));
   when(nativeClient.inspect(any())).thenAnswer(i->{SubstrateActorRef ref=i.getArgument(0);var t=task(ref.name());return new SubstrateClient.ActorInventory(ref.atespace(),ref.name(),uid(t),template(t),"RUNNING");});

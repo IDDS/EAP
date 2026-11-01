@@ -218,6 +218,12 @@ public class WorkflowTaskClient {
             if (!status.equals("SUCCEEDED") && !status.equals("FAILED")) {
                 return new Receipt("EXECUTION_UNKNOWN", "Runtime 未提供明确任务终态", httpStatus);
             }
+            // A runtime-reported task failure is not proof that an external tool had no effect.
+            // Preserve responsibility for the original operation; independent recovery may
+            // establish its effect later, but this response alone cannot release that risk.
+            if (isTool(payload) && status.equals("FAILED")) {
+                return new Receipt("EXECUTION_UNKNOWN", "工具任务报告失败，但原工具效果未确认；请核对原操作，未自动重试", httpStatus);
+            }
             if (isTool(payload) && status.equals("SUCCEEDED") && (!result.path("tool").path("executed").isBoolean()
                     || !result.path("tool").path("executed").booleanValue()
                     || !result.path("tool").path("receiptConfirmed").isBoolean()

@@ -31,6 +31,18 @@ test('management money shows the selected currency and never formats unavailable
   assert.equal(state.formatMoney(12.5), '12.50 EUR')
 })
 
+test('management decisions distinguish an unknown ROI from mixed currencies', () => {
+  const state = functionsFrom(['decisionFor'], {})
+  const row = { tasks: 1, succeededTasks: 1, modelCalls: 1, knowledgeInteractions: 0, validatedValue: 10, totalCost: 0, roi: null }
+  assert.equal(state.decisionFor(row).label, '待核实')
+  assert.match(state.decisionFor(row).reason, /费用为零或缺失/)
+  assert.equal(state.decisionFor({ ...row, roi: 0 }).label, '待核实')
+  assert.match(state.decisionFor({ ...row, totalCost: 5, roi: null }).reason, /投入产出不可计算/)
+  assert.equal(state.decisionFor({ ...row, validatedValue: null, totalCost: null }).label, '选择币种')
+  assert.equal(state.decisionFor({ ...row, totalCost: 5, roi: 1 }).label, '关注潜力')
+  assert.equal(state.decisionFor({ ...row, totalCost: 10, roi: 0 }).key, 'OPTIMIZE')
+})
+
 test('switching financial currency ignores a late response for the previous currency', async () => {
   const usd = deferred(), cny = deferred()
   const state = functionsFrom(['load'], {

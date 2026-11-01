@@ -180,7 +180,7 @@ class PlanExecutionIntegrationTests {
         assertThat(received.get(1).path("context").path("eapPreviousResults").path("step-"+first).path("output").asText()).isEqualTo("result-from-step-"+first);
         assertThat(received.getFirst().path("context").path("eapPlan").path("contextSummary").asText()).isEqualTo("frozen context");
         assertThat(plans.synchronize(plan).execution().steps()).allMatch(s -> s.output() == null);
-        verify(safety).evaluate(argThat(e -> e.agentId() != null && e.agentId().equals(reviewer) && e.payloadJson().contains("review result")));
+        verify(safety).evaluateTaskMetadata(argThat(e -> e.agentId() != null && e.agentId().equals(reviewer) && e.payloadJson().contains("review result")));
         assertThat(plans.submit(plan, request("once"), "operator").execution().runKey()).isEqualTo(queued.execution().runKey());
         executions.processNext(); assertThat(received).hasSize(2);
     }
@@ -336,6 +336,24 @@ class PlanExecutionIntegrationTests {
         executions.processNext();assertThat(received).hasSize(1);
     }
 
+    @Test void planBooleanExpectationStopsUnverifiedOutputAndSkipsNextStep() throws Exception {
+        String definition = """
+            {"version":"EAP_JSON_V2","source":"OUTPUT","schema":{"type":"object","properties":{"verified":{"type":"boolean","const":true}},"required":["verified"],"additionalProperties":false}}
+            """;
+        orchestration.updateOutputContract(first, new OrchestrationDtos.OutputContractRequest(definition));
+        responseOutput = json.readTree("{\"verified\":false}");
+        var queued = plans.submit(plan, request("boolean-rejected"), "operator");
+        executions.processNext();
+        var result = plans.synchronize(plan);
+        assertThat(result.execution().status()).isEqualTo("FAILED");
+        var checked = result.execution().steps().stream().filter(v -> v.nodeKey().equals("step-" + first)).findFirst().orElseThrow();
+        assertThat(checked.status()).isEqualTo("SUCCEEDED");
+        assertThat(checked.resultValidation().code()).isEqualTo("CONST_MISMATCH");
+        assertThat(stepRepository.findByPlanIdOrderByStepOrder(plan)).extracting(v -> v.status).containsExactly(StepStatus.FAILED, StepStatus.SKIPPED);
+        assertThat(executions.outputs(queued.workflowId(), queued.execution().runKey()).get("step-" + first)).isEqualTo(responseOutput);
+        assertThat(received).hasSize(1);
+    }
+
     @Test void planContractNeverReclassifiesUnknownAsValidationFailure() throws Exception {
         orchestration.updateOutputContract(first,new OrchestrationDtos.OutputContractRequest(RESULT_DEFINITION));
         reply="RUNNING";responseOutput=json.getNodeFactory().textNode("{\"summary\":\"unconfirmed\"}");
@@ -477,7 +495,7 @@ class PlanExecutionIntegrationTests {
     }
 
     void allow(SafetyDecision decision) {
-        when(safety.evaluate(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
+        when(safety.evaluateTaskMetadata(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
             new SafetyDtos.DecisionResponse(1L,1L,"test",decision,null,null,"test",null,null,null)));
     }
 }

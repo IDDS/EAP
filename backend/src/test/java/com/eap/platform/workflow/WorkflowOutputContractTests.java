@@ -56,6 +56,24 @@ class WorkflowOutputContractTests {
         assertThat(WorkflowOutputContract.check(contract("OUTPUT"),"SUCCEEDED",JSON.getNodeFactory().textNode("{}")) .validation().code()).isEqualTo("TYPE_MISMATCH");
         assertThat(WorkflowOutputContract.check(contract("OUTPUT"),"SUCCEEDED",null).validation().code()).isEqualTo("OUTPUT_MISSING");
     }
+    @Test void v2BooleanExpectationRejectsOppositeValueWithoutExposingIt() throws Exception {
+        String schema = """
+            {"type":"object","properties":{"verified":{"type":"boolean","const":true}},"required":["verified"],"additionalProperties":false}
+            """;
+        String v1 = config("OUTPUT", schema);
+        assertThatThrownBy(() -> WorkflowOutputContract.read(v1, "AGENT", 1L)).isInstanceOf(BusinessException.class);
+        var contract = WorkflowOutputContract.read(v1.replace("EAP_JSON_V1", "EAP_JSON_V2"), "AGENT", 1L);
+        assertThat(WorkflowOutputContract.check(contract, "SUCCEEDED", JSON.readTree("{\"verified\":true}")).validation().status()).isEqualTo("PASSED");
+        var rejected = WorkflowOutputContract.check(contract, "SUCCEEDED", JSON.readTree("{\"verified\":false}"));
+        assertThat(rejected.validation().contract()).isEqualTo("EAP_JSON_V2");
+        assertThat(rejected.validation().code()).isEqualTo("CONST_MISMATCH");
+        assertThat(rejected.accepted()).isNull();
+        assertThat(JSON.writeValueAsString(rejected.validation())).doesNotContain("verified", "false");
+        assertThat(WorkflowOutputContract.check(contract, "SUCCEEDED", JSON.readTree("{}")).validation().code()).isEqualTo("REQUIRED_MISSING");
+        var opposite = WorkflowOutputContract.read(v1.replace("EAP_JSON_V1", "EAP_JSON_V2").replace("\"const\":true", "\"const\":false"), "AGENT", 1L);
+        assertThat(WorkflowOutputContract.check(opposite, "SUCCEEDED", JSON.readTree("{\"verified\":false}")).validation().status()).isEqualTo("PASSED");
+        assertThatThrownBy(() -> WorkflowOutputContract.read(v1.replace("EAP_JSON_V1", "EAP_JSON_V2").replace("\"const\":true", "\"const\":1"), "AGENT", 1L)).isInstanceOf(BusinessException.class);
+    }
     @Test void validatesNestedObjectsArraysOptionalFieldsAndExplicitNull() throws Exception {
         String s="""
             {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"ok":{"type":"boolean"},"empty":{"type":"null"},"amount":{"type":"number"}},"required":["ok","amount"],"additionalProperties":true}}},"required":["items"],"additionalProperties":false}

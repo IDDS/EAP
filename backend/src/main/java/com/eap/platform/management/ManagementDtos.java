@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import com.eap.platform.telemetry.ModelTelemetryDtos;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -161,7 +162,8 @@ public final class ManagementDtos {
             List<AgentManagementUsage> agentUsage,
             long resolvedTasks,
             long unresolvedTasks,
-            long unconfirmedTasks
+            long unconfirmedTasks,
+            ModelTelemetryDtos.CostCoverage costCoverage
     ) {
     }
 

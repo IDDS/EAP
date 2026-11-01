@@ -42,13 +42,40 @@ test('bounded nested schemas accept primitive and array fields but refuse excess
   delete schema.properties.deep;schema.properties=Object.fromEntries(Array.from({length:64},(_,i)=>['界'.repeat(120)+i,{type:'string'}]));schema.required=[]
   assert.notEqual(api.outputContractError(api.updateOutputSchema(draft(),JSON.stringify(schema)),'AGENT',1),'')
 })
+test('boolean expectations require V2 and survive source changes without silent downgrade',()=>{
+  const v1=draft(), schema={type:'object',properties:{verified:{type:'boolean',const:true}},required:['verified'],additionalProperties:false}
+  const invalid=api.updateOutputSchema(v1,JSON.stringify(schema))
+  assert.notEqual(api.outputContractError(invalid,'AGENT',1),'')
+  const v2=api.setOutputContractVersion(invalid,'EAP_JSON_V2')
+  assert.equal(api.outputContractError(v2,'AGENT',1),'')
+  assert.equal(JSON.parse(api.setOutputContract(v2,'OUTPUT')).eapOutput.version,'EAP_JSON_V2')
+  assert.equal(JSON.parse(api.planOutputValue(v2)).version,'EAP_JSON_V2')
+  assert.notEqual(api.outputContractError(api.setOutputContractVersion(v2,'EAP_JSON_V1'),'AGENT',1),'')
+  schema.properties.verified.const='true'
+  assert.notEqual(api.outputContractError(api.updateOutputSchema(v2,JSON.stringify(schema)),'AGENT',1),'')
+})
+test('adding an acceptance field preserves existing configuration and rejects unsafe edits',()=>{
+  const v2=api.setOutputContractVersion(draft(),'EAP_JSON_V2')
+  const updated=api.addRequiredBooleanExpectation(v2,' verified ',true)
+  const original=JSON.parse(v2), result=JSON.parse(updated)
+  assert.deepEqual(result.inputFrom,original.inputFrom)
+  assert.deepEqual(result.eapTool,original.eapTool)
+  assert.deepEqual(result.eapOutput.schema.properties.summary,{type:'string'})
+  assert.deepEqual(result.eapOutput.schema.properties.verified,{type:'boolean',const:true})
+  assert.deepEqual(result.eapOutput.schema.required,['summary','verified'])
+  assert.equal(api.outputContractError(updated,'AGENT',1),'')
+  assert.throws(()=>api.addRequiredBooleanExpectation(updated,'verified',false),/已存在/)
+  for(const name of ['', '__proto__', 'constructor', 'bad\u0001name']) assert.throws(()=>api.addRequiredBooleanExpectation(v2,name,true))
+  assert.throws(()=>api.addRequiredBooleanExpectation(draft(),'verified',true),/V2/)
+  assert.throws(()=>api.addRequiredBooleanExpectation(api.updateOutputSchema(v2,'{bad'),'verified',true),/修正/)
+})
 const component=readFileSync(new URL('../src/components/workflow/WorkflowOutputConfig.vue',import.meta.url),'utf8')
 const script=ts.transpile(component.split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,''),{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None})
 function mount(t){
   const props=Vue.reactive({modelValue:'{}',nodeType:'AGENT',agentId:1,disabled:false}),emitted=[],errors=[]
   const args={...api,computed:Vue.computed,ref:Vue.ref,watch:Vue.watch,defineProps:()=>props,defineEmits:()=>((event,value)=>{emitted.push(value);props.modelValue=value}),ElMessage:{error:e=>errors.push(e)}}
   const effect=Vue.effectScope();let state
-  effect.run(()=>state=new Function(...Object.keys(args),script+';return {changeSource,changeSchema,schemaText,error}')( ...Object.values(args)))
+  effect.run(()=>state=new Function(...Object.keys(args),script+';return {changeSource,changeVersion,changeSchema,addAcceptanceField,acceptanceField,acceptanceExpected,schemaText,error}')( ...Object.values(args)))
   t.after(()=>effect.stop());return{...state,props,emitted,errors}
 }
 test('editing and clearing the form works while permission revocation blocks subsequent writes',async t=>{
@@ -62,6 +89,19 @@ test('switching nodes replaces the schema draft and refuses edits to malformed a
   assert.equal(s.schemaText.value,'{ broken')
   s.props.modelValue='{bad';await Vue.nextTick();const count=s.emitted.length;s.changeSchema('{}');assert.equal(s.emitted.length,count);assert.ok(s.errors.length)
 })
+test('contract version selection preserves the draft and honors read-only access',async t=>{
+  const s=mount(t);s.changeSource('JSON_TEXT');s.changeVersion('EAP_JSON_V2');await Vue.nextTick()
+  assert.equal(JSON.parse(s.props.modelValue).eapOutput.version,'EAP_JSON_V2')
+  s.props.disabled=true;const count=s.emitted.length;s.changeVersion('EAP_JSON_V1');assert.equal(s.emitted.length,count)
+})
+test('acceptance form adds a required field and clears drafts on node changes',async t=>{
+  const s=mount(t);s.changeSource('JSON_TEXT');s.changeVersion('EAP_JSON_V2');await Vue.nextTick()
+  s.acceptanceField.value='verified';s.addAcceptanceField();await Vue.nextTick()
+  assert.deepEqual(JSON.parse(s.props.modelValue).eapOutput.schema.properties.verified,{type:'boolean',const:true})
+  assert.equal(s.acceptanceField.value,'')
+  s.acceptanceField.value='other';s.props.disabled=true;const count=s.emitted.length;s.addAcceptanceField();assert.equal(s.emitted.length,count)
+  s.props.modelValue=draft();await Vue.nextTick();assert.equal(s.acceptanceField.value,'')
+})
 test('timeline distinguishes successful receipt, rejected result, unknown and legacy lack of validation',()=>{
   const template=readFileSync(new URL('../src/components/workflow/ExecutionTimeline.vue',import.meta.url),'utf8')
   const code=ts.transpile(template.split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*$/gm,''),{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None})
@@ -69,9 +109,10 @@ test('timeline distinguishes successful receipt, rejected result, unknown and le
   assert.equal(labels.label('SUCCEEDED'),'已确认完成')
   assert.match(labels.validationLabel('REJECTED'),/停止后续交接/)
   assert.match(labels.validationLabel('NOT_EVALUATED'),/未确认成功/)
-  assert.equal(labels.validationLabel(undefined),'未记录结构验收')
-  assert.equal(labels.validationLabel('FORGED_SUCCESS'),'未记录结构验收')
+  assert.equal(labels.validationLabel(undefined),'未记录结果验收')
+  assert.equal(labels.validationLabel('FORGED_SUCCESS'),'未记录结果验收')
   assert.match(labels.validationReason('INVALID_JSON'),/无歧义/)
+  assert.match(labels.validationReason('CONST_MISMATCH'),/预期不符/)
 })
 
 test('plan definitions reuse structure validation without bypassing workflow agent requirements',()=>{

@@ -59,7 +59,7 @@ class WorkflowStopIntegrationTests {
     String runKey;
     final AtomicInteger calls = new AtomicInteger();
     @BeforeEach void prepare() {
-        when(safety.evaluate(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
+        when(safety.evaluateTaskMetadata(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
                 new SafetyDtos.DecisionResponse(1L, 1L, "test", SafetyDecision.ALLOW, null, null, "test", null, null, null)));
         var a = new Agent(); a.setCode("STOP-" + UUID.randomUUID()); a.setName("stop contract");
         a.setOwnerDepartment("test"); a.setOwnerUser("test"); a.setCategory("test");

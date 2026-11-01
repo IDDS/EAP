@@ -99,4 +99,29 @@ class SafetyAssociationIntegrationTests {
         assertThat(event.payloadSummary).isEqualTo("运行实例工具执行检查；参数不保存");
         assertThat(event.target).isEqualTo("tool://write");
     }
+
+    @Test void taskEvaluationChecksFullInputWithoutPersistingItsContents() throws Exception {
+        String payload = "{\"upstream\":\"synthetic secret marker\"}";
+        var request = new SafetyDtos.SafetyEventRequest("association-A", null, null, SafetyEventType.AGENT_MESSAGE,
+                "invoke_agent", "runtime://fixture", "synthetic sensitive summary", payload);
+
+        var evaluated = service.evaluateTaskMetadata(request);
+
+        assertThat(evaluated.decision().decision()).isEqualTo(SafetyDecision.DENY);
+        em.flush(); em.clear();
+        var event = events.findById(evaluated.event().id()).orElseThrow();
+        assertThat(event.payloadJson).isNull();
+        assertThat(event.payloadSummary).isEqualTo("任务执行治理检查；内容不保存");
+        assertThat(event.target).isEqualTo("runtime://fixture");
+        assertThat(mapper.writeValueAsString(service.listEvents("association-A"))).doesNotContain("synthetic secret marker", "synthetic sensitive summary");
+    }
+
+    @Test void taskEvaluationAllowsOrdinaryInputWithoutPersistingItsContents() {
+        var request = new SafetyDtos.SafetyEventRequest("association-A", null, null, SafetyEventType.AGENT_MESSAGE,
+                "invoke_agent", "runtime://fixture", "synthetic summary", "{\"upstream\":\"ordinary fixture\"}");
+        var evaluated = service.evaluateTaskMetadata(request);
+        assertThat(evaluated.decision().decision()).isEqualTo(SafetyDecision.ALLOW);
+        em.flush(); em.clear();
+        assertThat(events.findById(evaluated.event().id()).orElseThrow().payloadJson).isNull();
+    }
 }

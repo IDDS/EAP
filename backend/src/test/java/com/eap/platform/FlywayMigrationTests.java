@@ -8,6 +8,19 @@ import java.sql.DriverManager;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class FlywayMigrationTests {
+    @Test void modelCostProvenanceMigrationDoesNotInferHistoricalCosts() throws Exception {
+        String url = "jdbc:h2:mem:cost_provenance_" + java.util.UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("96").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            q.executeUpdate("insert into model_invocation_events(event_key,provider,model_name,status,input_tokens,output_tokens,cached_input_tokens,reasoning_tokens,latency_ms,money_cost,currency,tool_call_count,mcp_server_count,observed_at,created_at) values('legacy-cost','fixture','model','SUCCEEDED',0,0,0,0,0,0,'USD',0,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        }
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement(); var r = q.executeQuery("select money_cost,cost_provenance from model_invocation_events where event_key='legacy-cost'")) {
+            assertThat(r.next()).isTrue();
+            assertThat(r.getBigDecimal(1)).isEqualByComparingTo("0");
+            assertThat(r.getString(2)).isNull();
+        }
+    }
     @Test void planContractMigrationLeavesHistoricalPlansUnconfiguredAndUnchanged() throws Exception {
         String url="jdbc:h2:mem:plan_contract_"+java.util.UUID.randomUUID()+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway.configure().dataSource(url,"sa","").locations("classpath:db/migration").target("88").load().migrate();
@@ -278,7 +291,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(96);
+        assertThat(result.migrationsExecuted).isEqualTo(97);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

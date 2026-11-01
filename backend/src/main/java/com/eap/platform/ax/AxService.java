@@ -90,7 +90,7 @@ public class AxService {
    if(!t.deadlineAt.isAfter(t.createdAt))throw new BusinessException("工作流期限已到，未创建 AX 任务");
    t.workflowId=workflowId;t.workflowRunKey=runKey;t.workflowNodeKey=nodeKey;
    safety.createSession(new SafetyDtos.SessionRequest(t.taskKey,t.agentId,"AX 任务执行"));
-   var decision=safety.evaluate(new SafetyDtos.SafetyEventRequest(t.taskKey,t.agentId,null,SafetyEventType.AGENT_MESSAGE,
+   var decision=safety.evaluateTaskMetadata(new SafetyDtos.SafetyEventRequest(t.taskKey,t.agentId,null,SafetyEventType.AGENT_MESSAGE,
      "invoke_agent","ax://"+scope(t)+"/"+t.taskKey,"AX 执行预检",t.payloadJson)).decision().decision();
    if(decision!=SafetyDecision.ALLOW){t.status=decision==SafetyDecision.DENY?"BLOCKED":"WAITING_APPROVAL";t.reason="治理策略未允许派发";t.suspended=true;}
    tasks.saveAndFlush(t);coverage.enrollAx(t.id,rawTrace,request.mode());audit(t,"SUBMIT_AX_TASK",t.status);return view(t);

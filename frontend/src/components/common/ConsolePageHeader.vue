@@ -19,10 +19,10 @@ const heading = computed(() => pageHeadingForPath(route.path, route.query))
 </template>
 
 <style scoped>
-.console-page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px 24px; min-width: 0; padding: 8px 0 20px; border-bottom: 1px solid var(--console-line); margin: 0; }
+.console-page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px 24px; min-width: 0; padding: 10px 0 22px; border-bottom: 1px solid var(--console-line); margin: 0; }
 .console-header-copy { flex: 1 1 300px; min-width: 0; }
-.console-header-copy h2 { margin: 0 0 8px; color: var(--console-ink); font-size: 24px; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
-.console-header-copy p { margin: 0; color: var(--console-muted); font-size: 13px; line-height: 1.8; max-width: 70ch; }
+.console-header-copy h2 { margin: 0 0 8px; color: var(--console-ink); font-size: 24px; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.console-header-copy p { margin: 0; color: var(--console-muted); font-size: 14px; line-height: 1.7; max-width: 70ch; }
 .console-header-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px; max-width: 58%; min-width: 0; }
 .console-header-actions :deep(> div) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .console-header-actions :deep(.el-button) { margin-left: 0; min-height: var(--console-control-height); }

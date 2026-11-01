@@ -157,7 +157,8 @@ class WorkflowExecutionIntegrationTests {
         assertThat(received.get().path("objective").asText()).isEqualTo("actual task");
         assertThat(json.readTree(received.get().path("configJson").asText()))
                 .isEqualTo(json.readTree("{\"mode\":\"audit\"}"));
-        verify(safety).evaluate(argThat(event -> event.target().equals("http://127.0.0.1:" + server.getAddress().getPort() + "/tasks")));
+        verify(safety).evaluateTaskMetadata(argThat(event -> event.target().equals("http://127.0.0.1:" + server.getAddress().getPort() + "/tasks")));
+        verify(safety).createSession(argThat(session -> session.objective().equals("工作流执行")));
         assertThat(result.completedAt()).isNotNull();
         var profile=scheduling.report().runs().stream().filter(r->r.runKey().equals(queued.runKey())).findFirst().orElseThrow();
         assertThat(profile.phases()).extracting(WorkflowSchedulingService.Phase::kind).containsExactly("PREPARATION","TASK_WAIT");
@@ -286,7 +287,7 @@ class WorkflowExecutionIntegrationTests {
         assertThat(result.steps()).allMatch(step -> step.output() == null);
         assertThat(executions.list(workflowId).getFirst().steps()).allMatch(step -> step.output() == null);
         assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
-        verify(safety).evaluate(argThat(event -> event.payloadJson().contains("handoff-proof")));
+        verify(safety).evaluateTaskMetadata(argThat(event -> event.payloadJson().contains("handoff-proof")));
     }
 
     @Test
@@ -356,7 +357,7 @@ class WorkflowExecutionIntegrationTests {
     void downstreamGovernanceCanDenyActualMergedOutput() {
         output.set(json.getNodeFactory().textNode("restricted-handoff"));
         downstream("{\"inputFrom\":[\"task\"]}");
-        when(safety.evaluate(any())).thenAnswer(invocation -> {
+        when(safety.evaluateTaskMetadata(any())).thenAnswer(invocation -> {
             SafetyDtos.SafetyEventRequest event = invocation.getArgument(0);
             SafetyDecision decision = event.payloadJson().contains("restricted-handoff") ? SafetyDecision.DENY : SafetyDecision.ALLOW;
             return new SafetyDtos.SafetyEvaluationResponse(null,
@@ -604,6 +605,37 @@ class WorkflowExecutionIntegrationTests {
     }
 
     @Test
+    void dispatchedToolFailurePreservesUnknownOccupancyAndStopsDownstream() {
+        configureSubstrateTask();
+        var runtime = runtimes.findByAgentId(agentId).getFirst();
+        org.springframework.test.util.ReflectionTestUtils.setField(runtime, "importedActorUid", "tool-fixture");
+        runtimes.save(runtime);
+        when(connections.executable(any())).thenReturn(true);
+        when(connections.dispatchToken(any())).thenReturn("local-test-secret");
+        when(substrateClient.inspect(any())).thenReturn(new com.eap.platform.substrate.SubstrateClient.ActorInventory("test", "actor", "tool-fixture", "template", "RUNNING"));
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "tool", "AGENT", agentId, null, 0, 0,
+                "{\"suspendAfterTask\":true,\"eapTool\":{\"name\":\"calculate_sum\",\"arguments\":{\"numbers\":[1]}}}"));
+        downstream("{}");
+        reply.set("FAILED");
+        var request = new WorkflowDtos.RunRequest("tool effect unknown", Map.of(), "tool-unknown-" + UUID.randomUUID());
+        try {
+            var queued = executions.submit(workflowId, request, "operator");
+            executions.processNext();
+            var result = executions.get(workflowId, queued.runKey());
+            assertThat(result.status()).isEqualTo("EXECUTION_UNKNOWN");
+            assertThat(result.reason()).contains("原工具效果未确认");
+            assertThat(result.steps()).noneMatch(step -> "end".equals(step.nodeKey()));
+            assertThat(requests.get()).isEqualTo(1);
+            assertThat(db.queryForObject("select count(*) from runtime_work_claims where actor_key=? and state='UNKNOWN'", Long.class,
+                    runtime.getEndpoint().substring(12))).isEqualTo(1);
+            verify(substrateClient, never()).suspend(any());
+            assertThat(executions.submit(workflowId, request, "operator").runKey()).isEqualTo(queued.runKey());
+            executions.processNext();
+            assertThat(requests.get()).isEqualTo(1);
+        } finally { substrateProperties.setEnabled(false); }
+    }
+
+    @Test
     void globalToolsAndSharedCredentialRuntimesCannotQueueNewToolTasks() {
         assertThatThrownBy(() -> executions.submit(workflowId,
                 new WorkflowDtos.RunRequest("invalid", Map.of("eapTool", Map.of("name", "calculate_sum"))), "operator"))
@@ -658,6 +690,33 @@ class WorkflowExecutionIntegrationTests {
         assertThat(executions.outputs(workflowId,queued.runKey()).get("task")).isEqualTo(output.get());
         assertThat(executions.submit(workflowId,new WorkflowDtos.RunRequest("reject result",Map.of(),"contract-once"),"operator").runKey()).isEqualTo(queued.runKey());
         assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
+    void booleanAcceptanceStopsUnverifiedResultAndPreservesOriginalReceipt() throws Exception {
+        String schema = """
+            {"type":"object","properties":{"verified":{"type":"boolean","const":true}},"required":["verified"],"additionalProperties":false}
+            """;
+        String config = WorkflowOutputContractTests.config("OUTPUT", schema).replace("EAP_JSON_V1", "EAP_JSON_V2");
+        workflows.upsertNode(workflowId, new WorkflowDtos.NodeRequest("task", "verification", "AGENT", agentId, null, 0, 0, config));
+        downstream("{\"inputFrom\":[\"task\"]}");
+        output.set(json.readTree("{\"verified\":false}"));
+        var queued = executions.submit(workflowId, new WorkflowDtos.RunRequest("verification failed"), "operator");
+        executions.processNext();
+        var result = executions.get(workflowId, queued.runKey());
+        assertThat(result.status()).isEqualTo("FAILED");
+        assertThat(result.steps().get(1).status()).isEqualTo("SUCCEEDED");
+        assertThat(result.steps().get(1).resultValidation().code()).isEqualTo("CONST_MISMATCH");
+        assertThat(executions.outputs(workflowId, queued.runKey()).get("task")).isEqualTo(output.get());
+        assertThat(requests.get()).isEqualTo(1);
+        executions.processNext();
+        assertThat(requests.get()).isEqualTo(1);
+        output.set(json.readTree("{\"verified\":true}"));
+        var accepted = executions.submit(workflowId, new WorkflowDtos.RunRequest("verification passed"), "operator");
+        executions.processNext();
+        assertThat(executions.get(workflowId, accepted.runKey()).status()).isEqualTo("SUCCEEDED");
+        assertThat(requests.get()).isEqualTo(3);
+        assertThat(allReceived.get(2).path("context").path("eapPreviousResults").path("task").path("output").path("verified").booleanValue()).isTrue();
     }
 
     @Test
@@ -729,7 +788,7 @@ class WorkflowExecutionIntegrationTests {
     }
 
     private void allow(SafetyDecision decision) {
-        when(safety.evaluate(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
+        when(safety.evaluateTaskMetadata(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,
                 new SafetyDtos.DecisionResponse(1L, 1L, "test", decision, null, null, "test", null, null, null)));
     }
     private void node(String key, String type, Long id) {

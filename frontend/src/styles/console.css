@@ -2,25 +2,25 @@
    retain their own palette. Shared colors stay explicit for Element Plus/LTE. */
 :root {
   --console-navy: #102333;
-  --console-nav: #0c1c2b;
-  --console-accent: #087f9a;
-  --console-accent-soft: #e7f4f7;
-  --console-ink: #193246;
-  --console-muted: #52697b;
-  --console-line: #d7e2e9;
-  --console-canvas: #f4f6f8;
-  --console-radius: 6px;
+  --console-nav: #132c3c;
+  --console-accent: #126c80;
+  --console-accent-soft: #e8f4f5;
+  --console-ink: #183246;
+  --console-muted: #526b7a;
+  --console-line: #dbe5e9;
+  --console-canvas: #f2f6f7;
+  --console-radius: 8px;
   --console-space: 8px;
   --console-control-height: 38px;
   --console-surface: #fff;
-  --el-color-primary: #087f9a;
+  --el-color-primary: #126c80;
   --el-color-primary-light-3: #52a5b8;
   --el-color-primary-light-5: #83bfcc;
   --el-color-primary-light-7: #b5d9e1;
   --el-color-primary-light-8: #cee5eb;
   --el-color-primary-light-9: #e7f4f7;
-  --el-color-primary-dark-2: #06667b;
-  --el-border-radius-base: 6px;
+  --el-color-primary-dark-2: #0d586a;
+  --el-border-radius-base: 8px;
   --el-font-family: 'Aptos', 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
   font-family: var(--el-font-family);
 }
@@ -81,14 +81,14 @@ body { font-family: var(--el-font-family); }
 .app-shell .global-search .el-input__wrapper { background: #f3f7f9; border-color: var(--console-line); border-radius: 6px; }
 .app-shell .global-search .el-input__inner::placeholder { color: var(--console-muted); }
 .app-shell .session-button { border-color: #c6d8e0; color: var(--console-ink); }
-.app-shell .panel.el-card { border-color: var(--console-line); box-shadow: none; border-radius: 6px; }
+.app-shell .panel.el-card { border-color: var(--console-line); box-shadow: 0 2px 8px #19324608; border-radius: var(--console-radius); }
 .app-shell .panel.el-card:hover { box-shadow: none; border-color: #c0d1dc; }
 .app-shell .panel .el-card__header { background: #fff; border-bottom-color: var(--console-line); }
 .app-shell .panel-header > span:first-child,
 .app-shell .panel-header > strong:first-child { font-size: 15px; }
 .app-shell .panel-header > span:first-child::before,
 .app-shell .panel-header > strong:first-child::before { display: none; }
-.app-shell .el-table { --el-table-header-bg-color: #f4f7f9; --el-table-header-text-color: #385267; --el-table-border-color: #e0e8ee; --el-table-row-hover-bg-color: #f0f7f9; color: #243e52; }
+.app-shell .el-table { --el-table-header-bg-color: #f3f7f8; --el-table-header-text-color: #385267; --el-table-border-color: #e2eaed; --el-table-row-hover-bg-color: #eef7f7; color: #243e52; }
 .app-shell .el-table th.el-table__cell { font-weight: 600; height: 46px; }
 .app-shell .el-table .cell { line-height: 1.65; }
 /* Legacy eyebrow rules use !important; keep the font override narrowly scoped. */

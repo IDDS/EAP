@@ -1,7 +1,7 @@
 <template>
   <section class="plan-outputs">
     <h3>步骤结果</h3>
-    <p class="muted">以下为保存的原始回执结果；结构验收结论见执行过程。保存结果不代表已获准交给下游。</p>
+    <p class="muted">以下为保存的原始回执结果；契约验收结论见执行过程。保存结果不代表已获准交给下游。</p>
     <p v-if="!permissions.can('viewContent')" class="muted">当前账号无内容查看权限，仅可查看执行状态。</p>
     <template v-else>
       <div class="button-row">

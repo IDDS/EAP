@@ -58,12 +58,12 @@ function isCurrent(item: NavigationDestination) {
 </template>
 
 <style scoped>
-.workspace-navigation { display: grid; gap: 4px; padding: 0 4px; }
+.workspace-navigation { display: grid; gap: 5px; padding: 0 4px; }
 .workspace-link { display: flex; align-items: center; gap: 11px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 4px; background: transparent; color: #d0d7de; text-decoration: none; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .workspace-link > .el-icon { flex: 0 0 18px; font-size: 18px; color: #aebbc6; }
 .workspace-link:hover, .nav-item:hover, .home-toggle:hover { background: #324450; color: #fff; }
 .group-toggle { font-weight: 550; }
-.workspace-link.is-current-group { background: #30414f; color: #fff; }
+.workspace-link.is-current-group { background: #294657; color: #fff; }
 .home-row { display: flex; }.home-link { flex: 1; min-width: 0; }
 .home-toggle { flex: 0 0 32px; border: 0; border-radius: 4px; color: #b8c7d3; background: transparent; cursor: pointer; }
 .disclosure-arrow { margin-left: auto; font-size: 12px !important; }
@@ -71,7 +71,7 @@ function isCurrent(item: NavigationDestination) {
 .navigation-caption { margin: 16px 12px 6px; font-size: 11px; color: #aebbc6; }
 .nav-items { list-style: none; margin: 4px 0 8px; padding: 0; }
 .nav-item { display: flex; align-items: center; min-height: 38px; padding: 9px 12px 9px 42px; color: #c4cfd8; text-decoration: none; font-size: 13px; line-height: 1.5; border-radius: 4px; overflow-wrap: anywhere; }
-.nav-item[aria-current='page'] { color: #fff; background: #087f9a; font-weight: 600; }
+.nav-item[aria-current='page'] { color: #fff; background: #126c80; font-weight: 600; box-shadow: inset 3px 0 #9cdae0; }
 a:focus-visible, button:focus-visible { outline: 2px solid #8de1ee; outline-offset: -2px; }
 .screen-link { margin-top: 12px; border-top: 1px solid #43525e; border-radius: 0; font-size: 13px; }
 .is-compact { padding: 0; }.is-compact .workspace-link { justify-content: center; padding: 12px; }

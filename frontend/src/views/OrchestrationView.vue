@@ -81,7 +81,7 @@
             <el-button type="primary" :loading="submitting" :disabled="frozen || planLoading || teamLoading || planEditing || teamEditing || assigning || !!planError || !planSteps.length || assignedStepCount !== planSteps.length || reclaimBlocked || !permissions.can('runWorkflows')" @click="executePlan">{{ frozen ? '已提交执行' : '执行计划' }}</el-button>
           </div>
           <p v-if="!permissions.can('runWorkflows')" class="plan-readonly-note">当前账号可查看计划，不能配置或执行。</p>
-          <p class="plan-execution-guidance">按顺序执行，后一步接收前一步结果。提交后锁定成员分配与结果契约；结构不合格时停止后续交接。</p>
+          <p class="plan-execution-guidance">按顺序执行，后一步接收前一步结果。提交后锁定成员分配与结果契约；结果不符合契约时停止后续交接。</p>
           <p class="plan-execution-guidance">未配置契约不代表业务验收通过。失败或结果未知时不会自动重跑，请先核对证据。</p>
           <PlanReclaimCheck v-if="suspendAfterTask && !frozen" :result="reclaimResult" :loading="reclaimLoading" :error="reclaimError" @refresh="refreshReclaim" />
           <ExecutionTimeline v-if="selectedExecution" :execution="selectedExecution" @changed="selectPlan(selectedPlanId!)" />

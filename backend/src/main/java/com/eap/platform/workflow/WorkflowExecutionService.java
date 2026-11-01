@@ -200,7 +200,7 @@ public class WorkflowExecutionService {
         List<Step> steps = new ArrayList<>();
         try {
             Snapshot snapshot = mapper.readValue(run.snapshotJson, Snapshot.class);
-            safety.createSession(new SafetyDtos.SessionRequest(run.runKey, null, run.objective));
+            safety.createSession(new SafetyDtos.SessionRequest(run.runKey, null, "工作流执行"));
             for (var node : snapshot.nodes()) {
                 if (!progress(run, steps, "RUNNING", null, false)) return;
                 if (!stops.checkpoint(run)) return;
@@ -242,7 +242,7 @@ public class WorkflowExecutionService {
                 if (json(payload).getBytes(StandardCharsets.UTF_8).length > 60000) {
                     progress(run, steps, "FAILED", "合并上游结果后的任务请求超过 60KB，未派发下一节点", true); return;
                 }
-                var decision = safety.evaluate(new SafetyDtos.SafetyEventRequest(run.runKey, node.agentId(), null,
+                var decision = safety.evaluateTaskMetadata(new SafetyDtos.SafetyEventRequest(run.runKey, node.agentId(), null,
                         "ARTIFACT".equalsIgnoreCase(node.nodeType()) ? SafetyEventType.ARTIFACT_WRITE : SafetyEventType.AGENT_MESSAGE,
                         "ARTIFACT".equalsIgnoreCase(node.nodeType()) ? "write_artifact" : isTaskNode(node) ? "invoke_agent" : "workflow_transition",
                         runtime != null ? runtime.getEndpoint() : "workflow://" + run.workflowId + "/" + node.nodeKey(),
@@ -347,7 +347,7 @@ public class WorkflowExecutionService {
                     }
                     if (!"SUCCEEDED".equals(receipt.status())) { progress(run, steps, receipt.status(), receipt.reason(), true); return; }
                     if (validation.validation() != null && !"PASSED".equals(validation.validation().status())) {
-                        progress(run, steps, "FAILED", "任务已完成，但结果未通过结构契约；原始结果已保存，未派发下一节点", true); return;
+                        progress(run, steps, "FAILED", "任务已完成，但结果未通过原结果契约；原始结果已保存，未派发下一节点", true); return;
                     }
                     if (!progress(run, steps, "RUNNING", null, false)) return;
                 }

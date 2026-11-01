@@ -26,7 +26,7 @@ class WorkflowServiceTests {
         workflow.id = 1L;
         workflow.name = "test";
         when(workflows.findById(1L)).thenReturn(Optional.of(workflow));
-        when(safety.evaluate(any())).thenReturn(evaluation(SafetyDecision.ALLOW));
+        when(safety.evaluateTaskMetadata(any())).thenReturn(evaluation(SafetyDecision.ALLOW));
         when(nodes.findByWorkflowId(1L)).thenReturn(List.of(node("start", "START"), node("agent", "AGENT"), node("end", "END")));
     }
 
@@ -65,12 +65,21 @@ class WorkflowServiceTests {
 
     @Test
     void safetyDenialPreventsFollowingAnyBranch() {
-        when(safety.evaluate(any())).thenReturn(evaluation(SafetyDecision.DENY));
+        when(safety.evaluateTaskMetadata(any())).thenReturn(evaluation(SafetyDecision.DENY));
         when(edges.findByWorkflowId(1L)).thenReturn(List.of(edge("start", "agent", "always")));
         var result = service.run(1L, new WorkflowDtos.RunRequest("preview"));
         assertThat(result.status()).isEqualTo("BLOCKED");
         assertThat(result.steps()).hasSize(1);
         assertThat(result.agentsInvoked()).isFalse();
+    }
+
+    @Test
+    void previewChecksObjectiveButUsesAMetadataOnlySafetySession() {
+        when(edges.findByWorkflowId(1L)).thenReturn(List.of(edge("start", "end", "always")));
+        service.run(1L, new WorkflowDtos.RunRequest("private fixture"));
+        verify(safety).createSession(argThat(session -> session.objective().equals("工作流安全预演")));
+        verify(safety, atLeastOnce()).evaluateTaskMetadata(argThat(event -> event.payloadSummary().contains("private fixture")));
+        verify(safety, never()).evaluate(any());
     }
 
     private WorkflowNode node(String key, String type) {

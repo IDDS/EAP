@@ -82,6 +82,10 @@ public class ModelInvocationEvent {
     @Column(name = "money_cost", nullable = false, precision = 18, scale = 6)
     BigDecimal moneyCost = BigDecimal.ZERO;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cost_provenance", length = 16)
+    ModelCostProvenance costProvenance;
+
     @Column(nullable = false, length = 16)
     String currency = "USD";
 

@@ -69,10 +69,11 @@ class ManagementServiceTests {
     }
 
     @Test
-    void calculatesValidatedValueAgainstModelCost() {
+    void withholdsDerivedReturnsWhenRecordedCostsAreIncomplete() {
         when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 4, 3, 1, 0.75, 1000, 500, 100, 0, 1500,
-                new BigDecimal("2.000000"), 300, 600, 1, 1, 2, 0, 0, Instant.now(), List.of(), List.of()
+                new BigDecimal("2.000000"), 300, 600, 1, 1, 2, 0, 0, Instant.now(), List.of(), List.of(),
+                new ModelTelemetryDtos.CostCoverage(1, 1, 1, 1), List.of("agent:7")
         ));
         when(knowledgeService.summary(24)).thenReturn(new KnowledgeDtos.KnowledgeSummary(
                 24, 2, 2, 0, 1.0, 100, 80, 3, 2, 1, 1, 0.5, 0.5, 90, 120, Instant.now(), List.of()
@@ -93,8 +94,9 @@ class ManagementServiceTests {
 
         assertThat(summary.totalCost()).isEqualByComparingTo("2.000000");
         assertThat(summary.validatedBusinessValue()).isEqualByComparingTo("10.000000");
-        assertThat(summary.netBenefit()).isEqualByComparingTo("8.000000");
-        assertThat(summary.roi()).isEqualByComparingTo("4.0000");
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.costCoverage()).isEqualTo(new ModelTelemetryDtos.CostCoverage(1, 1, 1, 1));
         assertThat(summary.knowledgeAdoptionRate()).isEqualTo(0.5);
         assertThat(summary.knowledgeReuseRate()).isEqualTo(0.5);
         assertThat(summary.hasValidatedValue()).isTrue();
@@ -175,7 +177,7 @@ class ManagementServiceTests {
     void allocatesValidatedValueAcrossContributingAgents() {
         when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                BigDecimal.ZERO, 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of()
+                BigDecimal.ZERO, 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of(), new ModelTelemetryDtos.CostCoverage(0, 0, 0, 0), List.of()
         ));
         when(knowledgeService.summary(24)).thenReturn(new KnowledgeDtos.KnowledgeSummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, List.of()
@@ -203,6 +205,104 @@ class ManagementServiceTests {
 
         assertThat(summary.agentUsage()).extracting(ManagementDtos.AgentManagementUsage::validatedValue)
                 .containsExactlyInAnyOrder(new BigDecimal("70.000000000000"), new BigDecimal("30.000000000000"));
+        assertThat(summary.totalCost()).isEqualByComparingTo("0");
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.agentUsage()).allSatisfy(agent -> assertThat(agent.roi()).isNull());
+    }
+
+    @Test
+    void returnsUnknownRoiWhenBothCostAndValueAreZero() {
+        stubFinancialContext("USD", "0");
+
+        var summary = service.summary(24);
+
+        assertThat(summary.totalCost()).isEqualByComparingTo("0");
+        assertThat(summary.validatedBusinessValue()).isEqualByComparingTo("0");
+        assertThat(summary.roi()).isNull();
+    }
+
+    @Test
+    void retainsZeroRoiWhenValueEqualsPositiveCost() {
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "USD", "10")));
+        stubFinancialContext("USD", "10");
+
+        var summary = service.summary(24);
+
+        assertThat(summary.roi()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void withholdsOnlyTheAffectedSubjectsReturnsWhileKeepingCollectedAmounts() {
+        stubFinancialContext("USD", "4");
+        var first = new ModelTelemetryDtos.SubjectUsage("agent:1", "first", 1L, null,
+                1, 1, 0, 1.0, 1, 1, 2, new BigDecimal("2"), 1, Instant.now());
+        var second = new ModelTelemetryDtos.SubjectUsage("agent:2", "second", 2L, null,
+                1, 1, 0, 1.0, 1, 1, 2, new BigDecimal("2"), 1, Instant.now());
+        when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+                24, 2, 2, 0, 1, 2, 2, 0, 0, 4, new BigDecimal("4"), 1, 1,
+                0, 0, 0, 0, 0, Instant.now(), List.of(first, second), List.of(),
+                new ModelTelemetryDtos.CostCoverage(2, 0, 1, 0), List.of("agent:1")));
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(
+                financialValue(31L, 1L, "USD", "10"), financialValue(32L, 2L, "USD", "10")));
+
+        var summary = service.summary(24);
+
+        assertThat(summary.totalCost()).isEqualByComparingTo("4");
+        assertThat(summary.validatedBusinessValue()).isEqualByComparingTo("20");
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        var affected = summary.agentUsage().stream().filter(row -> row.agentId().equals(1L)).findFirst().orElseThrow();
+        var complete = summary.agentUsage().stream().filter(row -> row.agentId().equals(2L)).findFirst().orElseThrow();
+        assertThat(affected.totalCost()).isEqualByComparingTo("2");
+        assertThat(affected.validatedValue()).isEqualByComparingTo("10");
+        assertThat(affected.netBenefit()).isNull();
+        assertThat(affected.roi()).isNull();
+        assertThat(complete.netBenefit()).isEqualByComparingTo("8");
+        assertThat(complete.roi()).isEqualByComparingTo("4");
+    }
+
+    @Test
+    void withholdsReturnsIfCoverageMetadataIsUnavailable() {
+        stubFinancialContext("USD", "2");
+        when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+                24, 1, 1, 0, 1, 1, 1, 0, 0, 2, new BigDecimal("2"), 1, 1,
+                0, 0, 0, 0, 0, Instant.now(), List.of(), List.of(), null, null));
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "USD", "10")));
+
+        var summary = service.summary(24);
+
+        assertThat(summary.totalCost()).isEqualByComparingTo("2");
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.agentUsage()).singleElement().satisfies(agent -> {
+            assertThat(agent.netBenefit()).isNull();
+            assertThat(agent.roi()).isNull();
+        });
+    }
+
+    @Test
+    void withholdsReturnsForEstimatedCostsEvenWhenTheirSumIsPositive() {
+        stubFinancialContext("USD", "2");
+        var estimated = new ModelTelemetryDtos.SubjectUsage("agent:1", "first", 1L, null,
+                1, 1, 0, 1.0, 1, 1, 2, new BigDecimal("2"), 1, Instant.now());
+        when(telemetryService.summary(24, "USD")).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
+                24, 1, 1, 0, 1, 1, 1, 0, 0, 2, new BigDecimal("2"), 1, 1,
+                0, 0, 0, 0, 0, Instant.now(), List.of(estimated), List.of(),
+                new ModelTelemetryDtos.CostCoverage(0, 1, 0, 0), List.of("agent:1")));
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "USD", "10")));
+
+        var summary = service.summary(24);
+
+        assertThat(summary.totalCost()).isEqualByComparingTo("2");
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.agentUsage()).singleElement().satisfies(agent -> {
+            assertThat(agent.netBenefit()).isNull();
+            assertThat(agent.roi()).isNull();
+        });
     }
     @Test
     void suppressesMixedCurrencyTotalsAndEveryAgentFinancialMetric() {
@@ -296,7 +396,7 @@ class ManagementServiceTests {
     private void stubFinancialContext(String currency, String cost) {
         when(telemetryService.summary(24, currency)).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                new BigDecimal(cost), 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of()));
+                new BigDecimal(cost), 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of(), new ModelTelemetryDtos.CostCoverage(0, 0, 0, 0), List.of()));
         when(knowledgeService.summary(24)).thenReturn(new KnowledgeDtos.KnowledgeSummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, List.of()));
     }

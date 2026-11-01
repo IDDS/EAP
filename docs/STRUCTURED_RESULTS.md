@@ -1,5 +1,13 @@
 # 工作流结构化结果契约
 
+## 布尔预期值（PoC 已部署，2026-10-31）
+
+`EAP_JSON_V2` 在原有有界结构规则上允许为 `boolean` 增加可选布尔 `const`，例如 `"verified":{"type":"boolean","const":true}`。若字段必须存在，还须把 `verified` 放入对象的 `required`；未列入 `required` 的字段仍允许缺省。仅当明确返回的布尔值与预期不一致时，返回固定代码 `CONST_MISMATCH`，保留原成功回执和受内容权限保护的原始结果，并停止后续节点。结果仍需业务方核验，模型或工具返回 `true` 不证明结论真实。
+
+V1 继续只支持原结构语义，不接受 `const`；V2 当前仅支持布尔值的 `const`，不支持其他类型的常量或完整 JSON Schema。配置界面需显式选择 V2；切回 V1 不会删除既有字段，未修正的配置将拒绝保存。契约版本和摘要随提交快照冻结，旧版本服务不识别 V2，回滚或多版本运行前须核对是否存在 V2 配置和快照，不得对既有执行静默降级或重放。
+
+V2 界面可输入字段名称并选择 `true` / `false`，直接添加到根对象的必填列表，不需手写该字段的 JSON；已有字段不会被覆盖，原契约无效或超过限制时拒绝添加。添加后的完整结构仍会展示，可按需要继续编辑；其他原有字段、工具、交接和休眠配置保持。远程隔离测试及上线后的只读表单检查通过；本轮没有保存历史工作流或执行真实业务任务。
+
 EAP 在匹配任务标识的成功回执上验收结果结构。契约随提交快照保存；更改当前节点不会影响已提交的执行。结构不合格会保留原结果、停止下游交接，并将工作流标为 `FAILED`。原步骤的 Runtime 回执仍为 `SUCCEEDED`，两者分别展示。
 
 这是 EAP 原生的有界 JSON 结构验收，不是完整 JSON Schema、模型强制生成、业务正确性评估或 Kagent 运行时集成。首版适用于 `RUNTIME` 的 `AGENT` / `ARTIFACT` 节点，包括工具任务；AX、独立聊天和其他独立任务入口未接入。团队计划支持在新增步骤时配置、提交前修改、提交后只读查看；未配置的历史计划保持原结果交接行为。
@@ -41,7 +49,7 @@ EAP 在匹配任务标识的成功回执上验收结果结构。契约随提交�
 - 根结构必须是 `object`。每个结构节点必须显式提供字符串 `type`。
 - 对象必须且只能提供 `type`、`properties`、`required`、`additionalProperties`。`required` 是不重复、已在 `properties` 声明的字段名数组；`additionalProperties` 必须是布尔值。缺省可选字段允许不存在，出现时仍需符合类型。
 - 数组必须且只能提供 `type`、`items`，逐项使用同一个结构校验。
-- 标量只能提供 `type`：`string`、`number`、`integer`、`boolean`、`null`。`integer` 要求整数表示，`1.0` 不满足；`number` 要求转换为 double 时不会溢出为无穷的数值。字符串不转成数字或布尔值。
+- V1 标量只能提供 `type`：`string`、`number`、`integer`、`boolean`、`null`；V2 的 `boolean` 还可指定布尔 `const`。`integer` 要求整数表示，`1.0` 不满足；`number` 要求转换为 double 时不会溢出为无穷的数值。字符串不转成数字或布尔值。
 - 最多 8 层、128 个结构节点、每对象 64 个属性、字段名 1–128 个 UTF-16 单元。契约 JSON 紧凑编码最多 8192 字节。JSON 文本解析深度最多 32 层。
 - `$ref`、`$schema`、正则、枚举、长度/数值范围、组合规则和其他关键字不支持，保存或提交时明确拒绝，不静默忽略。
 - 既有输出 16KB、节点及执行快照 60KB、合并交接请求 60KB 限制保持。超限 Runtime 输出仍为原来的 `EXECUTION_UNKNOWN`，不会当作已接收且校验失败的结果。
@@ -69,7 +77,7 @@ EAP 在匹配任务标识的成功回执上验收结果结构。契约随提交�
 | `NOT_EVALUATED` | 没有成功回执，不作结构结论 |
 | 字段缺失 / null | 未记录验收；可能未配置、尚未完成或属于旧执行 |
 
-失败代码仅返回固定类别：`OUTPUT_MISSING`、`TEXT_REQUIRED`、`INVALID_JSON`、`TYPE_MISMATCH`、`REQUIRED_MISSING`、`UNEXPECTED_PROPERTY`、`RECEIPT_NOT_SUCCEEDED`。普通执行元数据不包含 schema、结果正文、属性路径或被拒绝的值。
+失败代码仅返回固定类别：`OUTPUT_MISSING`、`TEXT_REQUIRED`、`INVALID_JSON`、`TYPE_MISMATCH`、`REQUIRED_MISSING`、`UNEXPECTED_PROPERTY`、`RECEIPT_NOT_SUCCEEDED`，以及 V2 的 `CONST_MISMATCH`。普通执行元数据不包含 schema、结果正文、属性路径或被拒绝的值。
 
 任务工作台和执行时间线分别呈现任务回执、结构结论、资源回收。“步骤结果”保持手动加载原文，仍由 `PlatformPermission.VIEW_CONTENT` 和 `/me` 的 `viewContent` 控制；结构失败的原文也仅从既有 `/outputs` 内容接口读取。表单沿用 `/me.runWorkflows`。计划表单沿用同一能力。团队计划新增的配置接口和 V89 迁移见下节；没有新增权限来源或 Runner 变更。
 

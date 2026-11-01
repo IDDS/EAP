@@ -149,7 +149,7 @@ public class WorkflowService {
                 .map(node -> node.agentId)
                 .findFirst()
                 .orElse(null);
-        safetyService.createSession(new SafetyDtos.SessionRequest(runKey, rootAgentId, objective));
+        safetyService.createSession(new SafetyDtos.SessionRequest(runKey, rootAgentId, "工作流安全预演"));
 
         List<WorkflowDtos.RunStepResponse> steps = new ArrayList<>();
         String status = "PREVIEW_COMPLETED";
@@ -231,7 +231,7 @@ public class WorkflowService {
     }
 
     private WorkflowDtos.RunStepResponse executeNode(String runKey, WorkflowNode node, String objective) {
-        SafetyDtos.SafetyEvaluationResponse evaluation = safetyService.evaluate(new SafetyDtos.SafetyEventRequest(
+        SafetyDtos.SafetyEvaluationResponse evaluation = safetyService.evaluateTaskMetadata(new SafetyDtos.SafetyEventRequest(
                 runKey,
                 node.agentId,
                 null,

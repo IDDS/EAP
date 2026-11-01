@@ -29,10 +29,10 @@ function label(status: string) {
   return ({ QUEUED: '等待执行', RUNNING: '正在执行', CANCELLED: '已停止后续调度', DISPATCHING: '正在派发', SUCCEEDED: '已确认完成', FAILED: '执行失败', EXECUTION_UNKNOWN: '结果未知 · 需核对', WAITING_APPROVAL: '等待审批', BLOCKED: '已阻断', CHECK_PASSED: '检查通过' } as Record<string, string>)[status] || status
 }
 function validationLabel(status?: string) {
-  return ({ PASSED: '结构验收通过', REJECTED: '结构验收未通过 · 已停止后续交接', NOT_EVALUATED: '未验收 · 任务未确认成功' } as Record<string, string>)[status || ''] || '未记录结构验收'
+  return ({ PASSED: '结果验收通过', REJECTED: '结果验收未通过 · 已停止后续交接', NOT_EVALUATED: '未验收 · 任务未确认成功' } as Record<string, string>)[status || ''] || '未记录结果验收'
 }
 function validationReason(code: string) {
-  return ({ VALID: '符合原结果契约', OUTPUT_MISSING: '缺少结果', TEXT_REQUIRED: '应返回 JSON 文本', INVALID_JSON: '结果不是完整且无歧义的 JSON', TYPE_MISMATCH: '字段类型不符', REQUIRED_MISSING: '缺少必填字段', UNEXPECTED_PROPERTY: '包含未允许的字段', RECEIPT_NOT_SUCCEEDED: '先核对原任务回执' } as Record<string, string>)[code] || '请核对原结果契约'
+  return ({ VALID: '符合原结果契约', OUTPUT_MISSING: '缺少结果', TEXT_REQUIRED: '应返回 JSON 文本', INVALID_JSON: '结果不是完整且无歧义的 JSON', TYPE_MISMATCH: '字段类型不符', REQUIRED_MISSING: '缺少必填字段', UNEXPECTED_PROPERTY: '包含未允许的字段', CONST_MISMATCH: '布尔结果与预期不符', RECEIPT_NOT_SUCCEEDED: '先核对原任务回执' } as Record<string, string>)[code] || '请核对原结果契约'
 }
 function reclaimLabel(status: string) {
   return ({ CONFIRMED: '已确认休眠', UNCONFIRMED: '休眠未确认，已阻止此实例的新派发，请核对原实例', SKIPPED_BUSY: '存在其他执行或未确认占用，已保留运行状态', SKIPPED_UNKNOWN: '任务结果未知，未休眠', SKIPPED_LEGACY: '旧执行未纳入回收保护，未休眠' } as Record<string, string>)[status] || '回收状态待核对'

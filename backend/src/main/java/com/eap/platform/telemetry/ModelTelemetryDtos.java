@@ -1,5 +1,6 @@
 package com.eap.platform.telemetry;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
@@ -66,6 +67,7 @@ public final class ModelTelemetryDtos {
             Long totalTokens,
             Long latencyMs,
             BigDecimal moneyCost,
+            String costProvenance,
             String currency,
             Integer toolCallCount,
             Integer mcpServerCount,
@@ -103,6 +105,9 @@ public final class ModelTelemetryDtos {
     ) {
     }
 
+    public record CostCoverage(long reported, long estimated, long missing, long unknown) {
+    }
+
     public record PhysicalTelemetrySummary(
             int windowHours,
             long totalCalls,
@@ -124,7 +129,9 @@ public final class ModelTelemetryDtos {
             long offlineRuntimeCount,
             Instant lastEventAt,
             List<SubjectUsage> subjectUsage,
-            List<ModelUsage> modelUsage
+            List<ModelUsage> modelUsage,
+            CostCoverage costCoverage,
+            @JsonIgnore List<String> incompleteCostSubjectKeys
     ) {
     }
 
@@ -134,7 +141,8 @@ public final class ModelTelemetryDtos {
                 event.runtimeInstanceKey, event.taskId, event.governanceDecisionKey, event.observationSource,
                 Boolean.TRUE.equals(event.governanceCovered), event.usagePoolKey, event.provider, event.modelName, event.status,
                 event.inputTokens, event.outputTokens, event.cachedInputTokens, event.reasoningTokens,
-                event.inputTokens + event.outputTokens, event.latencyMs, event.moneyCost, event.currency,
+                event.inputTokens + event.outputTokens, event.latencyMs, event.moneyCost,
+                event.costProvenance == null ? "UNKNOWN" : event.costProvenance.name(), event.currency,
                 event.toolCallCount, event.mcpServerCount, event.errorType, event.observedAt, event.createdAt
         );
     }

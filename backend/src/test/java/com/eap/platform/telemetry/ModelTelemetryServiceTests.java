@@ -73,7 +73,44 @@ class ModelTelemetryServiceTests {
         assertThat(response.id()).isEqualTo(11L);
         assertThat(response.totalTokens()).isEqualTo(200L);
         assertThat(response.moneyCost()).isEqualByComparingTo("0.004200");
+        assertThat(response.costProvenance()).isEqualTo("REPORTED");
         verify(taskService).recordTelemetryUsage(null, 200L, new BigDecimal("0.004200"), 320L);
+    }
+
+    @Test
+    void distinguishesProvidedZeroMissingAndGatewayEstimates() {
+        when(eventRepository.findByEventKey(any())).thenReturn(Optional.empty());
+        when(agentRepository.existsById(7L)).thenReturn(true);
+        when(eventRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThat(service.recordPassive(requestWithCost("provided", BigDecimal.ZERO), ModelObservationSource.OTLP).costProvenance()).isEqualTo("REPORTED");
+        assertThat(service.recordPassive(requestWithCost("missing", null), ModelObservationSource.CONTENT_PROXY).costProvenance()).isEqualTo("MISSING");
+        assertThat(service.recordGateway(requestWithCost("estimated", BigDecimal.ZERO)).costProvenance()).isEqualTo("ESTIMATED");
+    }
+
+    @Test
+    void coverageIncludesAllCurrenciesAndKeepsLegacyUnknown() {
+        var provided = event("provided", ModelInvocationStatus.SUCCEEDED, 1, 1, 1, "model");
+        provided.costProvenance = ModelCostProvenance.REPORTED;
+        var estimated = event("estimated", ModelInvocationStatus.SUCCEEDED, 1, 1, 1, "model");
+        estimated.costProvenance = ModelCostProvenance.ESTIMATED;
+        estimated.agentId = 9L;
+        var missing = event("missing", ModelInvocationStatus.SUCCEEDED, 1, 1, 1, "model");
+        missing.costProvenance = ModelCostProvenance.MISSING;
+        missing.agentId = 8L;
+        missing.currency = "USD";
+        var legacy = event("legacy", ModelInvocationStatus.SUCCEEDED, 1, 1, 1, "model");
+        provided.currency = estimated.currency = legacy.currency = "CNY";
+        when(eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(provided, estimated, missing, legacy));
+
+        var summary = service.summary(24, "CNY");
+
+        assertThat(summary.totalCalls()).isEqualTo(3);
+        assertThat(summary.costCoverage()).isEqualTo(new ModelTelemetryDtos.CostCoverage(1, 1, 1, 1));
+        assertThat(summary.incompleteCostSubjectKeys()).containsExactly("agent:7", "agent:8", "agent:9");
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().valueToTree(summary)
+                .has("incompleteCostSubjectKeys")).isFalse();
+        assertThat(ModelTelemetryDtos.from(legacy).costProvenance()).isEqualTo("UNKNOWN");
     }
 
     @Test
@@ -215,6 +252,12 @@ class ModelTelemetryServiceTests {
                 ModelInvocationStatus.SUCCEEDED, input, output, 0, 0, 320,
                 new BigDecimal("0.004200"), "USD", 1, 0, null, null, Instant.now()
         );
+    }
+
+    private ModelTelemetryDtos.ModelInvocationRequest requestWithCost(String eventKey, BigDecimal cost) {
+        return new ModelTelemetryDtos.ModelInvocationRequest(
+                eventKey, null, null, 7L, null, null, null, null, "test", "model",
+                ModelInvocationStatus.SUCCEEDED, 1, 1, 0, 0, 1, cost, "USD", 0, 0, null, null, Instant.now());
     }
 
     private ModelTelemetryDtos.ModelInvocationRequest requestWithDecision(String eventKey, Long agentId, String decisionKey) {

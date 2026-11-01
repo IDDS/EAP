@@ -10,11 +10,30 @@
       </el-select>
     </el-form-item>
     <template v-if="source !== 'OFF'">
+      <el-form-item label="契约版本">
+        <el-select :model-value="version" :disabled="disabled || !parsed" aria-label="结果契约版本" @change="changeVersion">
+          <el-option label="V1：结构校验" value="EAP_JSON_V1" />
+          <el-option label="V2：结构与布尔预期值" value="EAP_JSON_V2" />
+        </el-select>
+      </el-form-item>
+      <template v-if="version === 'EAP_JSON_V2'">
+        <p>添加必填的布尔验收字段。只有返回指定值才允许继续；仍需核实结果是否真实。</p>
+        <el-form-item label="验收字段名称">
+          <el-input v-model="acceptanceField" :disabled="disabled" maxlength="128" aria-label="验收字段名称" placeholder="例如 verified" />
+        </el-form-item>
+        <el-form-item label="要求返回">
+          <el-select v-model="acceptanceExpected" :disabled="disabled" aria-label="验收字段预期值">
+            <el-option label="true（通过）" :value="true" />
+            <el-option label="false" :value="false" />
+          </el-select>
+        </el-form-item>
+        <el-button :disabled="disabled || !parsed" @click="addAcceptanceField">添加必填验收字段</el-button>
+      </template>
       <el-form-item label="JSON 结构">
         <el-input v-model="schemaText" aria-label="结果 JSON 结构" type="textarea" :rows="9" :disabled="disabled || !parsed" @input="changeSchema" />
       </el-form-item>
-      <p>对象须填写 properties、required、additionalProperties；数组须填写 items。类型支持 object、array、string、number、integer、boolean、null。不支持 $ref、正则或其他 JSON Schema 关键字。</p>
-      <p>文本必须是完整 JSON，不接受代码围栏、重复键或尾随文字。此处只验收结构，不会修改提示词或保证业务结论正确。{{ planStep ? '保存步骤或结果契约后生效。' : '保存节点后生效。' }}</p>
+      <p>对象须填写 properties、required、additionalProperties；数组须填写 items。V2 的 boolean 可加 <code>"const": true</code> 或 <code>"const": false</code>；需要字段必须存在时，还须将字段名加入 required。其他 JSON Schema 关键字不支持。</p>
+      <p>文本必须是完整 JSON，不接受代码围栏、重复键或尾随文字。契约检查结构及配置的预期值，不会修改提示词或保证业务结论正确。{{ planStep ? '保存步骤或结果契约后生效。' : '保存节点后生效。' }}</p>
     </template>
     <el-alert v-if="error" :title="error" type="error" :closable="false" />
   </section>
@@ -22,17 +41,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { taskConfig, outputContractError, setOutputContract, updateOutputSchema } from '@/api/workflowTaskConfig'
+import { taskConfig, outputContractError, setOutputContract, setOutputContractVersion, addRequiredBooleanExpectation, updateOutputSchema } from '@/api/workflowTaskConfig'
 const props = defineProps<{ modelValue?: string; nodeType: string; agentId?: number; disabled: boolean; planStep?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const parsed = computed(() => { try { return taskConfig(props.modelValue) } catch { return null } })
 const source = computed(() => parsed.value?.eapOutput?.source || 'OFF')
+const version = computed(() => parsed.value?.eapOutput?.version || 'EAP_JSON_V1')
 const backend = computed(() => parsed.value?.executionBackend || 'RUNTIME')
 const error = computed(() => outputContractError(props.modelValue, props.nodeType, props.agentId, props.planStep === true))
 const schemaText = ref('')
+const acceptanceField = ref('')
+const acceptanceExpected = ref(true)
 let lastEmitted: string | undefined
 watch(() => props.modelValue, value => {
   if (value === lastEmitted) return
+  acceptanceField.value = ''
+  acceptanceExpected.value = true
   const schema = parsed.value?.eapOutput?.schema
   schemaText.value = typeof schema === 'string' ? schema : schema ? JSON.stringify(schema, null, 2) : ''
 }, { immediate: true })
@@ -49,6 +73,19 @@ function changeSource(value: string) {
 function changeSchema(value: string) {
   if (props.disabled) return
   try { publish(updateOutputSchema(props.modelValue, value)) } catch { ElMessage.error('请先修正高级配置') }
+}
+function changeVersion(value: string) {
+  if (props.disabled || !['EAP_JSON_V1', 'EAP_JSON_V2'].includes(value)) return
+  try { publish(setOutputContractVersion(props.modelValue, value as 'EAP_JSON_V1' | 'EAP_JSON_V2')) } catch { ElMessage.error('请先修正结果契约') }
+}
+function addAcceptanceField() {
+  if (props.disabled) return
+  try {
+    const config = addRequiredBooleanExpectation(props.modelValue, acceptanceField.value, acceptanceExpected.value)
+    schemaText.value = JSON.stringify(taskConfig(config).eapOutput.schema, null, 2)
+    publish(config)
+    acceptanceField.value = ''
+  } catch (e) { ElMessage.error((e as Error).message) }
 }
 </script>
 <style scoped>

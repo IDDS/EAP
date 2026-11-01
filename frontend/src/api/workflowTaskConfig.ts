@@ -49,7 +49,7 @@ export function outputContractError(raw: string | undefined, nodeType: string, a
     const exact = (value: any, keys: string[]) => value && typeof value === 'object' && !Array.isArray(value)
       && Object.keys(value).length === keys.length && keys.every(k => Object.hasOwn(value, k))
     if ((!agentId && !allowUnassignedPlanStep) || !['AGENT', 'ARTIFACT'].includes(nodeType.toUpperCase()) || (config.executionBackend && config.executionBackend !== 'RUNTIME')) return '结果契约仅支持绑定智能体的常规执行任务'
-    if (!exact(contract, ['version', 'source', 'schema']) || contract.version !== 'EAP_JSON_V1' || !['OUTPUT', 'JSON_TEXT'].includes(contract.source)) return '请选择有效的结果契约与结果来源'
+    if (!exact(contract, ['version', 'source', 'schema']) || !['EAP_JSON_V1', 'EAP_JSON_V2'].includes(contract.version) || !['OUTPUT', 'JSON_TEXT'].includes(contract.source)) return '请选择有效的结果契约与结果来源'
     let count = 0
     function shape(s: any, depth: number): boolean {
       if (!s || depth > 8 || ++count > 128) return false
@@ -61,6 +61,7 @@ export function outputContractError(raw: string | undefined, nodeType: string, a
         return Object.entries(s.properties).every(([key, value]) => key.length > 0 && key.length <= 128 && shape(value, depth + 1))
       }
       if (s.type === 'array') return exact(s, ['type', 'items']) && shape(s.items, depth + 1)
+      if (s.type === 'boolean' && contract.version === 'EAP_JSON_V2' && exact(s, ['type', 'const'])) return typeof s.const === 'boolean'
       return ['string', 'number', 'integer', 'boolean', 'null'].includes(s.type) && exact(s, ['type'])
     }
     if (new TextEncoder().encode(JSON.stringify(contract)).length > 8192 || contract.schema?.type !== 'object' || !shape(contract.schema, 1)) return '结构无效：根必须是对象，最多 8 层、128 个结构节点、每层 64 个属性、8KB；不支持的字段会被拒绝'
@@ -73,11 +74,36 @@ export function setOutputContract(raw: string | undefined, source: 'OFF' | 'OUTP
   if (source === 'OFF') delete config.eapOutput
   else {
     if (config.executionBackend && config.executionBackend !== 'RUNTIME') throw new Error('结果契约仅支持常规执行')
-    config.eapOutput = { version: 'EAP_JSON_V1', source, schema: config.eapOutput?.schema ?? {
+    config.eapOutput = { version: config.eapOutput?.version ?? 'EAP_JSON_V1', source, schema: config.eapOutput?.schema ?? {
       type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'], additionalProperties: false,
     } }
   }
   return JSON.stringify(config, null, 2)
+}
+
+export function setOutputContractVersion(raw: string | undefined, version: 'EAP_JSON_V1' | 'EAP_JSON_V2'): string {
+  const config = taskConfig(raw)
+  if (!config.eapOutput || !['EAP_JSON_V1', 'EAP_JSON_V2'].includes(version)) throw new Error('请先启用结果契约')
+  config.eapOutput.version = version
+  return JSON.stringify(config, null, 2)
+}
+
+// Add a required boolean expectation without replacing the existing contract or draft.
+export function addRequiredBooleanExpectation(raw: string | undefined, field: string, expected: boolean): string {
+  const config = taskConfig(raw)
+  if (config.eapOutput?.version !== 'EAP_JSON_V2') throw new Error('请先选择 V2 结果契约')
+  if (outputContractError(raw, 'AGENT', undefined, true)) throw new Error('请先修正当前结果契约')
+  const name = field.trim()
+  if (!name || name.length > 128 || /[\u0000-\u001f\u007f]/.test(name)
+    || ['__proto__', 'prototype', 'constructor'].includes(name)) throw new Error('请输入有效的验收字段名称')
+  if (typeof expected !== 'boolean') throw new Error('请选择布尔预期值')
+  const schema = config.eapOutput.schema
+  if (Object.hasOwn(schema.properties, name)) throw new Error('字段已存在，请直接编辑原字段')
+  schema.properties[name] = { type: 'boolean', const: expected }
+  schema.required.push(name)
+  const updated = JSON.stringify(config, null, 2)
+  if (outputContractError(updated, 'AGENT', undefined, true)) throw new Error('添加后超过结果契约限制，请精简配置')
+  return updated
 }
 
 export function updateOutputSchema(raw: string | undefined, text: string): string {

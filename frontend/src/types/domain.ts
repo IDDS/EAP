@@ -915,6 +915,7 @@ export interface AgentManagementUsage {
 }
 
 export interface ManagementSummary {
+  costCoverage?: { reported: number; estimated: number; missing: number; unknown: number } | null
   resolvedTasks?: number
   unresolvedTasks?: number
   unconfirmedTasks?: number

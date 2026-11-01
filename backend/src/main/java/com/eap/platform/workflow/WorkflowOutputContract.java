@@ -13,7 +13,8 @@ import java.util.*;
 
 /** EAP's bounded JSON shape contract, not a general JSON Schema implementation. */
 public final class WorkflowOutputContract {
-    private static final String VERSION = "EAP_JSON_V1";
+    private static final String VERSION_1 = "EAP_JSON_V1";
+    private static final String VERSION_2 = "EAP_JSON_V2";
     private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(32).build()).build())
@@ -37,7 +38,7 @@ public final class WorkflowOutputContract {
             require(Set.of("AGENT", "ARTIFACT").contains(nodeType.toUpperCase(Locale.ROOT)) && agentId != null);
             return definition(contract, config.has("executionBackend") ? config.path("executionBackend").asText() : "RUNTIME");
         } catch (Exception ex) {
-            throw new BusinessException("结果契约无效：仅支持常规任务的 EAP_JSON_V1、OUTPUT/JSON_TEXT 及有界 JSON 结构；请核对支持的字段与限制");
+            throw new BusinessException("结果契约无效：仅支持常规任务的 EAP_JSON_V1/V2、OUTPUT/JSON_TEXT 及有界 JSON 结构；请核对支持的字段与限制");
         }
     }
 
@@ -50,20 +51,21 @@ public final class WorkflowOutputContract {
             definition(value, backend == null ? "RUNTIME" : backend);
             return JSON.writeValueAsString(value);
         } catch (Exception ex) {
-            throw new BusinessException("结果契约无效：仅支持常规任务的 EAP_JSON_V1、OUTPUT/JSON_TEXT 及有界 JSON 结构；请核对支持的字段与限制");
+            throw new BusinessException("结果契约无效：仅支持常规任务的 EAP_JSON_V1/V2、OUTPUT/JSON_TEXT 及有界 JSON 结构；请核对支持的字段与限制");
         }
     }
 
     private static Contract definition(JsonNode contract, String backend) throws Exception {
         require("RUNTIME".equals(backend));
         require(contract.isObject() && names(contract).equals(Set.of("version", "source", "schema")));
-        require(VERSION.equals(contract.path("version").asText()));
+        String version = contract.path("version").asText();
+        require(Set.of(VERSION_1, VERSION_2).contains(version));
         String source = contract.path("source").asText();
         require(Set.of("OUTPUT", "JSON_TEXT").contains(source));
         var schema = contract.get("schema");
         require(JSON.writeValueAsBytes(contract).length <= 8192 && "object".equals(schema.path("type").asText()));
-        schema(schema, 1, new int[]{0});
-        return new Contract(VERSION, source, schema, digest(contract));
+        schema(schema, 1, new int[]{0}, VERSION_2.equals(version));
+        return new Contract(version, source, schema, digest(contract));
     }
 
     public static Result check(Contract contract, String receiptStatus, JsonNode output) {
@@ -85,7 +87,7 @@ public final class WorkflowOutputContract {
         return new Result(new Validation(contract.version(), contract.source(), contract.sha256(), state, code), accepted);
     }
 
-    private static void schema(JsonNode s, int depth, int[] count) {
+    private static void schema(JsonNode s, int depth, int[] count, boolean allowBooleanConst) {
         require(depth <= 8 && ++count[0] <= 128 && s != null && s.isObject() && s.path("type").isTextual());
         String type = s.path("type").asText();
         switch (type) {
@@ -98,11 +100,13 @@ public final class WorkflowOutputContract {
                 for (var key : required) require(key.isTextual() && props.has(key.textValue()) && seen.add(key.textValue()));
                 props.fields().forEachRemaining(entry -> {
                     require(!entry.getKey().isEmpty() && entry.getKey().length() <= 128);
-                    schema(entry.getValue(), depth + 1, count);
+                    schema(entry.getValue(), depth + 1, count, allowBooleanConst);
                 });
             }
-            case "array" -> { require(names(s).equals(Set.of("type", "items"))); schema(s.get("items"), depth + 1, count); }
-            case "string", "number", "integer", "boolean", "null" -> require(names(s).equals(Set.of("type")));
+            case "array" -> { require(names(s).equals(Set.of("type", "items"))); schema(s.get("items"), depth + 1, count, allowBooleanConst); }
+            case "boolean" -> require(names(s).equals(Set.of("type")) || (allowBooleanConst
+                    && names(s).equals(Set.of("type", "const")) && s.path("const").isBoolean()));
+            case "string", "number", "integer", "null" -> require(names(s).equals(Set.of("type")));
             default -> throw new IllegalArgumentException();
         }
     }
@@ -116,6 +120,7 @@ public final class WorkflowOutputContract {
             case "boolean" -> v.isBoolean(); case "null" -> v.isNull(); default -> false;
         };
         if (!matches) return "TYPE_MISMATCH";
+        if ("boolean".equals(type) && s.has("const") && v.booleanValue() != s.get("const").booleanValue()) return "CONST_MISMATCH";
         if ("object".equals(type)) {
             for (var key : s.get("required")) if (!v.has(key.textValue())) return "REQUIRED_MISSING";
             var props = s.get("properties");

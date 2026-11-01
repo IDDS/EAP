@@ -423,6 +423,8 @@
       </HistoryTable>
     </el-card>
 
+    <TraceRequestExplorer v-if="activeSection === 'trace'" :spans="traceSpans" :agents="agents" :agent-id="contextAgentId" @select-agent="selectTraceAgent" @open-trace="openTraceRequest" />
+
     <el-card v-show="activeSection === 'trace'" shadow="never" class="panel">
       <template #header>
         <div class="panel-header">
@@ -546,6 +548,7 @@ import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
 import TraceDiagnostics from '@/components/trace/TraceDiagnostics.vue'
+import TraceRequestExplorer from '@/components/trace/TraceRequestExplorer.vue'
 import AgentExecutionExplorer from '@/components/trace/AgentExecutionExplorer.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, Connection, Money, Refresh, Search, Tickets } from '@element-plus/icons-vue'
@@ -891,6 +894,13 @@ function openTrace(row: {agentId?:number;endpointKey?:string;traceId?:string}) {
     endpointKey: row.endpointKey,
     traceId: row.traceId,
   } })
+}
+
+function selectTraceAgent(id: number | undefined) {
+  void router.push({ path: '/physical', query: { section: 'trace', ...(id ? { agentId: String(id) } : {}) } })
+}
+function openTraceRequest(traceId: string) {
+  void router.push({ path: '/physical', query: { section: 'trace', traceId, ...(contextAgentId.value ? { agentId: String(contextAgentId.value) } : {}), ...(contextEndpointKey.value ? { endpointKey: contextEndpointKey.value } : {}) } })
 }
 
 function openGovernanceFromTrace() {

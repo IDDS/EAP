@@ -207,6 +207,10 @@ public class ManagementService {
         BigDecimal totalCost = telemetry.moneyCost();
         BigDecimal valueAmount = values.stream().map(value -> value.benefitMoney).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal netBenefit = valueAmount.subtract(totalCost);
+        var coverage = telemetry.costCoverage();
+        boolean coverageAvailable = coverage != null && telemetry.incompleteCostSubjectKeys() != null;
+        boolean completeModelCosts = coverageAvailable && coverage.estimated() == 0 && coverage.missing() == 0 && coverage.unknown() == 0;
+        var incompleteCostSubjects = coverageAvailable ? java.util.Set.copyOf(telemetry.incompleteCostSubjectKeys()) : java.util.Set.<String>of();
         List<BigDecimal> measuredRates = values.stream().map(ManagementDtos::improvementRate).filter(java.util.Objects::nonNull).toList();
         double averageImprovementRate = measuredRates.isEmpty() ? 0.0 : measuredRates.stream().mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
         long efficiencyImpactEvents = values.stream().filter(value -> isEfficiencyType(value.valueType)).count();
@@ -225,8 +229,8 @@ public class ManagementService {
                 telemetry.totalTokens(),
                 mixedCurrencies ? null : totalCost,
                 mixedCurrencies ? null : valueAmount,
-                mixedCurrencies ? null : netBenefit,
-                mixedCurrencies ? null : roi(valueAmount, totalCost),
+                mixedCurrencies || !completeModelCosts ? null : netBenefit,
+                mixedCurrencies || !completeModelCosts ? null : roi(valueAmount, totalCost),
                 knowledge.adoptedInteractions(),
                 knowledge.reusedInteractions(),
                 knowledge.adoptionRate(),
@@ -240,10 +244,12 @@ public class ManagementService {
                 averageConfidence,
                 !values.isEmpty(),
                 values.isEmpty() ? null : values.get(0).observedAt,
-                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed()).map(item -> item.toResponse(!mixedCurrencies)).toList(),
+                usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed())
+                        .map(item -> item.toResponse(!mixedCurrencies, coverageAvailable && !incompleteCostSubjects.contains(item.key))).toList(),
                 tasks.stream().filter(task -> Boolean.TRUE.equals(task.problemResolved())).count(),
                 tasks.stream().filter(task -> Boolean.FALSE.equals(task.problemResolved())).count(),
-                tasks.stream().filter(task -> task.problemResolved() == null).count()
+                tasks.stream().filter(task -> task.problemResolved() == null).count(),
+                telemetry.costCoverage()
         );
     }
 
@@ -300,9 +306,9 @@ public class ManagementService {
         return completed == 0 ? 0.0 : (double) succeeded / completed;
     }
 
-    private BigDecimal roi(BigDecimal value, BigDecimal cost) {
+    private static BigDecimal roi(BigDecimal value, BigDecimal cost) {
         if (cost == null || cost.signum() == 0) {
-            return BigDecimal.ZERO.setScale(4);
+            return null;
         }
         return value.subtract(cost).divide(cost, 4, RoundingMode.HALF_UP);
     }
@@ -408,13 +414,13 @@ public class ManagementService {
             return totalTokens;
         }
 
-        ManagementDtos.AgentManagementUsage toResponse(boolean monetaryComparable) {
+        ManagementDtos.AgentManagementUsage toResponse(boolean monetaryComparable, boolean completeModelCosts) {
             BigDecimal netBenefit = validatedValue.subtract(totalCost);
-            BigDecimal roi = totalCost.signum() == 0 ? BigDecimal.ZERO.setScale(4) : netBenefit.divide(totalCost, 4, RoundingMode.HALF_UP);
+            BigDecimal roi = roi(validatedValue, totalCost);
             return new ManagementDtos.AgentManagementUsage(
                     key, name, agentId, endpointKey, tasks, succeededTasks, modelCalls, knowledgeInteractions,
                     totalTokens, monetaryComparable ? totalCost : null, monetaryComparable ? validatedValue : null,
-                    monetaryComparable ? netBenefit : null, monetaryComparable ? roi : null,
+                    monetaryComparable && completeModelCosts ? netBenefit : null, monetaryComparable && completeModelCosts ? roi : null,
                     knowledgeInteractions == 0 ? 0.0 : (double) adopted / knowledgeInteractions,
                     knowledgeInteractions == 0 ? 0.0 : (double) reused / knowledgeInteractions,
                     measuredImpactEvents,

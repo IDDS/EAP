@@ -35,7 +35,7 @@
           </nav>
         </div>
         <div class="topbar-actions">
-          <el-button class="global-search-trigger" :icon="Search" aria-label="打开全局搜索" @click="openSearchDialog"><span>搜索功能与资源</span></el-button>
+          <el-button class="global-search-trigger" :icon="Search" aria-label="打开全局搜索" @click="openSearchDialog"><span>搜索</span></el-button>
           <el-dropdown class="font-scale-menu" trigger="click" @command="handleFontScaleCommand">
             <el-button class="topbar-compact-control" text>
               字号 · {{ currentFontScaleLabel }}<el-icon><ArrowDown /></el-icon>

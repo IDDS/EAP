@@ -40,7 +40,7 @@ class ObservationCoverageIntegrationTests {
         db.update("delete from observation_operation_events");db.update("delete from observation_operations");
         db.update("delete from ax_tasks");
         var a=new Agent();a.setCode("COVERAGE-"+UUID.randomUUID());a.setName("Public fixture");a.setOwnerDepartment("test");a.setOwnerUser("test");a.setCategory("test");a.setLifecycleStatus(AgentLifecycleStatus.ACTIVE);a.setRiskLevel(RiskLevel.LOW);agent=agents.save(a).getId();
-        when(safety.evaluate(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,new SafetyDtos.DecisionResponse(1L,1L,"test",SafetyDecision.ALLOW,null,null,"test",null,null,null)));
+        when(safety.evaluateTaskMetadata(any())).thenReturn(new SafetyDtos.SafetyEvaluationResponse(null,new SafetyDtos.DecisionResponse(1L,1L,"test",SafetyDecision.ALLOW,null,null,"test",null,null,null)));
     }
     long submit(String key,String mode) {ax.submit(new AxService.Submit(agent,key,"PUBLIC_FIXTURE",mode),"original-owner");return db.queryForObject("select max(id) from observation_operations",Long.class);}
     ObservationCoverageService.Operation get(long id) {return coverage.detail(id).operation();}

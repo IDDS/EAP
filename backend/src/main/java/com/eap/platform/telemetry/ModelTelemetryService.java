@@ -112,6 +112,8 @@ public class ModelTelemetryService {
         event.reasoningTokens = request.reasoningTokens();
         event.latencyMs = request.latencyMs();
         event.moneyCost = request.moneyCost() == null ? BigDecimal.ZERO : request.moneyCost();
+        event.costProvenance = request.moneyCost() == null ? ModelCostProvenance.MISSING
+                : source == ModelObservationSource.GATEWAY ? ModelCostProvenance.ESTIMATED : ModelCostProvenance.REPORTED;
         event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().trim().toUpperCase(java.util.Locale.ROOT);
         event.toolCallCount = request.toolCallCount();
         event.mcpServerCount = request.mcpServerCount();
@@ -193,7 +195,8 @@ public class ModelTelemetryService {
     @Transactional(readOnly = true)
     public ModelTelemetryDtos.PhysicalTelemetrySummary summary(int windowHours, String currency) {
         Instant since = Instant.now().minus(windowHours, ChronoUnit.HOURS);
-        List<ModelInvocationEvent> events = eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since).stream()
+        List<ModelInvocationEvent> allEvents = eventRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(since);
+        List<ModelInvocationEvent> events = allEvents.stream()
                 .filter(event -> currency == null || currencyCode(event.currency).equals(currencyCode(currency))).toList();
         Map<Long, String> agentNames = new LinkedHashMap<>();
         agentRepository.findAll().forEach(agent -> agentNames.put(agent.getId(), agent.getName()));
@@ -216,7 +219,7 @@ public class ModelTelemetryService {
         Map<String, UsageAccumulator> subjects = new LinkedHashMap<>();
         Map<String, UsageAccumulator> models = new LinkedHashMap<>();
         for (ModelInvocationEvent event : events) {
-            String subjectKey = event.agentId != null ? "agent:" + event.agentId : "endpoint:" + event.endpointKey;
+            String subjectKey = subjectKey(event);
             String subjectName = event.agentId != null
                     ? agentNames.getOrDefault(event.agentId, "Agent " + event.agentId)
                     : event.endpointKey;
@@ -251,8 +254,20 @@ public class ModelTelemetryService {
                 inputTokens, outputTokens, cachedTokens, reasoningTokens, inputTokens + outputTokens,
                 moneyCost, averageLatency, p95Latency,
                 endpoints.size(), activeEndpoints, onlineRuntimes, degradedRuntimes, offlineRuntimes,
-                events.isEmpty() ? null : events.get(0).observedAt, subjectUsage, modelUsage
+                events.isEmpty() ? null : events.get(0).observedAt, subjectUsage, modelUsage,
+                new ModelTelemetryDtos.CostCoverage(
+                        allEvents.stream().filter(event -> event.costProvenance == ModelCostProvenance.REPORTED).count(),
+                        allEvents.stream().filter(event -> event.costProvenance == ModelCostProvenance.ESTIMATED).count(),
+                        allEvents.stream().filter(event -> event.costProvenance == ModelCostProvenance.MISSING).count(),
+                        allEvents.stream().filter(event -> event.costProvenance == null).count()),
+                allEvents.stream()
+                        .filter(event -> event.costProvenance != ModelCostProvenance.REPORTED)
+                        .map(ModelTelemetryService::subjectKey).distinct().sorted().toList()
         );
+    }
+
+    private static String subjectKey(ModelInvocationEvent event) {
+        return event.agentId != null ? "agent:" + event.agentId : "endpoint:" + event.endpointKey;
     }
 
     private void validateAttribution(ModelTelemetryDtos.ModelInvocationRequest request) {

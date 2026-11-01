@@ -162,6 +162,22 @@ class WorkflowTaskClientSubstrateTests {
     }
 
     @Test
+    void dispatchedToolFailureDoesNotProveThatTheExternalEffectWasAbsent() {
+        var runtime = scopedRuntime();
+        toolState.set("{\"tools\":{\"enabled\":true}}");
+        responseStatus.set("FAILED");
+        toolReceipt.set(Map.of("executed", true, "state", "FAILED", "receiptConfirmed", true));
+
+        var receipt = client.invoke(runtime, toolPayload(), Instant.now().plusSeconds(30));
+
+        assertThat(receipt.status()).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(receipt.reason()).contains("原工具效果未确认");
+        assertThat(receipt.output()).isNull();
+        assertThat(taskCalls.get()).isEqualTo(1);
+        verify(substrateClient, never()).suspend(any());
+    }
+
+    @Test
     void scopedToolNeedsIndependentStoreProofAndOldReceiptCannotSubstitute() {
         var runtime=scopedRuntime();when(runtime.getInstanceKey()).thenReturn("eap-demo/session-1");
         toolState.set("{\"tools\":{\"enabled\":true}}");
