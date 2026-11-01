@@ -81,7 +81,11 @@ class ScopedToolIntegrationTests {
         db.update("update workflow_executions set status='EXECUTION_UNKNOWN',owner_epoch=owner_epoch+1,owner_id=null where id=?",run.id());
         service.revoke(root.grantId(),"test");policy(a,false,32);String ledger=ledgerSnapshot();
         recovery.processPending();
-        var entry=recovery.report(run.workflowId(),run.runKey()).entries().getFirst();
+        var report=recovery.report(run.workflowId(),run.runKey());
+        assertThat(report.contract()).isEqualTo("workflow-tool-query-v1");
+        assertThat(report.workflowId()).isEqualTo(run.workflowId());assertThat(report.runKey()).isEqualTo(run.runKey());
+        assertThatThrownBy(()->recovery.report(run.workflowId()+1,run.runKey())).isInstanceOf(BusinessException.class);
+        var entry=report.entries().getFirst();
         assertThat(entry.state()).isEqualTo("CONFIRMED");assertThat(entry.operation().effectId()).isEqualTo(original.effectId());
         assertThat(entry.operationId()).isEqualTo(request.operationId());assertThat(entry.queryEpoch()).isEqualTo(1);
         for(int i=0;i<3;i++)recovery.processPending();

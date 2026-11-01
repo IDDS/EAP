@@ -36,7 +36,7 @@ public class WorkflowToolRecoveryService {
     public record Entry(int sequence,String nodeKey,String taskKey,String rootId,String operationId,
             String holderKey,String actorUid,String contractVersion,String budgetKey,String state,String reason,
             long queryEpoch,Instant leaseUntil,Instant observedAt,ScopedToolDtos.Operation operation) {}
-    public record Report(String contract,boolean enrolled,String mode,String responsibility,List<Entry> entries) {}
+    public record Report(String contract,Long workflowId,String runKey,boolean enrolled,String mode,String responsibility,List<Entry> entries) {}
     record Claim(long id,long epoch,String owner,ScopedToolDtos.RecoveryBinding binding,ScopedToolDtos.Execute request) {}
 
     /** Same database stores the dispatch intent and query responsibility before any external request. */
@@ -129,7 +129,7 @@ public class WorkflowToolRecoveryService {
                     "tool-root:"+binding.rootId(),(String)row.get("state"),(String)row.get("reason"),((Number)row.get("owner_epoch")).longValue(),
                     instant(row.get("lease_until_ms")),instant(row.get("observed_ms")),evidence==null?null:evidence.operation()));
         }
-        return new Report(CONTRACT,run.recoveryVersion==1,"QUERY_ONLY","平台持久查询队列；不续授权、不重放、不退款、不推进后续节点",entries);
+        return new Report(CONTRACT,workflowId,runKey,run.recoveryVersion==1,"QUERY_ONLY","平台持久查询队列；不续授权、不重放、不退款、不推进后续节点",entries);
     }
     private static Instant instant(Object millis) { return millis==null?null:Instant.ofEpochMilli(((Number)millis).longValue()); }
     private String json(Object value) { try{return mapper.writeValueAsString(value);}catch(Exception e){throw new IllegalStateException("元数据无法保存");} }

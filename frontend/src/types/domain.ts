@@ -1259,11 +1259,11 @@ export interface WorkflowRun {
 }
 
 export interface WorkflowToolRecovery {
-  contract: string; enrolled: boolean; mode: 'QUERY_ONLY'; responsibility: string
+  contract: string; workflowId: number; runKey: string; enrolled: boolean; mode: 'QUERY_ONLY'; responsibility: string
   entries: { sequence: number; nodeKey: string; taskKey: string; rootId: string; operationId: string;
     holderKey: string; actorUid: string; contractVersion: string; budgetKey: string; state: string; reason: string;
     queryEpoch: number; leaseUntil?: string; observedAt?: string;
-    operation?: { effectId?: string; counterValue?: number; state: string; effectSource: string } }[]
+    operation?: { rootId: string; operationId: string; effectId?: string; counterValue?: number; state: string; effectSource: string } | null }[]
 }
 
 export interface WorkflowExecution {

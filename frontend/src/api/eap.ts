@@ -564,7 +564,7 @@ export const EapApi = {
     postData<WorkflowEdge, { sourceNodeKey: string; targetNodeKey: string; conditionExpression?: string }>(`/workflows/${workflowId}/edges`, payload),
   runWorkflow: (workflowId: number, payload: { objective?: string; context?: { severity: string; approved: boolean } }) =>
     postData<WorkflowRun, typeof payload>(`/workflows/${workflowId}/runs`, payload),
-  getWorkflowToolRecovery: (workflowId: number, runKey: string) => getData<import('@/types/domain').WorkflowToolRecovery>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}/tool-recovery`),
+  getWorkflowToolRecovery: (workflowId: number, runKey: string) => getData<import('@/types/domain').WorkflowToolRecovery>(`/workflows/${workflowId}/executions/${encodeURIComponent(runKey)}/tool-recovery`, { silentError: true }),
   workflowExecutionStatus: () => getData<{ enabled: boolean; protocol: string; message: string }>('/workflows/execution-status'),
   executeWorkflow: (workflowId: number, payload: { objective?: string; context?: { severity: string; approved: boolean } }) =>
     submitWorkflowOnce(workflowId, payload, request =>

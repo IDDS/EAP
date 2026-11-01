@@ -1,12 +1,12 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261031-enterprise-mainline-r1",
+  "releaseId": "private-pilot-20261101-tool-recovery-identity-r1",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
   "schema": 97,
   "applications": {
-    "backend": "10.186.133.66:5001/eap-backend@sha256:a6e4f162207feba5edd9c9f384e2c299d07b0ef1b2b5860ccffb400973a92a30",
-    "frontend": "10.186.133.66:5001/eap-frontend@sha256:72a06ce7d2e899257a4fdf35a357850f6150b83d93b5da28de5046f269086985"
+    "backend": "10.186.133.66:5001/eap-backend@sha256:a4eb667218b5d454d639c0c452215b1fabdae871b8c0f6930d5fae9af8816de2",
+    "frontend": "10.186.133.66:5001/eap-frontend@sha256:0c61f8a137f3959940cf9629d15c2f55c7d925a8f4597ad4c2ab45b649008921"
   },
   "capabilities": [
     {
