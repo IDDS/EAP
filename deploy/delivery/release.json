@@ -1,12 +1,12 @@
 {
   "contract": "EAP_DELIVERY_V1",
-  "releaseId": "private-pilot-20261101-tool-recovery-identity-r1",
+  "releaseId": "private-pilot-20261102-handoff-diagnostic-r1",
   "profile": "ASSISTED_PRIVATE_PILOT",
   "productionReady": false,
   "schema": 97,
   "applications": {
-    "backend": "10.186.133.66:5001/eap-backend@sha256:a4eb667218b5d454d639c0c452215b1fabdae871b8c0f6930d5fae9af8816de2",
-    "frontend": "10.186.133.66:5001/eap-frontend@sha256:0c61f8a137f3959940cf9629d15c2f55c7d925a8f4597ad4c2ab45b649008921"
+    "backend": "10.186.133.66:5001/eap-backend@sha256:77985f948a5006a64a6200d1fe8569b4d7f3c953e3ca817f92f89c26bd9654dd",
+    "frontend": "10.186.133.66:5001/eap-frontend@sha256:9b1d7367f46a2275892ce75c39f7c4cfb0ccffe6c4b298503e809cca56cdeec2"
   },
   "capabilities": [
     {

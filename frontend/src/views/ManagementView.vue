@@ -19,8 +19,12 @@
 
     <BudgetPanel v-if="activeSection === 'budget'" />
 
+    <el-alert v-if="activeSection !== 'budget' && loadState === 'loading'" type="info" :closable="false" show-icon title="正在读取当前统计数据。" />
+    <el-alert v-if="activeSection !== 'budget' && loadState === 'error'" type="error" :closable="false" show-icon title="统计数据读取失败，暂不展示上次结果。请刷新重试。" />
+    <template v-if="loadState === 'ready'">
     <el-alert v-if="activeSection!=='budget'&&summary.mixedCurrencies" title="当前窗口包含多种币种，请选择财务币种后查看金额、净收益和投入产出比。" type="info" :closable="false" show-icon />
     <p v-if="activeSection!=='budget'" class="muted">财务口径：{{ summary.currency || '未选定（多币种）' }}；模型调用和价值事件按该币种统计，任务与知识指标仍覆盖整个窗口。</p>
+    <el-alert v-if="activeSection === 'overview' || activeSection === 'attribution' || activeSection === 'value'" type="info" :closable="false" show-icon title="价值金额和确认人由调用方或连接器填报，系统不独立核验业务确认；请结合原始记录核实。" />
     <el-alert v-if="activeSection === 'overview' || activeSection === 'attribution'" type="info" :closable="false" show-icon title="投入仅包含已采集的模型费用，可能包含估算或缺失；人工、基础设施等成本未计入。净收益和投入产出比仅反映这一口径，需结合完整成本核实。" />
     <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">
       费用来源（当前时间窗口、全部币种）：<template v-if="summary.costCoverage">调用方提供 {{ summary.costCoverage.reported }} 次；网关估算 {{ summary.costCoverage.estimated }} 次；未提供 {{ summary.costCoverage.missing }} 次；来源未知 {{ summary.costCoverage.unknown }} 次。来源标记不代表账单已核对。</template><template v-else>当前服务尚未提供来源统计。</template>
@@ -31,13 +35,13 @@
       <div class="analysis-hero-copy">
         <span class="analysis-eyebrow">价值分析 / 最近 {{ windowHours }} 小时</span>
         <h2>价值回路</h2>
-        <p>把模型投入、任务执行、知识贡献与业务确认价值放在同一个回路里，避免只看调用量而忽略实际产出。</p>
+        <p>把模型投入、任务执行、知识贡献与登记价值放在一起查看，结合业务记录核实实际产出。</p>
       </div>
       <div class="management-value-card">
         <span class="analysis-eyebrow">价值信号</span>
         <strong>{{ roiLabel }}</strong>
-        <span>投入产出比 · {{ summary.hasValidatedValue ? '业务方已确认' : '等待业务方确认' }}</span>
-        <div class="management-value-meta"><span>净收益（模型口径） <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>确认价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
+        <span>投入产出比 · {{ summary.hasValidatedValue ? '已有价值记录' : '暂无价值记录' }}</span>
+        <div class="management-value-meta"><span>净收益（模型口径） <b>{{ formatMoney(summary.netBenefit) }}</b></span><span>登记价值 <b>{{ formatMoney(summary.validatedBusinessValue) }}</b></span></div>
       </div>
     </div>
 
@@ -59,11 +63,12 @@
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
         <span class="management-flow-index">04</span>
-        <div><span>业务价值</span><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><small>{{ summary.hasValidatedValue ? '已确认' : '待确认' }}</small></div>
+        <div><span>业务价值</span><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><small>{{ summary.hasValidatedValue ? '已登记' : '未登记' }}</small></div>
       </div>
     </div>
 
-    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-usage-panel">
+    <el-alert v-if="activeSection === 'overview' && !tasksAvailable" type="warning" :closable="false" show-icon title="任务列表读取失败，暂无法显示员工使用和任务关联统计。请刷新重试；这不代表没有任务。" />
+    <el-card v-if="tasksAvailable" v-show="activeSection === 'overview'" shadow="never" class="panel management-usage-panel">
       <template #header>
         <div class="panel-header">
           <div><span>员工使用与业务效果</span><div class="muted">把“有人使用”“任务完成”和“问题解决”分开统计，避免把调用量误当成业务价值。</div></div>
@@ -98,23 +103,24 @@
             <el-table-column prop="uses" label="使用次数" width="90" />
             <el-table-column label="完成率" width="105"><template #default="{ row }">{{ row.successRate }}%</template></el-table-column>
             <el-table-column label="解决率" width="105"><template #default="{ row }">{{ row.resolutionRate }}</template></el-table-column>
-            <el-table-column label="确认价值" width="110"><template #default="{ row }">{{ row.validatedValue > 0 ? formatMoney(row.validatedValue) : '—' }}</template></el-table-column>
+            <el-table-column v-if="valueEventTotal !== null" label="登记价值（样本）" width="140"><template #default="{ row }">{{ row.validatedValue > 0 ? formatMoney(row.validatedValue) : '—' }}</template></el-table-column>
           </PaginatedTable>
           <el-empty v-if="!applicationUsage.length" description="当前窗口没有可识别应用场景" :image-size="56" />
         </div>
       </div>
-      <div class="management-usage-note">JWT 模式会自动使用登录主体作为员工 / 调用方；开发模式或机器调用可显式传入 <code>requester</code>。问题解决来自任务完成后的明确判断，不会用模型调用次数或任务成功状态替代业务确认。</div>
+      <div class="management-usage-note">JWT 模式会自动使用登录主体作为员工 / 调用方；开发模式或机器调用可显式传入 <code>requester</code>。问题是否解决来自任务记录中的明确判断，具体结论需结合业务记录核实。应用场景金额仅按所取价值记录计算：{{ valueSampleLabel }}。</div>
     </el-card>
 
-    <el-card v-show="activeSection === 'overview'" shadow="never" class="panel management-funnel-panel">
+    <el-alert v-if="activeSection === 'overview' && valueEventTotal === null" type="info" :closable="false" show-icon title="价值记录正在加载或未取得；任务关联统计暂不可用。" />
+    <el-card v-if="tasksAvailable && valueEventTotal !== null" v-show="activeSection === 'overview'" shadow="never" class="panel management-funnel-panel">
       <template #header>
         <div class="panel-header">
-          <div><span>业务价值漏斗</span><div class="muted">沿着“使用 → 执行 → 解决 → 证据 → 价值”定位业务价值流失点。</div></div>
+          <div><span>任务与价值关联</span><div class="muted">分别查看当前任务的执行、结果判断和价值记录关联情况。</div></div>
           <span class="muted">当前窗口 · 最近 {{ windowHours }} 小时</span>
         </div>
       </template>
       <div class="management-funnel-list">
-        <div v-for="(stage, index) in businessValueFunnel" :key="stage.key" class="management-funnel-stage" :class="{ 'is-dropoff': stage.dropoff }">
+        <div v-for="(stage, index) in businessValueFunnel" :key="stage.key" class="management-funnel-stage">
           <div class="management-funnel-stage-head">
             <span class="management-funnel-index">{{ String(index + 1).padStart(2, '0') }}</span>
             <div class="management-funnel-stage-copy"><strong>{{ stage.label }}</strong><small>{{ stage.description }}</small></div>
@@ -124,7 +130,7 @@
           <div class="management-funnel-track"><i :style="{ width: `${stage.percent}%` }"></i></div>
         </div>
       </div>
-      <div class="management-funnel-note">转化率按相邻漏斗层计算；“已关联业务证据”只统计外部系统或带来源记录的价值事件，“已确认价值”只统计已关联任务的价值事件，不会用模型调用次数替代业务结果。</div>
+      <div class="management-funnel-note">各项占比以当前任务数为分母，任务集合可能重叠，不能作为逐层转化率。价值关联仅基于所取记录：{{ valueSampleLabel }}；来源记录和登记金额均需业务方核实。</div>
     </el-card>
 
     <div v-if="drilldownLabel" class="drilldown-context">
@@ -139,7 +145,7 @@
       type="warning"
       :closable="false"
       show-icon
-      title="尚未录入业务方确认价值，投入产出比暂不计算。可在“价值事件”中登记与智能体或发现端点关联的记录。"
+      title="尚无价值事件，页面暂不展示投入产出比。可在“价值事件”中登记记录并由业务方核实。"
     />
 
     <div v-show="activeSection === 'overview'" class="metric-strip">
@@ -148,7 +154,7 @@
         <el-icon><Money /></el-icon>
       </div>
       <div class="small-box box-success">
-        <div><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><span>确认业务价值 {{ summary.currency || '待选币种' }}</span></div>
+        <div><strong>{{ formatMoney(summary.validatedBusinessValue) }}</strong><span>登记业务价值 {{ summary.currency || '待选币种' }}</span></div>
         <el-icon><TrendCharts /></el-icon>
       </div>
       <div class="small-box box-primary">
@@ -180,7 +186,7 @@
       <template #header>
         <div class="panel-header">
           <span>管理决策信号</span>
-          <span class="muted">基于真实运行数据与业务方已确认价值，不推算未确认收益</span>
+          <span class="muted">基于运行数据和登记价值；记录及业务结果需另行核实</span>
         </div>
       </template>
       <div class="management-decision-grid">
@@ -189,19 +195,19 @@
           <small>{{ signal.description }}</small>
         </div>
       </div>
-      <div class="management-decision-note">决策信号是运营优先级提示：只有业务方登记确认价值后，才会参与 ROI 计算。</div>
+      <div class="management-decision-note">决策信号仅供排序参考。价值金额由调用方或连接器登记，系统不独立核验业务确认；模型口径也不包含全部成本。</div>
     </el-card>
 
     <div v-show="activeSection === 'overview'" class="chart-grid management-chart-grid">
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
           <div class="panel-header">
-            <span>确认价值走势</span>
-            <span class="muted">价值事件累计</span>
+            <span>登记价值走势</span>
+            <span class="muted">{{ valueSampleLabel }}；图中最多 16 条，累计从图中第一条开始</span>
           </div>
         </template>
-        <TrendChart v-if="summary.currency" :option="valueTrendOption" />
-        <el-empty v-else description="选择币种后查看价值走势" />
+        <TrendChart v-if="summary.currency && valueEventTotal !== null" :option="valueTrendOption" />
+        <el-empty v-else :description="valueEventTotal === null ? '价值记录正在加载或未取得' : '选择币种后查看价值走势'" />
       </el-card>
       <el-card shadow="never" class="panel chart-panel">
         <template #header>
@@ -226,7 +232,7 @@
           <span class="management-rank">{{ String(index + 1).padStart(2, '0') }}</span>
           <div class="management-leader-name"><strong>{{ row.subjectName }}</strong><span>{{ row.subjectKey }}</span></div>
           <div class="management-leader-metric"><span>投入产出比</span><strong>{{ row.validatedValue != null && row.validatedValue > 0 && row.totalCost != null && row.totalCost > 0 && row.roi != null ? row.roi.toFixed(4) : '—' }}</strong></div>
-          <div class="management-leader-metric"><span>确认价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
+          <div class="management-leader-metric"><span>登记价值</span><strong>{{ formatMoney(row.validatedValue) }}</strong></div>
           <div class="management-leader-bars">
             <div><span>采用 {{ Math.round(row.knowledgeAdoptionRate * 100) }}%</span><i><b :style="{ width: `${Math.round(row.knowledgeAdoptionRate * 100)}%` }"></b></i></div>
             <div><span>复用 {{ Math.round(row.knowledgeReuseRate * 100) }}%</span><i><b class="reuse" :style="{ width: `${Math.round(row.knowledgeReuseRate * 100)}%` }"></b></i></div>
@@ -260,7 +266,7 @@
           <el-table-column label="模型投入" width="92">
             <template #default="{ row }">{{ formatMoney(row.totalCost) }}</template>
           </el-table-column>
-          <el-table-column label="确认价值" width="105">
+          <el-table-column label="登记价值" width="105">
             <template #default="{ row }">{{ formatMoney(row.validatedValue) }}</template>
           </el-table-column>
           <el-table-column label="管理信号" width="128">
@@ -302,7 +308,7 @@
                 <el-option label="提升收入" value="REVENUE" />
                 <el-option label="减少损失" value="LOSS_AVOIDANCE" />
                 <el-option label="质量提升" value="QUALITY_IMPROVEMENT" />
-                <el-option label="其他已验证价值" value="OTHER" />
+                <el-option label="其他价值" value="OTHER" />
               </el-select>
             </el-form-item>
           </div>
@@ -317,7 +323,7 @@
           <div class="form-row">
             <el-form-item label="数据来源">
               <el-select v-model="form.sourceType" style="width: 100%">
-                <el-option label="人工确认" value="MANUAL" />
+                <el-option label="人工登记" value="MANUAL" />
                 <el-option label="业务系统导入" value="BUSINESS_SYSTEM" />
                 <el-option label="链路推导" value="DERIVED" />
               </el-select>
@@ -341,7 +347,7 @@
                 <el-option label="数值越低越好" value="LOWER_IS_BETTER" />
               </el-select>
             </el-form-item>
-            <div class="management-metric-hint">填写基线和当前值后，系统会计算已确认的效率/业务改进率。</div>
+            <div class="management-metric-hint">填写基线和当前值后，系统按登记数字计算改进率；数据和结果需业务方核实。</div>
           </div>
           <div class="form-row">
             <el-form-item label="智能体 ID">
@@ -372,7 +378,7 @@
             <span v-if="contributions.length === 0" class="muted">未设置时，价值归属到上方单一智能体或端点。</span>
           </div>
           <div class="form-row">
-            <el-form-item label="确认价值金额" required>
+            <el-form-item label="登记价值金额" required>
               <el-input-number v-model="form.benefitMoney" :min="0" :precision="6" :controls="false" style="width: 100%" />
             </el-form-item>
             <el-form-item label="币种">
@@ -387,7 +393,7 @@
               <el-input-number v-model="form.currentValue" :min="0" :controls="false" style="width: 100%" />
             </el-form-item>
           </div>
-          <el-form-item label="确认人 / 业务方" required>
+          <el-form-item label="填报的确认人 / 业务方" required>
             <el-input v-model="form.validatedBy" placeholder="例如 finance@example.com 或 财务部" />
           </el-form-item>
           <el-form-item label="价值说明">
@@ -395,7 +401,7 @@
           </el-form-item>
           <div class="button-row management-submit-row">
             <span class="muted">提交后会计入投入产出汇总，并保留幂等事件标识。</span>
-            <el-button type="primary" :loading="saving" @click="recordValue">登记确认价值</el-button>
+            <el-button type="primary" :loading="saving" @click="recordValue">登记价值事件</el-button>
           </div>
         </el-form>
       </el-card>
@@ -405,7 +411,7 @@
       <el-card shadow="never" class="panel management-connector-list-panel">
         <template #header>
           <div class="panel-header">
-            <div><span>业务价值连接器</span><div class="muted">从 CRM、ERP、工单等系统增量采集已发生的业务结果</div></div>
+            <div><span>业务价值连接器</span><div class="muted">从已配置的业务系统采集价值记录；结果是否成立需另行核实</div></div>
             <el-button size="small" @click="resetConnectorForm">新建连接器</el-button>
           </div>
         </template>
@@ -524,7 +530,7 @@
             <el-form-item label="同步周期（分钟）"><el-input-number v-model="connectorForm.syncIntervalMinutes" :min="1" :max="10080" :controls="false" style="width: 100%" /></el-form-item>
             <el-form-item label="证据可信度"><el-input-number v-model="connectorForm.confidence" :min="0" :max="1" :step="0.05" :precision="2" :controls="false" style="width: 100%" /></el-form-item>
           </div>
-          <el-form-item label="业务确认主体" required><el-input v-model="connectorForm.validatedBy" placeholder="例如 销售运营系统 / 财务系统" /></el-form-item>
+          <el-form-item label="填报的确认主体" required><el-input v-model="connectorForm.validatedBy" placeholder="例如 销售运营系统 / 财务系统" /></el-form-item>
           <div class="button-row management-submit-row">
             <el-switch v-model="connectorForm.enabled" active-text="启用定时同步" />
             <div><el-button @click="resetConnectorForm">重置</el-button><el-button type="primary" :loading="connectorSaving" @click="saveConnector">保存连接器</el-button></div>
@@ -540,7 +546,7 @@
           <span class="muted">按下方时间范围检索历史，未选择时查询全部时间</span>
         </div>
       </template>
-      <HistoryTable ref="eventHistory" :fetch-page="fetchValueHistory" :reset-key="`${route.fullPath}:${summary.currency}`" :statuses="[]" placeholder="搜索价值类型、来源、确认人、说明">
+      <HistoryTable ref="eventHistory" :fetch-page="fetchValueHistory" :reset-key="`${route.fullPath}:${summary.currency}`" :statuses="[]" placeholder="搜索价值类型、来源、填报确认人、说明">
         <el-table-column label="时间" width="180">
           <template #default="{ row }">{{ formatTime(row.observedAt) }}</template>
         </el-table-column>
@@ -567,7 +573,7 @@
         <el-table-column label="价值类型" width="150">
           <template #default="{ row }">{{ managementValueTypeLabel(row.valueType) }}</template>
         </el-table-column>
-        <el-table-column label="确认价值" width="125">
+        <el-table-column label="登记价值" width="125">
           <template #default="{ row }">{{ row.benefitMoney.toFixed(2) }} {{ row.currency }}</template>
         </el-table-column>
         <el-table-column label="业务指标改善" min-width="180">
@@ -578,12 +584,13 @@
             <span v-else class="muted">未填写基线 / 当前值</span>
           </template>
         </el-table-column>
-        <el-table-column label="确认人" width="150" prop="validatedBy" />
+        <el-table-column label="填报确认人" width="150" prop="validatedBy" />
         <el-table-column label="说明" min-width="240">
           <template #default="{ row }">{{ row.description || '—' }}</template>
         </el-table-column>
       </HistoryTable>
     </el-card>
+    </template>
   </section>
 </template>
 
@@ -592,7 +599,7 @@ import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
 import PaginatedTable from '@/components/common/PaginatedTable.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { CircleCheck, DataAnalysis, Money, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { EapApi } from '@/api/eap'
@@ -646,13 +653,16 @@ const route = useRoute()
 let loadRequestId = 0
 const activeSection = usePageSection()
 const loading = ref(false)
+const loadState = ref<'loading' | 'ready' | 'error'>('loading')
 const saving = ref(false)
 const connectorSaving = ref(false)
 const syncingConnectorId = ref<number>()
 const editingConnectorId = ref<number>()
 const summary = ref<ManagementSummary>({ ...emptySummary })
 const valueEvents = ref<ManagementValueEvent[]>([])
+const valueEventTotal = ref<number | null>(null)
 const tasks = ref<AgentTask[]>([])
+const tasksAvailable = ref(true)
 const agents = ref<Agent[]>([])
 const connectors = ref<ManagementValueConnector[]>([])
 type ContributionDraft = {
@@ -749,7 +759,7 @@ const employeeUsage = computed(() => {
     current.uses += 1
     current.succeeded += task.status === 'SUCCEEDED' ? 1 : 0
     current.resolved += task.problemResolved === true ? 1 : 0
-    current.judged += task.problemResolved === undefined ? 0 : 1
+    current.judged += typeof task.problemResolved === 'boolean' ? 1 : 0
     if (new Date(task.createdAt).getTime() > new Date(current.lastUsedAt).getTime()) current.lastUsedAt = task.createdAt
     grouped.set(requester, current)
   })
@@ -769,7 +779,7 @@ const applicationUsage = computed(() => {
     current.uses += 1
     current.succeeded += task.status === 'SUCCEEDED' ? 1 : 0
     current.resolved += task.problemResolved === true ? 1 : 0
-    current.judged += task.problemResolved === undefined ? 0 : 1
+    current.judged += typeof task.problemResolved === 'boolean' ? 1 : 0
     current.validatedValue += valueByTask.get(task.id) || 0
     grouped.set(task.taskType, current)
   })
@@ -782,7 +792,7 @@ const applicationUsage = computed(() => {
 const activeEmployeeCount = computed(() => employeeUsage.value.filter(item => item.requester !== '未采集调用方').length)
 const usageIdentityCaptured = computed(() => activeEmployeeCount.value > 0)
 const resolvedTaskCount = computed(() => windowTasks.value.filter(task => task.problemResolved === true).length)
-const resolutionObservedCount = computed(() => windowTasks.value.filter(task => task.problemResolved !== undefined).length)
+const resolutionObservedCount = computed(() => windowTasks.value.filter(task => typeof task.problemResolved === 'boolean').length)
 const resolutionRateLabel = computed(() => resolutionObservedCount.value ? `${Math.round(resolvedTaskCount.value / resolutionObservedCount.value * 100)}%` : '未采集')
 const outcomeCoverageLabel = computed(() => windowTasks.value.length ? `${Math.round(resolutionObservedCount.value / windowTasks.value.length * 100)}%` : '未采集')
 const averageDailyUses = computed(() => {
@@ -823,6 +833,9 @@ const valueEventsInWindow = computed(() => {
   const since = Date.now() - windowHours.value * 60 * 60 * 1000
   return visibleValueEvents.value.filter(event => new Date(event.observedAt).getTime() >= since)
 })
+const valueSampleLabel = computed(() => valueEventTotal.value == null
+  ? '价值记录加载中或未取得'
+  : `符合筛选条件 ${valueEventTotal.value} 条，取最近 ${valueEventsInWindow.value.length} 条`)
 const businessValueFunnel = computed(() => {
   const tasksInWindow = windowTasks.value
   const evidenceTaskIds = new Set<number>()
@@ -835,18 +848,16 @@ const businessValueFunnel = computed(() => {
   const counts = [
     { key: 'used', label: '使用任务', description: '窗口内有任务记录', count: tasksInWindow.length },
     { key: 'succeeded', label: '执行成功', description: '任务状态为 SUCCEEDED', count: tasksInWindow.filter(task => task.status === 'SUCCEEDED').length },
-    { key: 'judged', label: '结果已判断', description: '业务方明确记录已解决或未解决', count: tasksInWindow.filter(task => task.problemResolved !== undefined).length },
+    { key: 'judged', label: '结果已判断', description: '记录了已解决或未解决', count: tasksInWindow.filter(task => typeof task.problemResolved === 'boolean').length },
     { key: 'resolved', label: '问题已解决', description: '明确标记为 problemResolved=true', count: tasksInWindow.filter(task => task.problemResolved === true).length },
-    { key: 'evidenced', label: '已关联业务证据', description: '外部系统或来源记录已回链', count: tasksInWindow.filter(task => evidenceTaskIds.has(task.id)).length },
-    { key: 'valued', label: '已确认价值', description: '关联价值事件且金额大于 0', count: tasksInWindow.filter(task => confirmedValueTaskIds.has(task.id)).length },
+    { key: 'evidenced', label: '有关联来源线索', description: '非人工来源或填写了来源标识', count: tasksInWindow.filter(task => evidenceTaskIds.has(task.id)).length },
+    { key: 'valued', label: '有关联登记价值', description: '关联价值事件且金额大于 0', count: tasksInWindow.filter(task => confirmedValueTaskIds.has(task.id)).length },
   ]
-  return counts.map((stage, index) => {
-    const previous = index === 0 ? stage.count : counts[index - 1].count
+  return counts.map(stage => {
     return {
       ...stage,
       percent: counts[0].count ? Math.round(stage.count / counts[0].count * 100) : 0,
-      rateLabel: index === 0 ? (stage.count ? '100%' : '—') : previous ? `${Math.round(stage.count / previous * 100)}% 转化` : '—',
-      dropoff: index > 0 && previous > 0 && stage.count < previous,
+      rateLabel: counts[0].count ? `${Math.round(stage.count / counts[0].count * 100)}% 任务` : '—',
     }
   })
 })
@@ -871,7 +882,7 @@ function decisionFor(row: ManagementSummary['agentUsage'][number]): { key: Decis
     return { key: 'OPTIMIZE', label: '优先优化', reason: successRate !== undefined && successRate < 0.8 ? '成功率偏低' : '登记价值未覆盖模型费用' }
   }
   if (row.modelCalls > 0 || row.tasks > 0 || row.knowledgeInteractions > 0) {
-    return { key: 'VALIDATE', label: '补充确认', reason: '尚无确认价值' }
+    return { key: 'VALIDATE', label: '补充确认', reason: '尚无登记价值' }
   }
   return { key: 'OBSERVE', label: '持续观察', reason: '运行数据不足' }
 }
@@ -880,7 +891,7 @@ const decisionSummary = computed<DecisionSignal[]>(() => {
   const definitions: Array<[DecisionKey, string, string]> = [
     ['SCALE', '关注潜力', '登记价值高于模型费用，仍需核实完整成本'],
     ['OPTIMIZE', '优先优化', '成功率或投入产出仍需改善'],
-    ['VALIDATE', '补充确认', '已有运行数据，但尚无业务价值确认'],
+    ['VALIDATE', '补充确认', '已有运行数据，但尚无登记价值'],
     ['OBSERVE', '持续观察', '当前窗口运行证据不足'],
   ]
   return definitions.map(([key, label, description]) => ({
@@ -908,8 +919,8 @@ const valueTrendOption = computed<EChartsOption>(() => {
     xAxis: { type: 'category', data: rows.map(row => new Date(row.observedAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })), axisLabel: { color: '#8795a9', fontSize: 10 } },
     yAxis: { type: 'value', name: summary.value.currency || '', nameTextStyle: { color: '#8795a9', fontSize: 10 }, axisLabel: { color: '#8795a9', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f7' } } },
     series: [
-      { name: '单次确认价值', type: 'bar', barMaxWidth: 18, data: rows.map(row => row.benefitMoney), itemStyle: { borderRadius: [4, 4, 0, 0] } },
-      { name: '累计确认价值', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: cumulativeValues },
+      { name: '单次登记价值', type: 'bar', barMaxWidth: 18, data: rows.map(row => row.benefitMoney), itemStyle: { borderRadius: [4, 4, 0, 0] } },
+      { name: '图中记录累计', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5, data: cumulativeValues },
     ],
   }
 })
@@ -945,20 +956,30 @@ function fetchValueHistory(params:HistoryParams) { return EapApi.pageManagementV
 async function load() {
   const requestId = ++loadRequestId
   loading.value = true
+  loadState.value = 'loading'
+  valueEventTotal.value = null
+  valueEvents.value = []
   try {
     const [nextSummary, nextEvents, nextAgents, nextConnectors, nextTasks] = await Promise.all([
       EapApi.getManagementSummary(windowHours.value, selectedCurrency.value || undefined),
-      EapApi.listManagementValueEvents(100),
+      EapApi.pageManagementValues({ page: 1, size: 100, order: 'desc',
+        from: new Date(Date.now() - windowHours.value * 60 * 60 * 1000).toISOString(),
+        currency: selectedCurrency.value || undefined, agentId: contextAgentId.value, endpointKey: contextEndpointKey.value || undefined }),
       EapApi.listAgents(),
       EapApi.listManagementConnectors(),
-      EapApi.listTasks().catch(() => [] as AgentTask[]),
+      EapApi.listTasks().then(items => ({ items, available: true })).catch(() => ({ items: [] as AgentTask[], available: false })),
     ])
     if (requestId !== loadRequestId) return
     summary.value = nextSummary
-    valueEvents.value = nextEvents
+    valueEvents.value = nextEvents.items
+    valueEventTotal.value = nextEvents.totalElements
     agents.value = nextAgents
     connectors.value = nextConnectors
-    tasks.value = nextTasks
+    tasks.value = nextTasks.items
+    tasksAvailable.value = nextTasks.available
+    loadState.value = 'ready'
+  } catch {
+    if (requestId === loadRequestId) loadState.value = 'error'
   } finally {
     if (requestId === loadRequestId) loading.value = false
   }
@@ -1104,7 +1125,7 @@ function agentName(agentId?: number) {
 }
 
 function sourceTypeLabel(value: string) {
-  return ({ MANUAL: '人工确认', BUSINESS_SYSTEM: '业务系统', DERIVED: '链路推导' } as Record<string, string>)[value] || value
+  return ({ MANUAL: '人工登记', BUSINESS_SYSTEM: '业务系统', DERIVED: '链路推导' } as Record<string, string>)[value] || value
 }
 
 function formatNumber(value: number) {
@@ -1128,10 +1149,11 @@ function managementValueTypeLabel(value: string) {
     REVENUE: '提升收入',
     LOSS_AVOIDANCE: '减少损失',
     QUALITY_IMPROVEMENT: '质量提升',
-    OTHER: '其他已验证价值',
+    OTHER: '其他价值',
   }
   return labels[value] || value
 }
 
+watch([contextAgentId, contextEndpointKey], () => { void load() })
 onMounted(load)
 </script>

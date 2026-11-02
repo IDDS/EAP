@@ -53,6 +53,7 @@ async function remove() {
       <el-form label-position="top" @submit.prevent="save">
         <el-form-item label="计划目标" required><el-input v-model="draft.goal" aria-label="修改计划目标" maxlength="128" :disabled="busy" /></el-form-item>
         <el-form-item label="上下文说明"><el-input v-model="draft.contextSummary" aria-label="修改计划上下文" type="textarea" :rows="4" maxlength="1024" :disabled="busy" /></el-form-item>
+        <p class="muted">计划目标和上下文说明对有控制台查看权限的账号可见，请勿填写敏感正文或凭据。</p>
         <p v-if="copying" class="muted">复制步骤、执行方式和结果契约。新计划需要重新分配成员，不会自动执行，也不复制原执行结果。</p>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
         <div class="button-row"><el-button :disabled="busy" @click="open = false">取消</el-button><el-button type="primary" native-type="submit" :loading="busy" :disabled="!allowed()">{{ copying ? '创建副本' : '保存计划' }}</el-button></div>

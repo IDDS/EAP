@@ -14,9 +14,9 @@ function functionsFrom(names, state) {
 }
 const ref = value => ({ value })
 function deferred() {
-  let resolve
-  const promise = new Promise(done => { resolve = done })
-  return { promise, resolve }
+  let resolve, reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 test('management money shows the selected currency and never formats unavailable totals as zero', () => {
@@ -46,11 +46,12 @@ test('management decisions distinguish an unknown ROI from mixed currencies', ()
 test('switching financial currency ignores a late response for the previous currency', async () => {
   const usd = deferred(), cny = deferred()
   const state = functionsFrom(['load'], {
-    loadRequestId: 0, windowHours: ref(24), selectedCurrency: ref('USD'), loading: ref(false), summary: ref({}),
-    valueEvents: ref([]), agents: ref([]), connectors: ref([]), tasks: ref([]),
+    loadRequestId: 0, windowHours: ref(24), selectedCurrency: ref('USD'), loading: ref(false), loadState: ref('loading'), summary: ref({}),
+    valueEvents: ref([]), valueEventTotal: ref(null), contextAgentId: ref(undefined), contextEndpointKey: ref(''),
+    agents: ref([]), connectors: ref([]), tasks: ref([]), tasksAvailable: ref(true),
     EapApi: {
       getManagementSummary: (_hours, currency) => currency === 'USD' ? usd.promise : cny.promise,
-      listManagementValueEvents: async () => [], listAgents: async () => [], listManagementConnectors: async () => [], listTasks: async () => [],
+      pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [], listManagementConnectors: async () => [], listTasks: async () => [],
     },
   })
   const first = state.load()
@@ -61,4 +62,82 @@ test('switching financial currency ignores a late response for the previous curr
   assert.equal(state.summary.value.currency, 'CNY')
   assert.equal(state.summary.value.totalCost, 20)
   assert.equal(state.loading.value, false)
+  assert.equal(state.loadState.value, 'ready')
+})
+
+test('task list read failure is visible and later successful empty list restores availability', async () => {
+  let failing = true
+  const state = functionsFrom(['load'], {
+    loadRequestId: 0, windowHours: ref(24), selectedCurrency: ref(''), loading: ref(false), loadState: ref('loading'), summary: ref({}),
+    valueEvents: ref([]), valueEventTotal: ref(null), contextAgentId: ref(undefined), contextEndpointKey: ref(''),
+    agents: ref([]), connectors: ref([]), tasks: ref([{ id: 1 }]), tasksAvailable: ref(true),
+    EapApi: {
+      getManagementSummary: async () => ({}), pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [],
+      listManagementConnectors: async () => [], listTasks: async () => { if (failing) throw new Error('unavailable'); return [] },
+    },
+  })
+  await state.load()
+  assert.equal(state.tasksAvailable.value, false)
+  assert.equal(state.tasks.value.length, 0)
+  failing = false
+  await state.load()
+  assert.equal(state.tasksAvailable.value, true)
+  assert.equal(state.tasks.value.length, 0)
+})
+
+test('value records are filtered on the server before the bounded page and retain the total', async () => {
+  let query
+  const state = functionsFrom(['load'], {
+    loadRequestId: 0, windowHours: ref(24), selectedCurrency: ref('CNY'), loading: ref(false), loadState: ref('loading'), summary: ref({}),
+    valueEvents: ref([]), valueEventTotal: ref(null), contextAgentId: ref(7), contextEndpointKey: ref('endpoint'),
+    agents: ref([]), connectors: ref([]), tasks: ref([]), tasksAvailable: ref(true),
+    EapApi: {
+      getManagementSummary: async () => ({ currency: 'CNY' }),
+      pageManagementValues: async params => { query = params; return { items: [{ id: 3 }], totalElements: 125 } },
+      listAgents: async () => [], listManagementConnectors: async () => [], listTasks: async () => [],
+    },
+  })
+  const before = Date.now()
+  await state.load()
+  assert.equal(query.page, 1)
+  assert.equal(query.size, 100)
+  assert.equal(query.order, 'desc')
+  assert.equal(query.currency, 'CNY')
+  assert.equal(query.agentId, 7)
+  assert.equal(query.endpointKey, 'endpoint')
+  assert.ok(Math.abs(Date.parse(query.from) - (before - 24 * 60 * 60 * 1000)) < 2000)
+  assert.equal(state.valueEventTotal.value, 125)
+  assert.equal(state.valueEvents.value.length, 1)
+})
+
+test('failed summary hides old data, recovers, and stale failures cannot override a newer response', async () => {
+  const old = deferred()
+  let phase = 'old'
+  const state = functionsFrom(['load'], {
+    loadRequestId: 0, windowHours: ref(24), selectedCurrency: ref(''), loading: ref(false), loadState: ref('ready'), summary: ref({ currency: 'OLD' }),
+    valueEvents: ref([{ id: 1 }]), valueEventTotal: ref(1), contextAgentId: ref(undefined), contextEndpointKey: ref(''),
+    agents: ref([]), connectors: ref([]), tasks: ref([]), tasksAvailable: ref(true),
+    EapApi: {
+      getManagementSummary: () => phase === 'old' ? old.promise : phase === 'fail' ? Promise.reject(new Error('unavailable')) : Promise.resolve({ currency: 'CNY' }),
+      pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [],
+      listManagementConnectors: async () => [], listTasks: async () => [],
+    },
+  })
+  const first = state.load()
+  assert.equal(state.loadState.value, 'loading')
+  phase = 'success'
+  await state.load()
+  assert.equal(state.loadState.value, 'ready')
+  old.reject(new Error('late failure'))
+  await first
+  assert.equal(state.loadState.value, 'ready')
+  assert.equal(state.summary.value.currency, 'CNY')
+  phase = 'fail'
+  await state.load()
+  assert.equal(state.loadState.value, 'error')
+  assert.equal(state.valueEventTotal.value, null)
+  phase = 'success'
+  await state.load()
+  assert.equal(state.loadState.value, 'ready')
+  assert.equal(state.valueEventTotal.value, 0)
 })

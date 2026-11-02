@@ -100,6 +100,18 @@ class WorkflowTaskClientSubstrateTests {
         assertThat(taskCalls.get()).isEqualTo(6);
     }
 
+    @Test void unconfirmedHandoffPreservesOnlyItsFixedDiagnosticCode() {
+        responseStatus.set("EXECUTION_UNKNOWN"); reasonCode.set("HANDOFF_UNCONFIRMED");
+        output.set(Map.of("private", "PRIVATE_CONTENT"));
+        var receipt=client.invoke(runtime("substrate://eap-demo/session-1"),Map.of("taskKey","sample:1"),Instant.now().plusSeconds(30));
+        assertThat(receipt.status()).isEqualTo("EXECUTION_UNKNOWN");assertThat(receipt.output()).isNull();
+        assertThat(receipt.reason()).contains("HANDOFF_UNCONFIRMED").doesNotContain("PRIVATE_CONTENT");
+        reasonCode.set("PRIVATE_PROVIDER_ERROR");
+        var unknown=client.invoke(runtime("substrate://eap-demo/session-1"),Map.of("taskKey","sample:1"),Instant.now().plusSeconds(30));
+        assertThat(unknown.reason()).isEqualTo("Runtime 未提供明确任务终态");
+        assertThat(unknown.output()).isNull();assertThat(taskCalls.get()).isEqualTo(2);
+    }
+
     @Test
     void dispatchBarrierRunsAfterWakeupAndCanBlockTaskAfterOwnershipLoss() {
         assertThatThrownBy(()->client.invoke(runtime("substrate://eap-demo/session-1"), Map.of("taskKey","wf-1:1"), Instant.now().plusSeconds(30), ()->{

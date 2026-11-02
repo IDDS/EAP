@@ -305,6 +305,19 @@ class WorkflowExecutionIntegrationTests {
     }
 
     @Test
+    void unconfirmedHandoffPreservesDiagnosticAndStopsDownstream() {
+        reply.set("EXECUTION_UNKNOWN");modelReason.set("HANDOFF_UNCONFIRMED");
+        downstream("{\"inputFrom\":[\"task\"]}");
+        var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("handoff diagnostic"),"operator");
+        executions.processNext();
+        var result=executions.get(workflowId,queued.runKey());
+        assertThat(result.status()).isEqualTo("EXECUTION_UNKNOWN");
+        assertThat(result.steps()).anyMatch(step->step.reason()!=null && step.reason().contains("HANDOFF_UNCONFIRMED"));
+        assertThat(requests.get()).isEqualTo(1);assertThat(executions.outputs(workflowId,queued.runKey())).isEmpty();
+        executions.processNext();assertThat(requests.get()).isEqualTo(1);
+    }
+
+    @Test
     void truncatedModelResultStopsDependentTaskAndPersistsReason() {
         reply.set("FAILED"); modelReason.set("MODEL_OUTPUT_TRUNCATED");
         output.set(json.getNodeFactory().textNode("PRIVATE_PARTIAL"));

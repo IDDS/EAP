@@ -216,6 +216,8 @@ public class WorkflowTaskClient {
             }
             String status = result.path("status").asText();
             if (!status.equals("SUCCEEDED") && !status.equals("FAILED")) {
+                if (status.equals("EXECUTION_UNKNOWN") && result.path("reasonCode").asText().equals("HANDOFF_UNCONFIRMED"))
+                    return new Receipt("EXECUTION_UNKNOWN", "Runtime 报告交接步骤未确认（HANDOFF_UNCONFIRMED）；原因未确定，请按原任务核对，未自动重试", httpStatus);
                 return new Receipt("EXECUTION_UNKNOWN", "Runtime 未提供明确任务终态", httpStatus);
             }
             // A runtime-reported task failure is not proof that an external tool had no effect.

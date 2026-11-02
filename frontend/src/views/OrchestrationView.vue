@@ -96,6 +96,7 @@
       <el-form label-position="top" @submit.prevent="savePlan">
         <el-form-item label="计划目标" label-for="plan-goal" required><el-input id="plan-goal" v-model="planDraft.goal" maxlength="128" show-word-limit :disabled="savingPlan" /></el-form-item>
         <el-form-item label="上下文说明" label-for="plan-context"><el-input id="plan-context" v-model="planDraft.contextSummary" type="textarea" :rows="4" maxlength="1024" show-word-limit :disabled="savingPlan" /></el-form-item>
+        <p class="muted">计划目标和上下文说明对有控制台查看权限的账号可见，请勿填写敏感正文或凭据。</p>
         <el-alert v-if="planFormError" :title="planFormError" type="error" :closable="false" />
         <div class="button-row"><el-button :disabled="savingPlan" @click="planFormOpen = false">取消</el-button><el-button type="primary" native-type="submit" :loading="savingPlan" :disabled="!permissions.can('runWorkflows')">创建计划</el-button></div>
       </el-form>
@@ -104,6 +105,7 @@
       <el-form label-position="top" @submit.prevent="saveStep">
         <el-form-item label="步骤顺序" label-for="step-order" required><el-input-number id="step-order" v-model="stepDraft.stepOrder" :min="1" :max="2147483647" :precision="0" :disabled="savingStep" /></el-form-item>
         <el-form-item label="步骤任务" label-for="step-title" required><el-input id="step-title" v-model="stepDraft.title" maxlength="128" show-word-limit :disabled="savingStep" /></el-form-item>
+        <p class="muted">步骤任务对有控制台查看权限的账号可见，请勿填写敏感正文或凭据。</p>
         <el-form-item label="执行方式"><el-select v-model="stepDraft.executionBackend" :disabled="savingStep"><el-option label="常规执行" value="RUNTIME" /><el-option label="隔离沙箱 · 完成后自动休眠" value="AX" /></el-select></el-form-item>
         <el-form-item label="所需能力" label-for="step-capability" required><el-input id="step-capability" v-model="stepDraft.requiredCapability" maxlength="128" show-word-limit :disabled="savingStep" /></el-form-item>
         <WorkflowOutputConfig v-model="stepOutputConfig" node-type="AGENT" plan-step :disabled="savingStep || frozen || !permissions.can('runWorkflows')" />

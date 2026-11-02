@@ -70,6 +70,7 @@ async function remove() {
     <el-dialog v-model="open" title="编辑步骤" width="min(640px, 94vw)" :close-on-click-modal="!busy" :show-close="!busy">
       <el-form label-position="top" @submit.prevent="save">
         <el-form-item label="步骤任务" required><el-input v-model="draft.title" aria-label="修改步骤任务" maxlength="128" :disabled="busy" /></el-form-item>
+        <p class="muted">步骤任务对有控制台查看权限的账号可见，请勿填写敏感正文或凭据。</p>
         <el-form-item label="所需能力" required><el-input v-model="draft.requiredCapability" aria-label="修改步骤能力" maxlength="128" :disabled="busy" /></el-form-item>
         <el-form-item label="执行方式"><el-select v-model="draft.executionBackend" aria-label="修改步骤执行方式" :disabled="busy"><el-option label="常规执行" value="RUNTIME" /><el-option label="隔离沙箱 · 完成后自动休眠" value="AX" /></el-select></el-form-item>
         <WorkflowOutputConfig v-model="outputConfig" node-type="AGENT" plan-step :disabled="busy || !allowed()" />
