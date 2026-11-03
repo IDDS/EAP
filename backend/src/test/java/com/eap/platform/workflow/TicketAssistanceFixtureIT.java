@@ -110,7 +110,8 @@ class TicketAssistanceFixtureIT {
 
     @Test void unconfirmedReadsPreserveTheirReasonButStopBeforeDraftWithoutWriting() throws Exception {
         for (var scenario : Map.of("INC-MISSING", "NOT_VISIBLE", "INC-DENIED", "ACCESS_DENIED",
-                "INC-AMBIGUOUS", "AMBIGUOUS", "INC-UNAVAILABLE", "UNAVAILABLE").entrySet()) {
+                "INC-AMBIGUOUS", "AMBIGUOUS", "INC-UNAVAILABLE", "UNAVAILABLE",
+                "INC-TRUNCATED", "INVALID_RESPONSE", "INC-TOO-DEEP", "INVALID_RESPONSE").entrySet()) {
             JsonNode before=stats();
             var queued=executions.submit(workflowId,new WorkflowDtos.RunRequest("review unconfirmed ticket",Map.of("ticketId",scenario.getKey())),"operator");
             executions.processNext();

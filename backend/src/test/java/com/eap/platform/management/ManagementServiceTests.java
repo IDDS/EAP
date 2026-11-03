@@ -120,6 +120,21 @@ class ManagementServiceTests {
 
         assertThat(response.id()).isEqualTo(9L);
         assertThat(response.benefitMoney()).isEqualByComparingTo("5.500000");
+        assertThat(response.benefitProvenance()).isEqualTo("REPORTED");
+    }
+
+    @Test
+    void preservesDifferenceBetweenOmittedAmountAndExplicitZero() {
+        when(endpointRepository.findByEndpointKey("endpoint-1")).thenReturn(Optional.of(new com.eap.platform.discovery.DiscoveryEndpoint()));
+        when(valueRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        var missing = service.recordValue(new ManagementDtos.ValueEventRequest(
+                "missing", null, "endpoint-1", null, null, "OTHER", null, "fixture", null, "USD", Instant.now()));
+        var zero = service.recordValue(new ManagementDtos.ValueEventRequest(
+                "zero", null, "endpoint-1", null, null, "OTHER", null, "fixture", BigDecimal.ZERO, "USD", Instant.now()));
+        assertThat(missing.benefitMoney()).isEqualByComparingTo("0");
+        assertThat(missing.benefitProvenance()).isEqualTo("MISSING");
+        assertThat(zero.benefitMoney()).isEqualByComparingTo("0");
+        assertThat(zero.benefitProvenance()).isEqualTo("REPORTED");
     }
 
     @Test
@@ -230,6 +245,27 @@ class ManagementServiceTests {
         var summary = service.summary(24);
 
         assertThat(summary.roi()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void withholdsAggregateWhenAnyAttributedContributorHasNoSelectedCurrencyCall() {
+        stubFinancialContext("USD", "2");
+        when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any()))
+                .thenReturn(List.of(financialValue(31L, 1L, "USD", "10")));
+        var first = new ManagementValueAttribution();
+        first.valueEventId = 31L; first.agentId = 1L; first.contributionWeight = new BigDecimal("0.5");
+        var second = new ManagementValueAttribution();
+        second.valueEventId = 31L; second.agentId = 2L; second.contributionWeight = new BigDecimal("0.5");
+        when(attributionRepository.findByValueEventIdIn(any())).thenReturn(List.of(first, second));
+
+        var summary = service.summary(24);
+
+        assertThat(summary.validatedBusinessValue()).isEqualByComparingTo("10");
+        assertThat(summary.totalCost()).isEqualByComparingTo("2");
+        assertThat(summary.netBenefit()).isNull();
+        assertThat(summary.roi()).isNull();
+        assertThat(summary.agentUsage().stream().filter(row -> Long.valueOf(1).equals(row.agentId())).findFirst().orElseThrow().netBenefit()).isEqualByComparingTo("3");
+        assertThat(summary.agentUsage().stream().filter(row -> Long.valueOf(2).equals(row.agentId())).findFirst().orElseThrow().netBenefit()).isNull();
     }
 
     @Test
@@ -348,7 +384,7 @@ class ManagementServiceTests {
         var cny = financialValue(32L, 2L, " cny ", "100");
         when(valueRepository.findByObservedAtGreaterThanEqualOrderByObservedAtDesc(any())).thenReturn(List.of(usd, cny));
         when(telemetryService.currencies(24)).thenReturn(List.of("USD", "CNY"));
-        stubFinancialContext("CNY", "20");
+        stubFinancialContext("CNY", "20", 3L);
         var contribution = new ManagementValueAttribution();
         contribution.valueEventId = 32L;
         contribution.agentId = 3L;
@@ -389,14 +425,23 @@ class ManagementServiceTests {
         event.agentId = agentId;
         event.currency = currency;
         event.benefitMoney = new BigDecimal(amount);
+        event.benefitProvenance = BenefitProvenance.REPORTED;
         event.observedAt = Instant.now();
         return event;
     }
 
     private void stubFinancialContext(String currency, String cost) {
+        stubFinancialContext(currency, cost, 1L);
+    }
+
+    private void stubFinancialContext(String currency, String cost, long agentId) {
+        int calls = new BigDecimal(cost).signum() == 0 ? 0 : 1;
+        var subjects = calls == 0 ? List.<ModelTelemetryDtos.SubjectUsage>of() : List.of(
+                new ModelTelemetryDtos.SubjectUsage("agent:" + agentId, "fixture", agentId, null,
+                        1, 1, 0, 1.0, 1, 1, 2, new BigDecimal(cost), 1, Instant.now()));
         when(telemetryService.summary(24, currency)).thenReturn(new ModelTelemetryDtos.PhysicalTelemetrySummary(
-                24, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                new BigDecimal(cost), 0, 0, 0, 0, 0, 0, 0, null, List.of(), List.of(), new ModelTelemetryDtos.CostCoverage(0, 0, 0, 0), List.of()));
+                24, calls, calls, 0, 0, 0, 0, 0, 0, 0,
+                new BigDecimal(cost), 0, 0, 0, 0, 0, 0, 0, null, subjects, List.of(), new ModelTelemetryDtos.CostCoverage(calls, 0, 0, 0), List.of()));
         when(knowledgeService.summary(24)).thenReturn(new KnowledgeDtos.KnowledgeSummary(
                 24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, null, List.of()));
     }

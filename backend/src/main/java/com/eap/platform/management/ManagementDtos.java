@@ -93,6 +93,7 @@ public final class ManagementDtos {
             String description,
             String validatedBy,
             BigDecimal benefitMoney,
+            String benefitProvenance,
             String currency,
             String metricName,
             String metricUnit,
@@ -132,6 +133,8 @@ public final class ManagementDtos {
     ) {
     }
 
+    public record ValueCoverage(long reported, long missing, long unknown) {}
+
     public record ManagementSummary(
             int windowHours,
             String currency,
@@ -163,7 +166,8 @@ public final class ManagementDtos {
             long resolvedTasks,
             long unresolvedTasks,
             long unconfirmedTasks,
-            ModelTelemetryDtos.CostCoverage costCoverage
+            ModelTelemetryDtos.CostCoverage costCoverage,
+            ValueCoverage valueCoverage
     ) {
     }
 
@@ -171,7 +175,8 @@ public final class ManagementDtos {
         return new ValueEventResponse(
                 event.id, event.eventKey, event.agentId, event.endpointKey, event.taskId,
                 event.knowledgeInteractionId, event.valueType, event.description, event.validatedBy,
-                event.benefitMoney, event.currency, event.metricName, event.metricUnit,
+                event.benefitMoney, event.benefitProvenance == null ? "UNKNOWN" : event.benefitProvenance.name(),
+                event.currency, event.metricName, event.metricUnit,
                 event.baselineValue, event.currentValue, improvementRate(event), event.sourceType, event.sourceSystem,
                 event.sourceRecordKey, event.confidence, event.measurementWindowStart, event.measurementWindowEnd,
                 attributions.stream().map(item -> new AgentContributionResponse(

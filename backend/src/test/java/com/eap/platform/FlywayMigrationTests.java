@@ -8,6 +8,42 @@ import java.sql.DriverManager;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class FlywayMigrationTests {
+    @Test void personalMemoryMigrationPreservesExistingValueEvents() throws Exception {
+        String url = "jdbc:h2:mem:personal_memory_upgrade_" + java.util.UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("98").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            q.executeUpdate("insert into management_value_events(event_key,value_type,validated_by,benefit_money,benefit_provenance,currency,observed_at,created_at) values('memory-upgrade-fixture','OTHER','fixture',10,'REPORTED','USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        }
+        assertThat(Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").load().migrate().migrationsExecuted).isEqualTo(1);
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            try (var r = q.executeQuery("select benefit_money,benefit_provenance from management_value_events where event_key='memory-upgrade-fixture'")) {
+                assertThat(r.next()).isTrue();
+                assertThat(r.getBigDecimal(1)).isEqualByComparingTo("10");
+                assertThat(r.getString(2)).isEqualTo("REPORTED");
+            }
+            try (var r = q.executeQuery("select count(*) from personal_memories")) {
+                assertThat(r.next()).isTrue();
+                assertThat(r.getLong(1)).isZero();
+            }
+        }
+    }
+    @Test void valueAmountProvenanceMigrationKeepsLegacyAmountsWithoutInferringInputPresence() throws Exception {
+        String url = "jdbc:h2:mem:value_provenance_" + java.util.UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("97").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            q.executeUpdate("insert into management_value_events(event_key,value_type,validated_by,benefit_money,currency,observed_at,created_at) values('legacy-zero','OTHER','fixture',0,'USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),('legacy-positive','OTHER','fixture',10,'USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        }
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement(); var r = q.executeQuery("select benefit_money,benefit_provenance from management_value_events where event_key in ('legacy-zero','legacy-positive') order by event_key")) {
+            assertThat(r.next()).isTrue();
+            assertThat(r.getBigDecimal(1)).isEqualByComparingTo("10");
+            assertThat(r.getString(2)).isNull();
+            assertThat(r.next()).isTrue();
+            assertThat(r.getBigDecimal(1)).isEqualByComparingTo("0");
+            assertThat(r.getString(2)).isNull();
+            assertThat(r.next()).isFalse();
+        }
+    }
     @Test void modelCostProvenanceMigrationDoesNotInferHistoricalCosts() throws Exception {
         String url = "jdbc:h2:mem:cost_provenance_" + java.util.UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
         Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("96").load().migrate();
@@ -291,7 +327,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(97);
+        assertThat(result.migrationsExecuted).isEqualTo(99);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

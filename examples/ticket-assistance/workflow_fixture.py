@@ -30,9 +30,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, status, value):
         data = json.dumps(value, ensure_ascii=False, allow_nan=False).encode()
+        self.reply_bytes(status, data)
+
+    def reply_bytes(self, status, data, extra_declared_bytes=0):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Length", str(len(data) + extra_declared_bytes))
         self.end_headers()
         self.wfile.write(data)
 
@@ -54,6 +57,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {"complete": False, "tickets": []})
             elif self.path == "/tickets/INC-UNAVAILABLE":
                 self.reply(503, {})
+            elif self.path == "/tickets/INC-TRUNCATED":
+                ticket = dict(TICKET, id="INC-TRUNCATED")
+                data = json.dumps({"complete": True, "tickets": [ticket]}, ensure_ascii=False).encode()
+                self.reply_bytes(200, data, extra_declared_bytes=8)
+            elif self.path == "/tickets/INC-TOO-DEEP":
+                self.reply_bytes(200, b'{"complete":true,"tickets":' + b'[' * 2000 + b']' * 2000 + b'}')
             else:
                 self.reply(404, {})
         else:

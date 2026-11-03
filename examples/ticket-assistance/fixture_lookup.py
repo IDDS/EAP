@@ -52,7 +52,9 @@ class FixtureTicketLookup:
                 result["outcome"] = "INVALID_RESPONSE"
                 return result
             raw = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(raw) > MAX_RESPONSE_BYTES:
+            # HTTPResponse.read(amt) can return a valid JSON prefix after a
+            # premature EOF without raising IncompleteRead for Content-Length.
+            if len(raw) > MAX_RESPONSE_BYTES or (response.length is not None and response.length != 0):
                 result["outcome"] = "INVALID_RESPONSE"
                 return result
             payload = json.loads(raw, object_pairs_hook=_unique_object,
@@ -75,7 +77,7 @@ class FixtureTicketLookup:
                     result["ticket"] = {**ticket, "contentTrust": "UNTRUSTED_INPUT"}
         except (OSError, socket.timeout, http.client.HTTPException):
             pass
-        except (ValueError, UnicodeError, TypeError):
+        except (ValueError, UnicodeError, TypeError, RecursionError):
             result["outcome"] = "INVALID_RESPONSE"
         finally:
             connection.close()

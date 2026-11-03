@@ -27,6 +27,7 @@ export const navigationGroups: NavigationGroup[] = [
     {path:'/substrate-monitor',label:'基础设施',icon:'Histogram',description:'查看资源池容量、资源使用与沙箱运行状态。',keywords:'Substrate 监控 Worker 基础设施监控'},
   ]},
   {id:'workspace-quality',label:'评估与优化',icon:'TrendCharts',description:'评估质量，改进协作，衡量投入与成果。',items:[
+    {path:'/personal-memories',label:'我的记忆',icon:'Collection',description:'保存和撤回本人明确提供的记忆。',keywords:'记忆 管理 个人'},
     {path:'/evaluation',label:'质量评估',icon:'CircleCheck',description:'配置评估规则和数据集，比较结果与校准。',keywords:'评估与可靠性'},
     {path:'/learning',label:'反馈与改进',icon:'TrendCharts',description:'根据真实反馈比较提示词、新输出和用量。',keywords:'自适应学习'},
     {path:'/team-evolutions',label:'团队优化',icon:'TrendCharts',description:'比较团队候选、独立验证结果和全程费用。',keywords:'团队优化结果 AgentEvolver 团队调优 提示词优化'},

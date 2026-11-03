@@ -2,6 +2,8 @@ package com.eap.platform.management;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -44,6 +46,10 @@ public class ManagementValueEvent {
 
     @Column(name = "benefit_money", nullable = false, precision = 18, scale = 6)
     BigDecimal benefitMoney = BigDecimal.ZERO;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "benefit_provenance", length = 16)
+    BenefitProvenance benefitProvenance;
 
     @Column(nullable = false, length = 16)
     String currency = "USD";

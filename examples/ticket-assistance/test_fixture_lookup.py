@@ -20,7 +20,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.server.requests.append((self.command, self.path, self.headers.get("X-Fixture-Role")))
-        status, body, delay, content_type = self.server.responses.get(self.path, (404, b"", 0, "application/json"))
+        scenario = self.server.responses.get(self.path, (404, b"", 0, "application/json"))
+        status, body, delay, content_type = scenario[:4]
+        declared_length = scenario[4] if len(scenario) > 4 else None
         if self.headers.get("X-Fixture-Role") == "restricted":
             status, body = 403, b"private fixture error"
         if delay:
@@ -28,7 +30,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(body) if declared_length is None else declared_length))
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -53,8 +55,8 @@ class FixtureLookupTests(unittest.TestCase):
         self.client = FixtureTicketLookup(self.server.server_port, timeout=0.2)
         self.ticket = {"id": "INC-1", "state": "OPEN", "title": "Fixture", "description": "Synthetic request"}
 
-    def response(self, status=200, data=None, delay=0, content_type="application/json"):
-        self.server.responses["/tickets/INC-1"] = (status, body([self.ticket]) if data is None else data, delay, content_type)
+    def response(self, status=200, data=None, delay=0, content_type="application/json", declared_length=None):
+        self.server.responses["/tickets/INC-1"] = (status, body([self.ticket]) if data is None else data, delay, content_type, declared_length)
 
     def tearDown(self):
         self.assertTrue(all(method == "GET" for method, _, _ in self.server.requests))
@@ -116,6 +118,24 @@ class FixtureLookupTests(unittest.TestCase):
         self.assertEqual(self.client.lookup("INC-1")["outcome"], "UNAVAILABLE")
         self.assertEqual(len(self.server.requests), 4)
         self.assertTrue(all(method == "GET" for method, _, _ in self.server.requests))
+
+    def test_incomplete_http_body_is_not_accepted_even_when_json_is_valid(self):
+        from fixture_draft import draft_from_lookup
+
+        payload = body([self.ticket])
+        self.response(data=payload, declared_length=len(payload) + 8)
+        result = self.client.lookup("INC-1")
+        self.assertEqual(result["outcome"], "INVALID_RESPONSE")
+        self.assertIsNone(result["ticket"])
+        self.assertEqual(draft_from_lookup(result)["status"], "LOOKUP_UNCONFIRMED")
+        self.assertEqual(draft_from_lookup(result)["suggestions"], [])
+        self.assertEqual(len(self.server.requests), 1)
+
+    def test_excessive_json_nesting_is_an_invalid_response(self):
+        self.response(data=b'{"complete":true,"tickets":' + b'[' * 2000 + b']' * 2000 + b'}')
+        result = self.client.lookup("INC-1")
+        self.assertEqual(result["outcome"], "INVALID_RESPONSE")
+        self.assertIsNone(result["ticket"])
 
     def test_invalid_ids_and_configuration_cannot_select_an_endpoint(self):
         for value in ("../secret", "INC-1?x=1", "http://external", "inc-1", "", None):

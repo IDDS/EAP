@@ -870,6 +870,7 @@ export interface ManagementValueEvent {
   description?: string
   validatedBy: string
   benefitMoney: number
+  benefitProvenance?: 'REPORTED' | 'MISSING' | 'UNKNOWN' | null
   currency: string
   metricName?: string
   metricUnit?: string
@@ -915,6 +916,7 @@ export interface AgentManagementUsage {
 }
 
 export interface ManagementSummary {
+  valueCoverage?: { reported: number; missing: number; unknown: number } | null
   costCoverage?: { reported: number; estimated: number; missing: number; unknown: number } | null
   resolvedTasks?: number
   unresolvedTasks?: number

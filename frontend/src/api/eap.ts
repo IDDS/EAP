@@ -473,7 +473,7 @@ export const EapApi = {
     valueType: string
     description?: string
     validatedBy: string
-    benefitMoney: number
+    benefitMoney?: number
     currency?: string
     metricName?: string
     metricUnit?: string

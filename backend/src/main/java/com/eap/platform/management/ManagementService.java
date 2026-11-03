@@ -78,6 +78,7 @@ public class ManagementService {
         event.description = sanitizeDescription(request.description());
         event.validatedBy = request.validatedBy();
         event.benefitMoney = request.benefitMoney() == null ? BigDecimal.ZERO : request.benefitMoney();
+        event.benefitProvenance = request.benefitMoney() == null ? BenefitProvenance.MISSING : BenefitProvenance.REPORTED;
         event.currency = request.currency() == null || request.currency().isBlank() ? "USD" : request.currency().trim().toUpperCase(java.util.Locale.ROOT);
         event.metricName = normalize(request.metricName(), 128);
         event.metricUnit = normalize(request.metricUnit(), 32);
@@ -209,7 +210,16 @@ public class ManagementService {
         BigDecimal netBenefit = valueAmount.subtract(totalCost);
         var coverage = telemetry.costCoverage();
         boolean coverageAvailable = coverage != null && telemetry.incompleteCostSubjectKeys() != null;
-        boolean completeModelCosts = coverageAvailable && coverage.estimated() == 0 && coverage.missing() == 0 && coverage.unknown() == 0;
+        // No selected-currency observations is not evidence that model costs were zero.
+        boolean completeModelCosts = coverageAvailable && telemetry.totalCalls() > 0
+                && coverage.estimated() == 0 && coverage.missing() == 0 && coverage.unknown() == 0
+                && usage.values().stream().filter(item -> item.hasValueEvent).allMatch(item -> item.modelCalls > 0);
+        boolean completeValueAmounts = !values.isEmpty()
+                && values.stream().allMatch(value -> value.benefitProvenance == BenefitProvenance.REPORTED);
+        var valueCoverage = new ManagementDtos.ValueCoverage(
+                values.stream().filter(value -> value.benefitProvenance == BenefitProvenance.REPORTED).count(),
+                values.stream().filter(value -> value.benefitProvenance == BenefitProvenance.MISSING).count(),
+                values.stream().filter(value -> value.benefitProvenance == null).count());
         var incompleteCostSubjects = coverageAvailable ? java.util.Set.copyOf(telemetry.incompleteCostSubjectKeys()) : java.util.Set.<String>of();
         List<BigDecimal> measuredRates = values.stream().map(ManagementDtos::improvementRate).filter(java.util.Objects::nonNull).toList();
         double averageImprovementRate = measuredRates.isEmpty() ? 0.0 : measuredRates.stream().mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
@@ -229,8 +239,8 @@ public class ManagementService {
                 telemetry.totalTokens(),
                 mixedCurrencies ? null : totalCost,
                 mixedCurrencies ? null : valueAmount,
-                mixedCurrencies || !completeModelCosts ? null : netBenefit,
-                mixedCurrencies || !completeModelCosts ? null : roi(valueAmount, totalCost),
+                mixedCurrencies || !completeModelCosts || !completeValueAmounts ? null : netBenefit,
+                mixedCurrencies || !completeModelCosts || !completeValueAmounts ? null : roi(valueAmount, totalCost),
                 knowledge.adoptedInteractions(),
                 knowledge.reusedInteractions(),
                 knowledge.adoptionRate(),
@@ -245,11 +255,12 @@ public class ManagementService {
                 !values.isEmpty(),
                 values.isEmpty() ? null : values.get(0).observedAt,
                 usage.values().stream().sorted(Comparator.comparingLong(ManagementUsageAccumulator::totalTokens).reversed())
-                        .map(item -> item.toResponse(!mixedCurrencies, coverageAvailable && !incompleteCostSubjects.contains(item.key))).toList(),
+                        .map(item -> item.toResponse(!mixedCurrencies, coverageAvailable && item.modelCalls > 0
+                                && !incompleteCostSubjects.contains(item.key))).toList(),
                 tasks.stream().filter(task -> Boolean.TRUE.equals(task.problemResolved())).count(),
                 tasks.stream().filter(task -> Boolean.FALSE.equals(task.problemResolved())).count(),
                 tasks.stream().filter(task -> task.problemResolved() == null).count(),
-                telemetry.costCoverage()
+                telemetry.costCoverage(), valueCoverage
         );
     }
 
@@ -373,6 +384,8 @@ public class ManagementService {
         private BigDecimal totalCost = BigDecimal.ZERO;
         private BigDecimal validatedValue = BigDecimal.ZERO;
         private long measuredImpactEvents;
+        private boolean hasValueEvent;
+        private boolean incompleteValueAmount;
         private BigDecimal improvementRateTotal = BigDecimal.ZERO;
         private long adopted;
         private long reused;
@@ -402,6 +415,8 @@ public class ManagementService {
         }
 
         void addValue(ManagementValueEvent value, BigDecimal weight) {
+            hasValueEvent = true;
+            incompleteValueAmount |= value.benefitProvenance != BenefitProvenance.REPORTED;
             validatedValue = validatedValue.add(value.benefitMoney.multiply(weight));
             BigDecimal rate = ManagementDtos.improvementRate(value);
             if (rate != null) {
@@ -420,7 +435,8 @@ public class ManagementService {
             return new ManagementDtos.AgentManagementUsage(
                     key, name, agentId, endpointKey, tasks, succeededTasks, modelCalls, knowledgeInteractions,
                     totalTokens, monetaryComparable ? totalCost : null, monetaryComparable ? validatedValue : null,
-                    monetaryComparable && completeModelCosts ? netBenefit : null, monetaryComparable && completeModelCosts ? roi : null,
+                    monetaryComparable && completeModelCosts && hasValueEvent && !incompleteValueAmount ? netBenefit : null,
+                    monetaryComparable && completeModelCosts && hasValueEvent && !incompleteValueAmount ? roi : null,
                     knowledgeInteractions == 0 ? 0.0 : (double) adopted / knowledgeInteractions,
                     knowledgeInteractions == 0 ? 0.0 : (double) reused / knowledgeInteractions,
                     measuredImpactEvents,

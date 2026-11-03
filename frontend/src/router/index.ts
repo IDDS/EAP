@@ -30,6 +30,7 @@ const router = createRouter({
     { path: '/physical', component: PhysicalView, meta: { title: '运行与观测' } },
     { path: '/observation-coverage', component: () => import('@/views/ObservationCoverageView.vue'), meta: { title: '证据覆盖与定位' } },
     { path: '/knowledge', component: KnowledgeView, meta: { title: '知识流转' } },
+    { path: '/personal-memories', component: () => import('@/views/PersonalMemoryView.vue'), meta: { title: '我的记忆' } },
     { path: '/management', component: ManagementView, meta: { title: '成本与价值' } },
     { path: '/operations', component: OperationsView, meta: { title: '任务运行' } },
     { path: '/ax-tasks', component: () => import('@/views/AxTasksView.vue'), meta: { title: 'AX 任务执行' } },

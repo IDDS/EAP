@@ -29,7 +29,8 @@
     <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">
       费用来源（当前时间窗口、全部币种）：<template v-if="summary.costCoverage">调用方提供 {{ summary.costCoverage.reported }} 次；网关估算 {{ summary.costCoverage.estimated }} 次；未提供 {{ summary.costCoverage.missing }} 次；来源未知 {{ summary.costCoverage.unknown }} 次。来源标记不代表账单已核对。</template><template v-else>当前服务尚未提供来源统计。</template>
     </p>
-    <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">当前时间窗口内任一币种的模型费用为网关估算、未提供或来源未知时，汇总净收益和投入产出比不计算；单个智能体按其全部币种的记录分别判断。</p>
+    <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">所选币种没有价值记录、价值金额未提供或来源未知时，不计算净收益和投入产出比；未记录金额以零保存仅为兼容，不能认定实际价值为零。<template v-if="summary.valueCoverage">{{ summary.currency ? '所选币种' : '全部币种（未合计）' }}价值金额：已提供 {{ summary.valueCoverage.reported }} 条、未提供 {{ summary.valueCoverage.missing }} 条、历史来源未知 {{ summary.valueCoverage.unknown }} 条。</template><template v-else>当前服务尚未提供价值金额来源统计，暂不展示收益计算。</template></p>
+    <p v-if="activeSection === 'overview' || activeSection === 'attribution'" class="muted">所选币种没有模型调用记录、任一价值归属主体没有该币种调用记录，或当前窗口内任一币种的模型费用为网关估算、未提供或来源未知时，汇总净收益和投入产出比不计算；单个主体按其价值金额、所选币种调用及全部币种费用来源分别判断。已有记录也不代表覆盖全部调用，或与价值事件逐笔对应。</p>
 
     <div v-show="activeSection === 'overview'" class="analysis-hero management-hero">
       <div class="analysis-hero-copy">
@@ -48,7 +49,7 @@
     <div v-show="activeSection === 'overview'" class="management-flow-strip">
       <div class="management-flow-step">
         <span class="management-flow-index">01</span>
-        <div><span>模型投入</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
+        <div><span>已记录模型费用</span><strong>{{ formatMoney(summary.totalCost) }}</strong><small>{{ formatNumber(summary.totalTokens) }} Token</small></div>
       </div>
       <span class="management-flow-arrow">→</span>
       <div class="management-flow-step">
@@ -378,8 +379,8 @@
             <span v-if="contributions.length === 0" class="muted">未设置时，价值归属到上方单一智能体或端点。</span>
           </div>
           <div class="form-row">
-            <el-form-item label="登记价值金额" required>
-              <el-input-number v-model="form.benefitMoney" :min="0" :precision="6" :controls="false" style="width: 100%" />
+            <el-form-item label="登记价值金额（可留空）">
+              <el-input-number v-model="form.benefitMoney" :min="0" :precision="6" :controls="false" placeholder="未提供" style="width: 100%" />
             </el-form-item>
             <el-form-item label="币种">
               <el-input v-model="form.currency" maxlength="16" />
@@ -574,7 +575,7 @@
           <template #default="{ row }">{{ managementValueTypeLabel(row.valueType) }}</template>
         </el-table-column>
         <el-table-column label="登记价值" width="125">
-          <template #default="{ row }">{{ row.benefitMoney.toFixed(2) }} {{ row.currency }}</template>
+          <template #default="{ row }">{{ row.benefitProvenance === 'REPORTED' ? `${row.benefitMoney.toFixed(2)} ${row.currency}` : row.benefitProvenance === 'MISSING' ? '未提供' : `历史来源未知（存储 ${row.benefitMoney.toFixed(2)} ${row.currency}）` }}</template>
         </el-table-column>
         <el-table-column label="业务指标改善" min-width="180">
           <template #default="{ row }">
@@ -595,6 +596,7 @@
 </template>
 
 <script setup lang="ts">
+import { protectUnclassifiedValueReturns } from '@/utils/managementCoverage'
 import ConsolePageHeader from '@/components/common/ConsolePageHeader.vue'
 import { usePageSection } from '@/composables/usePageSection'
 import HistoryTable, { type HistoryParams } from '@/components/common/HistoryTable.vue'
@@ -679,7 +681,7 @@ const form = reactive({
   valueType: 'LABOR_SAVING',
   description: '',
   validatedBy: '',
-  benefitMoney: 0,
+  benefitMoney: undefined as number | undefined,
   currency: 'USD',
   metricName: '',
   metricUnit: '',
@@ -970,7 +972,7 @@ async function load() {
       EapApi.listTasks().then(items => ({ items, available: true })).catch(() => ({ items: [] as AgentTask[], available: false })),
     ])
     if (requestId !== loadRequestId) return
-    summary.value = nextSummary
+    summary.value = protectUnclassifiedValueReturns(nextSummary)
     valueEvents.value = nextEvents.items
     valueEventTotal.value = nextEvents.totalElements
     agents.value = nextAgents
@@ -1030,7 +1032,7 @@ async function recordValue() {
       })),
     })
     ElMessage.success('业务价值事件已登记')
-    Object.assign(form, { eventKey: '', agentId: undefined, endpointKey: '', description: '', validatedBy: '', benefitMoney: 0, metricName: '', metricUnit: '', baselineValue: undefined, currentValue: undefined, sourceType: 'MANUAL', sourceSystem: '', sourceRecordKey: '', confidence: 1 })
+    Object.assign(form, { eventKey: '', agentId: undefined, endpointKey: '', description: '', validatedBy: '', benefitMoney: undefined, metricName: '', metricUnit: '', baselineValue: undefined, currentValue: undefined, sourceType: 'MANUAL', sourceSystem: '', sourceRecordKey: '', confidence: 1 })
     contributions.value = []
     await load()
   } finally {

@@ -4,11 +4,14 @@ import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
 
+const coverageExports = {}
+new Function('exports', ts.transpileModule(readFileSync(new URL('../src/utils/managementCoverage.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText)(coverageExports)
+
 function functionsFrom(names, state) {
   const script = readFileSync(new URL('../src/views/ManagementView.vue', import.meta.url), 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
   const ast = ts.createSourceFile('ManagementView.vue', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const source = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name.text)).map(node => node.getText(ast)).join('\n')
-  const context = vm.createContext(state)
+  const context = vm.createContext({ protectUnclassifiedValueReturns: coverageExports.protectUnclassifiedValueReturns, ...state })
   vm.runInContext(ts.transpile(source, { target: ts.ScriptTarget.ES2022 }), context)
   return context
 }
@@ -57,8 +60,8 @@ test('switching financial currency ignores a late response for the previous curr
   const first = state.load()
   state.selectedCurrency.value = 'CNY'
   const second = state.load()
-  cny.resolve({ currency: 'CNY', totalCost: 20 }); await second
-  usd.resolve({ currency: 'USD', totalCost: 2 }); await first
+  cny.resolve({ currency: 'CNY', totalCost: 20, agentUsage: [] }); await second
+  usd.resolve({ currency: 'USD', totalCost: 2, agentUsage: [] }); await first
   assert.equal(state.summary.value.currency, 'CNY')
   assert.equal(state.summary.value.totalCost, 20)
   assert.equal(state.loading.value, false)
@@ -72,7 +75,7 @@ test('task list read failure is visible and later successful empty list restores
     valueEvents: ref([]), valueEventTotal: ref(null), contextAgentId: ref(undefined), contextEndpointKey: ref(''),
     agents: ref([]), connectors: ref([]), tasks: ref([{ id: 1 }]), tasksAvailable: ref(true),
     EapApi: {
-      getManagementSummary: async () => ({}), pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [],
+      getManagementSummary: async () => ({ agentUsage: [] }), pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [],
       listManagementConnectors: async () => [], listTasks: async () => { if (failing) throw new Error('unavailable'); return [] },
     },
   })
@@ -92,7 +95,7 @@ test('value records are filtered on the server before the bounded page and retai
     valueEvents: ref([]), valueEventTotal: ref(null), contextAgentId: ref(7), contextEndpointKey: ref('endpoint'),
     agents: ref([]), connectors: ref([]), tasks: ref([]), tasksAvailable: ref(true),
     EapApi: {
-      getManagementSummary: async () => ({ currency: 'CNY' }),
+      getManagementSummary: async () => ({ currency: 'CNY', agentUsage: [] }),
       pageManagementValues: async params => { query = params; return { items: [{ id: 3 }], totalElements: 125 } },
       listAgents: async () => [], listManagementConnectors: async () => [], listTasks: async () => [],
     },
@@ -118,7 +121,7 @@ test('failed summary hides old data, recovers, and stale failures cannot overrid
     valueEvents: ref([{ id: 1 }]), valueEventTotal: ref(1), contextAgentId: ref(undefined), contextEndpointKey: ref(''),
     agents: ref([]), connectors: ref([]), tasks: ref([]), tasksAvailable: ref(true),
     EapApi: {
-      getManagementSummary: () => phase === 'old' ? old.promise : phase === 'fail' ? Promise.reject(new Error('unavailable')) : Promise.resolve({ currency: 'CNY' }),
+      getManagementSummary: () => phase === 'old' ? old.promise : phase === 'fail' ? Promise.reject(new Error('unavailable')) : Promise.resolve({ currency: 'CNY', agentUsage: [] }),
       pageManagementValues: async () => ({ items: [], totalElements: 0 }), listAgents: async () => [],
       listManagementConnectors: async () => [], listTasks: async () => [],
     },
