@@ -9,6 +9,7 @@
     <p class="diagnostic-note">仅分析当前已加载记录，不能证明任务完整或业务成功。并发 Span 不累加为任务耗时。时间显示精度为毫秒。</p>
     <p v-if="possiblyTruncated" class="diagnostic-warning" role="status">本次已达到 500 条读取上限，可能存在未加载的记录；当前诊断不代表完整 Trace。</p>
     <p v-if="diagnostic.missingParents || diagnostic.cycles" class="diagnostic-warning">{{ diagnostic.missingParents }} 条记录的父 Span 不在当前范围内；{{ diagnostic.cycles }} 条记录存在祖先循环。</p>
+    <p v-if="diagnostic.uncertainIdentifiers" class="diagnostic-warning">{{ diagnostic.uncertainIdentifiers }} 条记录含回退生成、派生、未知或冲突的标识，关联结果需进一步核对。</p>
     <div class="diagnostic-toolbar"><h3>调用时间与异常</h3><label><input v-model="failuresOnly" type="checkbox" /> 仅看失败</label></div>
     <div class="waterfall-head"><span>调用步骤</span><span>相对最早生产端时间 · {{ diagnostic.duration.toLocaleString() }} ms</span></div>
     <button v-for="row in visibleRows" :key="`${row.span.traceId}:${row.span.spanId}:${row.span.id}`" class="waterfall-row" :aria-pressed="selectedId === row.span.id" @click="selectedId = row.span.id">
@@ -19,8 +20,8 @@
     <p v-if="!visibleRows.length" class="diagnostic-note">{{ failuresOnly ? '当前记录没有已报告的失败。' : '暂无调用记录。' }}</p>
     <div v-if="selected" class="span-detail" aria-live="polite">
       <div><h3>{{ selected.span.spanName }}</h3><button @click="selectedId = undefined">关闭详情</button></div>
-      <dl><dt>Span ID</dt><dd>{{ selected.span.spanId }}</dd><dt>父 Span</dt><dd>{{ selected.span.parentSpanId || '未提供' }}</dd><dt>生产端开始</dt><dd>{{ selected.span.startedAt || '未知' }}</dd><dt>生产端结束</dt><dd>{{ selected.span.endedAt || '未知' }}</dd><dt>上报耗时</dt><dd>{{ selected.span.durationMs }} ms（可能与时间戳口径不同）</dd><dt>工具 / 操作</dt><dd>{{ selected.span.toolName || selected.span.operation || '未提供' }}</dd></dl>
-      <p>此处展示运行元数据；失败原因需要结合已有治理与内容观测证据核对。</p>
+      <dl><dt>Trace ID</dt><dd>{{ selected.span.traceId }}（{{ identifierSourceLabel(selected.span.traceIdSource, selected.span.synthetic) }}）</dd><dt>Span ID</dt><dd>{{ selected.span.spanId }}（{{ identifierSourceLabel(selected.span.spanIdSource, selected.span.synthetic) }}）</dd><dt>父 Span</dt><dd>{{ selected.span.parentSpanId || '未提供' }}</dd><dt>生产端开始</dt><dd>{{ selected.span.startedAt || '未知' }}</dd><dt>生产端结束</dt><dd>{{ selected.span.endedAt || '未知' }}</dd><dt>上报耗时</dt><dd>{{ selected.span.durationMs }} ms（可能与时间戳口径不同）</dd><dt>工具 / 操作</dt><dd>{{ selected.span.toolName || selected.span.operation || '未提供' }}</dd></dl>
+      <p>“上报方提供”仅表示字段非空，不代表已验证其格式或真实性。此处展示运行元数据；失败原因需要结合已有治理与内容观测证据核对。</p>
       <RuntimeDiagnostics :attributes-json="selected.span.attributesJson" />
     </div>
   </section>
@@ -28,7 +29,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { TraceSpanObservation } from '@/types/domain'
-import { traceDiagnostics } from './trace-diagnostics'
+import { identifierSourceLabel, traceDiagnostics } from './trace-diagnostics'
 import RuntimeDiagnostics from './RuntimeDiagnostics.vue'
 const props = defineProps<{ spans: TraceSpanObservation[]; possiblyTruncated?: boolean; traceId: string }>()
 const failuresOnly = ref(false)

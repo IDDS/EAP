@@ -618,11 +618,14 @@ export interface ContentObservation {
 }
 
 export type TraceSpanKind = 'MODEL' | 'TOOL' | 'MCP' | 'RAG' | 'A2A' | 'AGENT'
+export type TraceIdentifierSource = 'PROVIDED' | 'GENERATED' | 'UNKNOWN' | 'CONFLICT'
 
 export interface TraceSpanObservation {
   id: number
   traceId: string
   spanId: string
+  traceIdSource?: TraceIdentifierSource | null
+  spanIdSource?: TraceIdentifierSource | null
   parentSpanId?: string
   endpointKey: string
   agentId?: number

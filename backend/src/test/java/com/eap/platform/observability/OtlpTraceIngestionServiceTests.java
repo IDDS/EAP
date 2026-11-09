@@ -26,6 +26,74 @@ class OtlpTraceIngestionServiceTests {
     private final ToolInvocationService toolInvocationService = mock(ToolInvocationService.class);
 
     @Test
+    void recordsIdentifierSourcesSeparatelyWithoutClaimingTheyAreValid() throws Exception {
+        var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        service.ingest(objectMapper.readTree("""
+            {"resourceSpans":[{"scopeSpans":[{"spans":[
+              {"traceId":"not-validated","spanId":"provided","name":"agent.task"},
+              {"traceId":" ","spanId":"provided-2","name":"agent.task"},
+              {"traceId":"provided-3","name":"agent.task"},
+              {"name":"agent.task"}
+            ]}]}]}
+            """));
+        var capture = ArgumentCaptor.forClass(TraceSpanObservation.class);
+        verify(traceSpanRepository, times(4)).save(capture.capture());
+        var rows = capture.getAllValues();
+        assertThat(rows.get(0).traceIdSource).isEqualTo("PROVIDED");
+        assertThat(rows.get(0).spanIdSource).isEqualTo("PROVIDED");
+        assertThat(rows.get(1).traceIdSource).isEqualTo("GENERATED");
+        assertThat(rows.get(1).spanIdSource).isEqualTo("PROVIDED");
+        assertThat(rows.get(2).traceIdSource).isEqualTo("PROVIDED");
+        assertThat(rows.get(2).spanIdSource).isEqualTo("GENERATED");
+        assertThat(rows.get(3).traceIdSource).isEqualTo("GENERATED");
+        assertThat(rows.get(3).spanIdSource).isEqualTo("GENERATED");
+    }
+
+    @Test
+    void replayDoesNotInventLegacyProvenanceAndPreservesConflicts() throws Exception {
+        var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        var legacy = new TraceSpanObservation();
+        var conflicting = new TraceSpanObservation();
+        conflicting.traceIdSource = "GENERATED";
+        conflicting.spanIdSource = "CONFLICT";
+        when(traceSpanRepository.findByTraceIdAndSpanId("legacy", "span")).thenReturn(java.util.Optional.of(legacy));
+        when(traceSpanRepository.findByTraceIdAndSpanId("collision", "span")).thenReturn(java.util.Optional.of(conflicting));
+        service.ingest(objectMapper.readTree("""
+            {"resourceSpans":[{"scopeSpans":[{"spans":[
+              {"traceId":"legacy","spanId":"span","name":"agent.task"},
+              {"traceId":"collision","spanId":"span","name":"agent.task"}
+            ]}]}]}
+            """));
+        assertThat(legacy.traceIdSource).isEqualTo("UNKNOWN");
+        assertThat(legacy.spanIdSource).isEqualTo("UNKNOWN");
+        assertThat(conflicting.traceIdSource).isEqualTo("CONFLICT");
+        assertThat(conflicting.spanIdSource).isEqualTo("CONFLICT");
+    }
+
+    @Test
+    void traceResponseExposesBothIdentifierSources() {
+        var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, contentObservationService,
+                new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);
+        var row = new TraceSpanObservation();
+        row.traceId = "fixture-trace";
+        row.spanId = "fixture-span";
+        row.traceIdSource = "GENERATED";
+        row.spanIdSource = "UNKNOWN";
+        row.spanKind = TraceSpanKind.AGENT;
+        row.attributesJson = "{}";
+        when(traceSpanRepository.findAll(
+                org.mockito.ArgumentMatchers.<org.springframework.data.jpa.domain.Specification<TraceSpanObservation>>any(),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(row)));
+        var response = service.listTraceSpans(10).getFirst();
+        var json = objectMapper.valueToTree(response);
+        assertThat(json.path("traceIdSource").asText()).isEqualTo("GENERATED");
+        assertThat(json.path("spanIdSource").asText()).isEqualTo("UNKNOWN");
+    }
+
+    @Test
     void runnerCompletionMetadataSurvivesIngestionWithoutBecomingAnotherModelEvent() throws Exception {
         var service = new OtlpTraceIngestionService(objectMapper, discoveryService, telemetryService, contentObservationService,
                 new SensitiveContentSanitizer(), traceSpanRepository, knowledgeService, toolInvocationService);

@@ -41,7 +41,9 @@ public final class OtlpTraceIngestionDtos {
             String attributesJson,
             Instant observedAt,
             Instant startedAt,
-            Instant endedAt
+            Instant endedAt,
+            String traceIdSource,
+            String spanIdSource
     ) {
     }
 }

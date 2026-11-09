@@ -170,8 +170,11 @@ class PlatformPermissionSecurityTests {
         expected.put("manageBudgets",govern);
         expected.put("reviewExperimentUnknowns",govern);
         expected.put("manageSafety",govern);
+        expected.put("manageOwnMemory",operate);
         assertEquals(expected.size(), capabilities.size());
         expected.forEach((key, allowed) -> assertEquals(allowed.booleanValue(), capabilities.path(key).asBoolean(), key));
+
+        assertEndpoint(capabilities, "manageOwnMemory", get("/api/personal-memories"), identity);
 
         for (String path : List.of("/summary", "/sessions", "/sessions/synthetic/events", "/sessions/synthetic/artifacts"))
             assertEndpoint(capabilities, "viewConsole", get("/api/safety" + path), identity);
@@ -280,7 +283,7 @@ class PlatformPermissionSecurityTests {
     }
 
     private static RequestPostProcessor identity(String role) {
-        return jwt().jwt(token -> token.subject("permission-test"))
+        return jwt().jwt(token -> token.issuer("https://idp.invalid.example/realm/eap").subject("permission-test"))
                 .authorities(role.equals("NONE") ? List.of() : List.of(new SimpleGrantedAuthority("ROLE_" + role)));
     }
 }

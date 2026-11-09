@@ -55,7 +55,7 @@
             <span :class="['session-indicator', { connected: hasAccessToken }]" />
             {{ hasAccessToken ? '企业认证' : platformStatus?.securityMode === 'DEVELOPMENT' ? '本地模式' : '登录' }}
           </el-button>
-          <el-button v-if="hasAccessToken" text @click="logout">退出</el-button>
+          <el-button v-if="hasAccessToken" text :loading="signingOut" @click="logout">退出</el-button>
         </div>
       </el-header>
       <main id="main-content" class="main" tabindex="-1">
@@ -149,6 +149,7 @@ import { ElMessage } from 'element-plus'
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/api/auth'
 import { EapApi } from '@/api/eap'
 import { startOidcSignIn } from '@/api/oidc'
+import { revokeSessionToken } from '@/api/sessionLogout'
 import { loadCurrentUser, usePermissions } from '@/stores/permissions'
 const { state: permissionState } = usePermissions()
 import type { Agent, DiscoveredAgentAsset, GovernancePolicy, PlatformStatus } from '@/types/domain'
@@ -178,6 +179,7 @@ let compactViewportQuery: MediaQueryList | undefined
 const authDialogVisible = ref(false)
 const authTokenDraft = ref('')
 const signingIn = ref(false)
+const signingOut = ref(false)
 const savingToken = ref(false)
 const hasAccessToken = ref(Boolean(getAccessToken()))
 const searchDialogVisible = ref(false)
@@ -248,9 +250,21 @@ function syncAuthentication() {
   hasAccessToken.value = Boolean(getAccessToken())
 }
 
-function logout() {
-  clearAccessToken()
-  window.location.reload()
+async function logout() {
+  const token = getAccessToken()
+  if (!token || signingOut.value) return
+  signingOut.value = true
+  try {
+    const revoked = await revokeSessionToken(token)
+    // An older logout response must never clear a replacement session.
+    if (getAccessToken() !== token) return
+    clearAccessToken()
+    if (!revoked) {
+      try { sessionStorage.setItem('eap.logout-revocation-unconfirmed', '1') }
+      catch { window.alert('本地已退出，但服务端未确认令牌撤销；请联系管理员处理。') }
+    }
+    window.location.reload()
+  } finally { signingOut.value = false }
 }
 
 function requireAuthentication() {
@@ -392,6 +406,10 @@ function syncSidebarForViewport(event?: MediaQueryListEvent) {
 }
 
 onMounted(() => {
+  if (sessionStorage.getItem('eap.logout-revocation-unconfirmed')) {
+    sessionStorage.removeItem('eap.logout-revocation-unconfirmed')
+    ElMessage.warning({ message: '本地已退出，但服务端未确认令牌撤销；请联系管理员处理。', duration: 0, showClose: true })
+  }
   setFontScale(fontScale.value)
   compactViewportQuery = window.matchMedia('(max-width: 900px)')
   syncSidebarForViewport()

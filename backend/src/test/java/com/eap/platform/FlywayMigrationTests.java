@@ -14,7 +14,7 @@ class FlywayMigrationTests {
         try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
             q.executeUpdate("insert into management_value_events(event_key,value_type,validated_by,benefit_money,benefit_provenance,currency,observed_at,created_at) values('memory-upgrade-fixture','OTHER','fixture',10,'REPORTED','USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         }
-        assertThat(Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").load().migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("99").load().migrate().migrationsExecuted).isEqualTo(1);
         try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
             try (var r = q.executeQuery("select benefit_money,benefit_provenance from management_value_events where event_key='memory-upgrade-fixture'")) {
                 assertThat(r.next()).isTrue();
@@ -24,6 +24,22 @@ class FlywayMigrationTests {
             try (var r = q.executeQuery("select count(*) from personal_memories")) {
                 assertThat(r.next()).isTrue();
                 assertThat(r.getLong(1)).isZero();
+            }
+        }
+    }
+    @Test void logoutRevocationMigrationPreservesPersonalMemory() throws Exception {
+        String url = "jdbc:h2:mem:logout_upgrade_" + java.util.UUID.randomUUID() + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
+        Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("99").load().migrate();
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            q.executeUpdate("insert into personal_memories(memory_id,owner_hash,request_key,content,created_ms) values('fixture','owner','request','synthetic',1)");
+        }
+        assertThat(Flyway.configure().dataSource(url, "sa", "").locations("classpath:db/migration").target("100").load().migrate().migrationsExecuted).isEqualTo(1);
+        try (var c = DriverManager.getConnection(url, "sa", ""); var q = c.createStatement()) {
+            try (var r = q.executeQuery("select content from personal_memories where memory_id='fixture'")) {
+                assertThat(r.next()).isTrue(); assertThat(r.getString(1)).isEqualTo("synthetic");
+            }
+            try (var r = q.executeQuery("select count(*) from revoked_access_tokens")) {
+                assertThat(r.next()).isTrue(); assertThat(r.getLong(1)).isZero();
             }
         }
     }
@@ -327,7 +343,7 @@ class FlywayMigrationTests {
 
         var result = flyway.migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(99);
+        assertThat(result.migrationsExecuted).isEqualTo(101);
         try (var connection = DriverManager.getConnection(url, "sa", "");
              var statement = connection.createStatement()) {
             try (var tables=statement.executeQuery("select count(*) from information_schema.tables where table_name in ('scoped_tool_lock','scoped_tool_grants','scoped_tool_counters','scoped_tool_operations')")) {

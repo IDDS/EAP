@@ -15,7 +15,7 @@ class ManagementValueProvenanceMySqlIT {
         try (var c = DriverManager.getConnection(url, "root", ""); var q = c.createStatement()) {
             q.executeUpdate("insert into management_value_events(event_key,value_type,validated_by,benefit_money,currency,observed_at,created_at) values('legacy-zero','OTHER','fixture',0,'USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),('legacy-positive','OTHER','fixture',10,'USD',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         }
-        assertThat(Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration").load().migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(Flyway.configure().dataSource(url, "root", "").locations("classpath:db/migration").target("98").load().migrate().migrationsExecuted).isEqualTo(1);
         try (var c = DriverManager.getConnection(url, "root", ""); var q = c.createStatement(); var r = q.executeQuery("select benefit_money,benefit_provenance from management_value_events where event_key in ('legacy-zero','legacy-positive') order by event_key")) {
             assertThat(r.next()).isTrue();
             assertThat(r.getBigDecimal(1)).isEqualByComparingTo("10");

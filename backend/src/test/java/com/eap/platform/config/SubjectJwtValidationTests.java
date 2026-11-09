@@ -20,7 +20,9 @@ class SubjectJwtValidationTests {
    var p=new SecurityProperties();p.setMode(SecurityProperties.Mode.JWT);p.setIssuerUri("https://idp.example/eap");p.setAudience("eap-api");p.setJwkSetUri("http://127.0.0.1:"+server.getAddress().getPort()+"/jwks");
    var isolation=org.mockito.Mockito.mock(ProjectIsolation.class);
    org.mockito.Mockito.when(isolation.validate(org.mockito.ArgumentMatchers.any())).thenReturn(org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success());
-   var decoder=new SecurityConfig(p,isolation).jwtDecoder();
+   var revocations=org.mockito.Mockito.mock(RevokedAccessTokens.class);
+   org.mockito.Mockito.when(revocations.validate(org.mockito.ArgumentMatchers.any())).thenReturn(org.springframework.security.oauth2.core.OAuth2TokenValidatorResult.success());
+   var decoder=new SecurityConfig(p,isolation).jwtDecoder(revocations);
    assertThatThrownBy(()->decoder.decode(token(key,null))).isInstanceOf(JwtException.class);
    assertThatThrownBy(()->decoder.decode(token(key," "))).isInstanceOf(JwtException.class);
    assertThat(decoder.decode(token(key,"operator-identity")).getSubject()).isEqualTo("operator-identity");

@@ -1,5 +1,15 @@
 import type { TraceSpanObservation } from '@/types/domain'
 
+export function identifierSourceLabel(source: TraceSpanObservation['traceIdSource'], synthetic = false) {
+  if (synthetic) return '派生记录，标识来源未知'
+  switch (source) {
+    case 'PROVIDED': return '上报方提供'
+    case 'GENERATED': return '平台回退生成'
+    case 'CONFLICT': return '来源冲突'
+    default: return '来源未知'
+  }
+}
+
 export function traceDiagnostics(spans: TraceSpanObservation[]) {
   const key = (trace: string, span: string) => JSON.stringify([trace, span])
   const byId = new Map(spans.map(span => [key(span.traceId, span.spanId), span]))
@@ -26,6 +36,7 @@ export function traceDiagnostics(spans: TraceSpanObservation[]) {
   const end = timed.length ? Math.max(...timed.map(row => row.end)) : 0
   const duration = end - start
   return { rows, start, duration, timed: timed.length, failed: rows.filter(row => row.failed).length,
+    uncertainIdentifiers: rows.filter(row => row.span.synthetic || row.span.traceIdSource !== 'PROVIDED' || row.span.spanIdSource !== 'PROVIDED').length,
     missingParents: rows.filter(row => row.missingParent).length,
     cycles: rows.filter(row => row.cycle).length,
     // This is the observed time envelope, not proof of complete task duration.

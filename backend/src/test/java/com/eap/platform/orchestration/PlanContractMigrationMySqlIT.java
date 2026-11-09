@@ -17,7 +17,7 @@ class PlanContractMigrationMySqlIT {
             q.executeUpdate("update agent_plan_steps set status='EXECUTION_UNKNOWN' where plan_id=1");
             try(var r=q.executeQuery("select count(*) from agent_plan_steps where plan_id=1")){r.next();count=r.getLong(1);assertThat(count).isGreaterThan(0);}
         }
-        var result=Flyway.configure().dataSource(url,"root","").locations("classpath:db/migration").load().migrate();
+        var result=Flyway.configure().dataSource(url,"root","").locations("classpath:db/migration").target("89").load().migrate();
         assertThat(result.migrationsExecuted).isEqualTo(1);
         try(var c=DriverManager.getConnection(url,"root","");var q=c.createStatement()) {
             try(var r=q.executeQuery("select status,execution_run_key from agent_plans where id=1")){assertThat(r.next()).isTrue();assertThat(r.getString(1)).isEqualTo("EXECUTION_UNKNOWN");assertThat(r.getString(2)).isEqualTo("original-plan-unknown");}

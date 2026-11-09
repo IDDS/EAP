@@ -9,6 +9,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -20,10 +21,18 @@ import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -66,6 +75,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/platform/status").permitAll()
                         // Any signed-in user may ask what they are allowed to do, even with no EAP role yet.
                         .requestMatchers(HttpMethod.GET, "/api/platform/me").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/platform/session/logout").authenticated()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/discovery/v1/agent/**").permitAll()
                         // Machine-facing endpoints perform their own constant-time token validation.
@@ -172,13 +182,39 @@ public class SecurityConfig {
                             .hasAnyRole(PlatformPermission.DEPLOY_AGENTS.roles())
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().authenticated())
+                .addFilterBefore(revocationAvailabilityFilter(), BearerTokenAuthenticationFilter.class)
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
         return http.build();
     }
 
+    private OncePerRequestFilter revocationAvailabilityFilter() {
+        return new OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                    throws ServletException, IOException {
+                try {
+                    chain.doFilter(request, response);
+                } catch (AuthenticationServiceException failure) {
+                    Throwable cause = failure;
+                    for (int i = 0; i < 16 && cause != null; i++, cause = cause.getCause()) {
+                        if (cause instanceof RevokedAccessTokens.StoreUnavailableException) {
+                            response.setStatus(503);
+                            response.setCharacterEncoding("UTF-8");
+                            response.setContentType("application/json");
+                            response.setHeader("Cache-Control", "no-store");
+                            response.getWriter().write("{\"success\":false,\"message\":\"认证服务暂时不可用，请稍后重试\"}");
+                            return;
+                        }
+                    }
+                    throw failure;
+                }
+            }
+        };
+    }
+
     @Bean
     @ConditionalOnProperty(name = "eap.security.mode", havingValue = "JWT")
-    JwtDecoder jwtDecoder() {
+    JwtDecoder jwtDecoder(RevokedAccessTokens revocations) {
         if (!properties.isJwtMode()) {
             return jwt -> { throw new IllegalStateException("JWT 认证未启用"); };
         }
@@ -205,6 +241,7 @@ public class SecurityConfig {
                         audiences != null && audiences.contains(properties.getAudience())));
             }
             validators.add(projectIsolation);
+            validators.add(revocations);
             nimbus.setJwtValidator(new DelegatingOAuth2TokenValidator<>(validators));
         }
         return decoder;

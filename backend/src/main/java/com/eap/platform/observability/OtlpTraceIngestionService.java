@@ -188,8 +188,12 @@ public class OtlpTraceIngestionService {
     ) {
         String traceId = text(span, "traceId", hash(span.toString()).substring(0, 32));
         String spanId = text(span, "spanId", hash(span.toString()).substring(0, 16));
-        TraceSpanObservation observation = traceSpanRepository.findByTraceIdAndSpanId(traceId, spanId)
-                .orElseGet(TraceSpanObservation::new);
+        var existing = traceSpanRepository.findByTraceIdAndSpanId(traceId, spanId);
+        TraceSpanObservation observation = existing.orElseGet(TraceSpanObservation::new);
+        String traceSource = identifierSource(span, "traceId");
+        String spanSource = identifierSource(span, "spanId");
+        observation.traceIdSource = existing.isPresent() ? mergeIdentifierSource(observation.traceIdSource, traceSource) : traceSource;
+        observation.spanIdSource = existing.isPresent() ? mergeIdentifierSource(observation.spanIdSource, spanSource) : spanSource;
         observation.traceId = traceId;
         observation.spanId = spanId;
         observation.parentSpanId = text(span, "parentSpanId", null);
@@ -233,6 +237,16 @@ public class OtlpTraceIngestionService {
         }
         if (spanKind == TraceSpanKind.RAG) inferKnowledgeInteraction(
                 traceId, spanId, endpointKey, agentId, attrs, modelInTrace, observation.observedAt, observation.durationMs, counters);
+    }
+
+    private String identifierSource(JsonNode span, String field) {
+        String value = span.path(field).asText(null);
+        return value == null || value.isBlank() ? "GENERATED" : "PROVIDED";
+    }
+
+    private String mergeIdentifierSource(String previous, String incoming) {
+        if (previous == null || !java.util.Set.of("PROVIDED", "GENERATED", "CONFLICT").contains(previous)) return "UNKNOWN";
+        return previous.equals(incoming) ? previous : "CONFLICT";
     }
 
     private void inferKnowledgeInteraction(
@@ -381,7 +395,8 @@ public class OtlpTraceIngestionService {
         return new OtlpTraceIngestionDtos.TraceSpanResponse(
                 item.id, item.traceId, item.spanId, item.parentSpanId, item.endpointKey, item.agentId, item.spanName,
                 item.spanKind, item.operation, item.toolName, item.mcpServerName, item.ragSource,
-                item.status, item.durationMs == null ? 0L : item.durationMs, TraceMetadata.project(item.attributesJson), item.observedAt, item.startedAt, item.endedAt
+                item.status, item.durationMs == null ? 0L : item.durationMs, TraceMetadata.project(item.attributesJson), item.observedAt, item.startedAt, item.endedAt,
+                item.traceIdSource, item.spanIdSource
         );
     }
 

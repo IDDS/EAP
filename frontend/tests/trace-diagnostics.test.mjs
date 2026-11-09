@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 import ts from 'typescript'
-const source = readFileSync(new URL('../src/components/trace/trace-diagnostics.ts', import.meta.url), 'utf8').replace(/^import .*$/m, '').replace('export function', 'function')
+const source = readFileSync(new URL('../src/components/trace/trace-diagnostics.ts', import.meta.url), 'utf8').replace(/^import .*$/m, '').replaceAll('export function', 'function')
 const context = vm.createContext({})
 vm.runInContext(ts.transpile(source, { target: ts.ScriptTarget.ES2022 }), context)
 const diagnose = context.traceDiagnostics
@@ -27,4 +27,18 @@ test('parent matching is trace scoped and cycles terminate with explicit diagnos
  assert.equal(d.cycles, 2)
  assert.equal(d.missingParents, 1)
  assert.equal(d.failed, 1)
+})
+test('identifier provenance remains explicit for old, derived, generated and conflicting records', () => {
+ const d = diagnose([
+  span(1, null, null, { traceIdSource: 'PROVIDED', spanIdSource: 'PROVIDED' }),
+  span(2, null, null),
+  span(3, null, null, { traceIdSource: 'GENERATED', spanIdSource: 'PROVIDED' }),
+  span(4, null, null, { traceIdSource: 'CONFLICT', spanIdSource: 'PROVIDED' }),
+  span(5, null, null, { synthetic: true, traceIdSource: 'PROVIDED', spanIdSource: 'PROVIDED' })
+ ])
+ assert.equal(d.uncertainIdentifiers, 4)
+ assert.equal(context.identifierSourceLabel(undefined), '来源未知')
+ assert.equal(context.identifierSourceLabel('GENERATED'), '平台回退生成')
+ assert.equal(context.identifierSourceLabel('CONFLICT'), '来源冲突')
+ assert.equal(context.identifierSourceLabel('PROVIDED', true), '派生记录，标识来源未知')
 })

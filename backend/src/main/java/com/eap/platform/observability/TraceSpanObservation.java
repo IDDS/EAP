@@ -25,6 +25,13 @@ public class TraceSpanObservation {
     @Column(name = "span_id", nullable = false, length = 128)
     String spanId;
 
+    // UNKNOWN also covers pre-migration rows and non-OTLP projections.
+    @Column(name = "trace_id_source", nullable = false, length = 24)
+    String traceIdSource = "UNKNOWN";
+
+    @Column(name = "span_id_source", nullable = false, length = 24)
+    String spanIdSource = "UNKNOWN";
+
     @Column(name = "parent_span_id", length = 128)
     String parentSpanId;
 
